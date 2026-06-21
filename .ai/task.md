@@ -1,184 +1,162 @@
-# Task: TASK-2026-06-21-04
+# Task: TASK-2026-06-21-05
 
 Status: planned
-Created from commit: b7725fee5ce9e838c93e38ae0dc8e728e700d357
+Created from commit: 46e3961dd336b6ba7ff072837a89e8faef266e93
 
 ## Title
 
-Bootstrap verification tooling
+Stabilize backend test runtime
 
 ## Goal
 
-Diagnose and fix the missing local verification tooling that prevented previous backend checks from running. The goal is to make the Codex execution environment capable of running backend tests, or to prove exactly which parts require host/admin setup outside Codex control.
+Make the backend test run complete reliably instead of hanging on the health endpoint test. The desired outcome is a passing `python3 -m pytest` run for the current backend scaffold. If the current host environment still prevents a durable full run, prove the exact remaining blocker and make sure checks fail or skip explicitly rather than hanging.
 
-This task is infrastructure-only. Do not add product functionality.
+This task is test/runtime stabilization only. Do not add product analytics, Bitrix integration, storage, frontend, authentication, or deployment features.
 
 ## Facts
 
-- Previous tasks repeatedly could not run full checks.
-- `.ai/report.md` for `TASK-2026-06-21-03` says:
-  - `pip` is missing.
-  - `pytest` is missing.
-  - `python3 -m pip --version` failed with `No module named pip`.
-  - `python3 -m ensurepip --version` failed with `No module named ensurepip`.
-  - `docker compose config` failed because `docker` is unavailable in the current WSL 2 distro.
-- `python3 -m py_compile ...` did run successfully, so Python exists but lacks package tooling.
-- `backend/pyproject.toml` defines runtime and dev dependencies.
-- Docs say backend checks should run with:
-
-```bash
-cd backend
-pip install -e ".[dev]"
-pytest
-```
-
-- Docker Compose validation should run from repository root with:
-
-```bash
-docker compose config
-```
+- `TASK-2026-06-21-04` diagnosed the local verification environment.
+- The current environment is WSL2 Ubuntu 24.04.3.
+- System Python exists: `/usr/bin/python3`, Python 3.12.3.
+- System `pip`, `ensurepip`, and `pytest` are absent.
+- `sudo` requires an interactive password, so Codex cannot install `python3-pip` or `python3-venv` system-wide.
+- Codex was able to temporarily bootstrap `pip` from official Ubuntu `.deb` packages into `/tmp` without root.
+- Codex was able to install backend dev dependencies into a temporary `/tmp` target.
+- `python3 -m pytest` collected 6 tests.
+- `backend/tests/test_contact_selection.py` passed 5 tests.
+- `backend/tests/test_health.py` hung at `fastapi.testclient.TestClient(app).get("/health")`.
+- A `faulthandler` probe confirmed the hang occurs inside Starlette/FastAPI TestClient request handling.
+- A temporary check with FastAPI 0.128.0 and `httpx2` did not fix the hang; no dependency pin was kept.
+- `python3 -m py_compile backend/app/domain/*.py backend/tests/test_*.py` passed.
+- Docker Desktop WSL integration is not enabled for this distro, so `docker compose config` still cannot run in this environment.
+- Current health endpoint code is in `backend/app/main.py`.
+- Current health test is in `backend/tests/test_health.py`.
+- Current backend dependencies are in `backend/pyproject.toml`.
 
 ## Assumptions
 
-- Python package tooling can likely be installed or bootstrapped without changing product code.
-- Docker may require host-level installation or Docker Desktop/daemon access and may not be installable from inside Codex without admin privileges.
-- If a tool cannot be installed, the exact command, error, and required external action must be documented.
+- The health endpoint itself is simple and should be testable without starting a real server.
+- The hang is likely caused by the test runtime, dependency interaction, or WSL/temp-target installation behavior rather than product logic.
+- It is acceptable to change the health test approach if it still verifies the intended API behavior and avoids hanging.
+- It is acceptable to add small test-time safeguards, such as a timeout or explicit skip with a documented reason, if required.
+- It is acceptable to adjust backend dev dependencies only if there is a verified compatibility reason.
 
 ## Unknowns
 
-- Current OS/distribution and package manager availability.
-- Whether `sudo` can be used without an interactive password.
-- Whether `apt`, `python3-venv`, `python3-pip`, `pipx`, `uv`, or another safe Python installer is available.
-- Whether network access is available for installing Python dependencies.
-- Whether Docker CLI or Docker daemon can be installed/accessed from the current runtime.
+- Whether the same `TestClient` hang occurs in a normal venv after host/admin installs `python3-pip` and `python3-venv`.
+- Whether the hang is caused by Starlette/FastAPI/httpx compatibility, temporary `/tmp` target installs, WSL filesystem behavior, or another runtime interaction.
+- Whether Docker Compose validation will pass after Docker Desktop WSL integration is enabled.
 
 ## Scope
 
-1. Diagnose the execution environment. Check and report:
+1. Inspect the current backend test/runtime files:
 
-```bash
-pwd
-uname -a
-cat /etc/os-release || true
-python3 --version
-which python3 || true
-which pip || true
-python3 -m pip --version || true
-python3 -m ensurepip --version || true
-which pytest || true
-which docker || true
-docker --version || true
-docker compose version || true
-which apt || true
-which sudo || true
+```text
+backend/app/main.py
+backend/app/core/config.py
+backend/tests/test_health.py
+backend/tests/test_contact_selection.py
+backend/pyproject.toml
+docs/development.md
+.ai/report.md
 ```
 
-2. Try to enable Python package tooling using safe, minimal steps appropriate to the environment.
+2. Reproduce the current test behavior using the safest available tooling path.
 
-Recommended order:
+If system `python3 -m pip` is still unavailable, Codex may reuse the documented temporary `/tmp` bootstrap approach from `TASK-2026-06-21-04`, but must not commit temporary dependency folders, caches, `.egg-info`, virtual environments, or generated files.
 
-- If `python3 -m pip` works, use it.
-- If `pip` is missing but `ensurepip` works, run `python3 -m ensurepip --upgrade`.
-- If `ensurepip` is missing and `apt`/`sudo` can run non-interactively, install the minimal required packages such as `python3-pip` and, if needed, `python3-venv`.
-- If neither is possible, look for an already available tool such as `uv` or `pipx`.
-- Do not use unsafe shell download/install scripts unless there is no better option; if considering one, stop and document the tradeoff in `.ai/report.md` rather than silently doing it.
+3. Diagnose why `backend/tests/test_health.py` hangs.
 
-3. Once Python package tooling exists, install backend dev dependencies:
+At minimum, check whether the hang is specific to `fastapi.testclient.TestClient` by trying one or more minimal alternatives, for example:
 
-```bash
-cd backend
-python3 -m pip install -e ".[dev]"
-```
+- direct call of the endpoint function if imported safely;
+- direct inspection of the FastAPI route registration;
+- an alternative ASGI request path if dependencies support it;
+- a small isolated TestClient reproduction outside the project app.
 
-If the environment requires `pip` instead of `python3 -m pip`, use the working equivalent and report it.
+Choose the smallest reliable fix that preserves useful coverage.
 
-4. Run backend tests:
+4. Update tests and/or minimal backend code so that the backend test suite completes.
 
-```bash
-cd backend
-pytest
-```
+Preferred outcomes in order:
 
-or:
+- `python3 -m pytest` passes all current tests without hanging;
+- if full pass is impossible due to host tooling, `python3 -m pytest` completes with a clear failure/skip and no hang;
+- if dependency installation itself is impossible, the exact blocker is documented and py_compile still runs.
 
-```bash
-cd backend
-python3 -m pytest
-```
+5. Add a guard against future silent hangs if practical and low-risk.
 
-5. Diagnose Docker/Compose. If Docker is available, run:
+Examples: a pytest timeout dependency, a local test pattern that avoids the hanging path, or a documented test helper. Do not add heavy infrastructure.
 
-```bash
-docker compose config
-```
+6. Update documentation if commands or test strategy change:
 
-If Docker is unavailable or the daemon is inaccessible, do not fake success. Document whether the missing part is:
+- `docs/development.md` for local test commands/troubleshooting;
+- `docs/testing.md` if test strategy or health endpoint test approach changes;
+- `backend/README.md` if backend commands change.
 
-- Docker CLI missing;
-- Docker Compose plugin missing;
-- Docker daemon inaccessible;
-- permissions issue;
-- host-level Docker/Desktop not installed or not connected to WSL.
-
-6. Update `.ai/report.md` with:
-
-- environment facts;
-- installation steps attempted;
-- exact commands that passed/failed;
-- whether backend tests now pass;
-- Docker/Compose status;
-- any host/admin action still required.
-
-7. If useful, update `docs/development.md` with a short troubleshooting section for missing `pip`/Docker, but keep it concise.
+7. Update `.ai/report.md` using the `WORKFLOW.md` report format.
 
 ## Out Of Scope
 
-- Product code changes.
-- Backend domain, analytics, storage, or API changes.
-- Frontend changes.
 - Bitrix integration.
+- NBRB currency integration.
+- DuckDB schema or Parquet implementation.
+- Analytics calculations.
+- Report API endpoints beyond existing health endpoint behavior.
+- Frontend implementation.
+- Design system work.
+- Authentication implementation.
+- Docker Desktop or host WSL configuration changes.
 - CI/GitHub Actions setup.
-- Installing or committing real secrets or data.
-- Broad refactoring.
+- Broad dependency modernization without a verified need.
+- Committing real secrets, raw Bitrix data, local databases, Parquet snapshots, CSV exports, dependency folders, or virtual environments.
 
 ## Constraints
 
 - Follow `AGENTS.md`, `WORKFLOW.md`, and `SPEC.md`.
-- Keep repository changes minimal: likely only `.ai/report.md` and optionally `docs/development.md`.
+- Keep changes narrowly focused on making backend tests reliable.
 - Do not change `.ai/task.md` during implementation.
 - Do not use `git add .` unless explicitly allowed by the user.
-- Do not commit generated dependency folders, virtual environments, caches, databases, Parquet files, CSV files, raw data, or secrets.
-- Do not claim checks passed unless they actually passed.
-- If host/admin privileges are required, document the exact requirement instead of working around it unsafely.
+- Do not hide failing checks.
+- Do not claim `pytest` passes unless it actually completes and passes.
+- Do not leave commands that can hang indefinitely as the recommended verification path.
+- Prefer explicit, minimal fixes over broad dependency churn.
+- If changing dependencies, explain the reason in `.ai/report.md` and relevant docs.
+- Do not implement product functionality in this task.
 
 ## Acceptance Criteria
 
-- Environment diagnostics are captured in `.ai/report.md`.
-- Python package tooling is installed or the exact blocker is documented.
-- Backend dependencies are installed and `pytest` is run, or the exact blocker is documented.
-- Docker Compose validation is run, or the exact Docker/host blocker is documented.
-- No product functionality is added.
-- No real secrets, raw Bitrix data, local databases, Parquet snapshots, CSV exports, dependency folders, or virtual environments are committed.
+- The health endpoint test no longer hangs silently.
+- `python3 -m pytest` either passes all current tests or completes with a clearly documented blocker that is outside Codex control.
+- Existing contact selection tests remain intact and pass when tests can run.
+- Any dependency or test strategy change is minimal and documented.
+- Docs are updated if the backend verification command or troubleshooting guidance changes.
+- `.ai/report.md` lists changed files, checks, results, facts, assumptions, unknowns, and next step.
+- No real secrets, raw Bitrix data, local databases, Parquet snapshots, CSV exports, dependency folders, virtual environments, caches, or generated artifacts are committed.
 - The implementation commit uses the required prefix:
 
 ```text
-codex: TASK-2026-06-21-04 Bootstrap verification tooling
+codex: TASK-2026-06-21-05 Stabilize backend test runtime
 ```
 
 ## Checks
 
-Primary desired checks:
+Primary desired check from `backend/`:
 
 ```bash
-cd backend
-python3 -m pip install -e ".[dev]"
 python3 -m pytest
 ```
 
-From repository root, if Docker is available:
+If dependencies are not installed and system `pip` is unavailable, use the previously documented temporary bootstrap only as needed, then run the equivalent:
 
 ```bash
-docker compose config
+PYTHONPATH=<temporary dependency paths> python3 -m pytest
+```
+
+Also run syntax/import-level checks when useful:
+
+```bash
+python3 -m py_compile backend/app/**/*.py backend/tests/test_*.py
 ```
 
 Before committing:
@@ -187,6 +165,14 @@ Before committing:
 git status --short
 git diff --stat HEAD
 ```
+
+If Docker is available after host setup, run from repository root:
+
+```bash
+docker compose config
+```
+
+If Docker remains unavailable because WSL integration is disabled, document that exact blocker; do not block this task on Docker.
 
 ## Notes
 
