@@ -36,6 +36,7 @@ GET http://localhost:8000/health
 From the backend directory:
 
 ```bash
+pip install -e ".[dev]"
 pytest
 ```
 

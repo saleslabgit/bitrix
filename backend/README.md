@@ -16,6 +16,12 @@ Future Bitrix sync, normalization, analytics, storage, authentication, and repor
 
 ## Local Commands
 
+Install backend runtime and development dependencies:
+
+```bash
+pip install -e ".[dev]"
+```
+
 Run tests:
 
 ```bash

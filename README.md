@@ -32,6 +32,7 @@ Run backend tests locally:
 
 ```bash
 cd backend
+pip install -e ".[dev]"
 pytest
 ```
 
@@ -40,7 +41,9 @@ pytest
 ```bash
 docker compose config
 docker compose up --build backend
-cd backend && pytest
+cd backend
+pip install -e ".[dev]"
+pytest
 ```
 
 ## Documentation Map

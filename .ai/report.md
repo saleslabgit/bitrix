@@ -1,72 +1,57 @@
-# Отчет: TASK-2026-06-21-01
+# Отчет: TASK-2026-06-21-02
 
 Статус: done
 
 ## Кратко
 
-Создан начальный scaffold проекта и документационный backbone. Backend содержит минимальное FastAPI-приложение с `GET /health`, конфигурацию окружения и pytest-тест. Docker Compose, `.env.example`, `.gitignore`, backend/frontend/design-system README и документы в `docs/` добавлены.
+Обновил developer-facing документацию: теперь перед запуском backend tests явно указан шаг установки dev-зависимостей через `pip install -e ".[dev]"`. Функциональный код не менялся, потому что проверка не дошла до выполнения тестов из-за отсутствующего Python tooling в текущем runtime.
 
 ## Измененные файлы
 
 - `README.md`
-- `.gitignore`
-- `.env.example`
-- `docker-compose.yml`
-- `backend/Dockerfile`
-- `backend/pyproject.toml`
-- `backend/app/__init__.py`
-- `backend/app/main.py`
-- `backend/app/core/__init__.py`
-- `backend/app/core/config.py`
-- `backend/tests/test_health.py`
 - `backend/README.md`
-- `docs/project-status.md`
-- `docs/architecture.md`
 - `docs/development.md`
-- `docs/data-model.md`
 - `docs/testing.md`
-- `design-system/README.md`
-- `frontend/README.md`
 - `.ai/report.md`
 
 ## Запущенные проверки
 
+- `cd backend && pip install -e ".[dev]"` — не выполнено: команда `pip` отсутствует (`/bin/bash: line 1: pip: command not found`).
+- `cd backend && pytest` — не выполнено: команда `pytest` отсутствует (`/bin/bash: line 1: pytest: command not found`).
+- `cd backend && python3 -m pip --version` — failed: `/usr/bin/python3: No module named pip`.
+- `cd backend && python3 -m ensurepip --version` — failed: `/usr/bin/python3: No module named ensurepip`.
 - `python3 -m py_compile backend/app/main.py backend/app/core/config.py backend/tests/test_health.py` — passed.
-- `cd backend && pytest` — не выполнено: в окружении нет команды `pytest`, Python-пакета `fastapi` и `pip`; `python3 -m ensurepip` также недоступен.
 - `docker compose config` — не выполнено: команда `docker` недоступна в текущем WSL 2 distro.
-- `sudo apt update` для установки Python tooling — не выполнено: `sudo` требует пароль в текущей сессии.
-- `git status --short` — выполнялся до и после изменений.
-- `git diff --stat HEAD` — выполнялся; до staging показывал только уже существовавшие изменения `.ai/task.md` и `AGENTS.md`, потому что новые файлы были untracked.
+- `git status --short` — выполнялся.
+- `git diff --stat HEAD` — выполнялся перед commit; показывает также незакоммиченные пользовательские изменения `.ai/task.md` и `AGENTS.md`, которые не относятся к этому task и не staged.
 
 ## Критерии приемки
 
-- Required repository structure — выполнено.
-- `GET /health` и pytest coverage — реализовано, но pytest не запущен из-за отсутствующих локальных Python-зависимостей и `pip`.
-- Docker Compose runtime — добавлен; `docker compose config` не запущен, потому что Docker недоступен в WSL.
-- README и required docs — выполнено.
-- Документация разделяет текущие факты, предположения, неизвестное и future work — выполнено.
-- `design-system/README.md` и `frontend/README.md` фиксируют блокировку frontend до утверждения design system — выполнено.
-- `.gitignore` защищает secrets, raw Bitrix data, local DB, Parquet, CSV, logs, dependencies, build outputs — выполнено.
-- `.env.example` содержит только placeholder values — выполнено.
-- `.ai/report.md` обновлен — выполнено.
+- Docs clearly tell a developer how to install backend dev dependencies before running pytest — выполнено.
+- `README.md`, `backend/README.md`, `docs/development.md`, `docs/testing.md` are consistent about backend test commands — выполнено.
+- `pytest` is run after installing dev dependencies, or exact blocker is documented — blocker documented: в runtime отсутствуют `pip`, `ensurepip` и `pytest`.
+- `docker compose config` is run if Docker is available, or exact blocker is documented — blocker documented: Docker недоступен в текущем WSL 2 distro.
+- Narrow code/package fix if needed — не применялось; проверка не дошла до dependency/runtime уровня из-за отсутствующего tooling.
+- `.ai/report.md` lists changed files, checks, acceptance status, remaining unknowns, and next step — выполнено.
 
 ## Факты
 
-- Bitrix остается read-only источником.
-- Frontend screens не реализованы.
-- Реальные Bitrix credentials и данные не добавлены.
+- `backend/pyproject.toml` уже содержит dev extras под `[project.optional-dependencies].dev`.
+- Документация теперь указывает `pip install -e ".[dev]"` перед `pytest`.
+- Frontend implementation остается заблокированным до утверждения design system.
+- Реальные credentials, Bitrix data, raw exports, local databases, Parquet snapshots и CSV exports не добавлялись.
 
 ## Предположения
 
-- Docker Compose используется как основной локальный runtime entry point.
-- Backend dependencies будут установлены из `backend/pyproject.toml`.
+- В нормальном dev-окружении с установленным `pip` команда `pip install -e ".[dev]"` установит backend runtime и test dependencies из `backend/pyproject.toml`.
+- Docker Compose будет проверяться из корня репозитория командой `docker compose config` в окружении, где доступен Docker.
 
 ## Неизвестное
 
-- Реальный Bitrix webhook URL и способ доступа.
-- Реальные коды полей, типы контактов, приоритеты, регионы, стадии и валюты.
-- Финальная дизайн-система и deployment host.
+- Пройдет ли `pytest` после установки dependencies в окружении с доступным `pip`.
+- Пройдет ли `docker compose config` в окружении с доступным Docker.
+- Есть ли скрытые packaging/runtime issues, которые проявятся только после установки dependencies.
 
 ## Риски или следующий шаг
 
-Следующий шаг: в окружении с `pip`/зависимостями и Docker выполнить `cd backend && pytest` и `docker compose config`. После этого можно переходить к следующей запланированной задаче.
+Следующий шаг: в окружении с `pip` и Docker выполнить `cd backend && pip install -e ".[dev]" && pytest`, затем `docker compose config` из корня репозитория.

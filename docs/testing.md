@@ -6,6 +6,7 @@ The current scaffold has one backend test for the health endpoint:
 
 ```bash
 cd backend
+pip install -e ".[dev]"
 pytest
 ```
 
