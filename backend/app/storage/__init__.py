@@ -1,4 +1,4 @@
-"""Local storage schema helpers."""
+"""Local storage helpers."""
 
 from app.storage.schema import initialize_schema, list_expected_tables
 

@@ -9,6 +9,7 @@ class ApiModel(BaseModel):
 
 
 class PipelineStatusResponse(ApiModel):
+    run_id: str | None = None
     dataset_name: str
     dataset_kind: str
     state: str
@@ -20,6 +21,13 @@ class PipelineStatusResponse(ApiModel):
     normalized_deals_count: int
     started_at: datetime | None
     finished_at: datetime | None
+    snapshot_paths: tuple[str, ...] = ()
+    is_active: bool = False
+
+
+class DatasetStorageStatusResponse(ApiModel):
+    active_dataset: PipelineStatusResponse | None
+    latest_run: PipelineStatusResponse | None
 
 
 class BitrixDiscoveryResponse(ApiModel):

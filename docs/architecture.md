@@ -19,7 +19,13 @@ Current module boundary: `backend/app/bitrix/`.
 
 ### Raw Local Layer
 
-Stores data in the form received from Bitrix for allowed entities only: contacts, deals, deal-contact links, and required stage dictionaries. Raw exports and local data files must not be committed.
+Stores data in the form received from Bitrix for allowed entities only:
+contacts, deals, deal-contact links, and required stage dictionaries. Runtime
+storage uses a configured local DuckDB file by default, and tests can still use
+in-memory or temporary file stores. Successful local runs may write allowlisted
+raw Parquet snapshots under the configured local data directory. Raw exports,
+local database files, snapshots, and other generated local data files must not
+be committed.
 
 ### Normalization
 
@@ -55,6 +61,7 @@ The repository currently contains a local backend package:
 - `backend/tests/` verifies health, schema, synthetic fixture shape, normalization, analytics, and local API endpoints.
 
 The first manual Bitrix extraction boundary is implemented and covered with
-mocked tests. Live Bitrix validation, NBRB integration, persisted analytics
-tables, production dataset activation, authentication, and frontend screens are
-not implemented yet.
+mocked tests. Successful synthetic and manual Bitrix runs activate the current
+local dataset through transaction-backed run metadata. Live Bitrix validation,
+NBRB integration, persisted analytics tables, full staging-table swap mechanics,
+authentication, and frontend screens are not implemented yet.

@@ -26,7 +26,8 @@ Current storage schema coverage verifies:
 - all expected MVP scaffold tables are created;
 - expected columns exist;
 - forbidden personal/out-of-scope field names are absent;
-- schema initialization is idempotent.
+- schema initialization is idempotent;
+- configured temporary file DuckDB storage persists data across new connections.
 
 Current fixture coverage verifies that `backend/tests/fixtures/synthetic_dataset.py` includes the required synthetic shape: contacts, deals, currencies, won/open/lost statuses, multiple contacts on one deal, equal type priorities, one deal without a contact, an old high-value contact scenario, a single-won-deal contact, and a long-open deal.
 
@@ -37,9 +38,13 @@ Current pipeline coverage verifies:
 - normalized deals contain exactly one row per deal;
 - multi-contact deal assignment follows priority/primary/id rules;
 - deal without contact is preserved as `Без контакта`;
-- won/open/lost statuses are represented.
+- won/open/lost statuses are represented;
+- allowlisted raw Parquet snapshots are written to temporary test storage with only expected columns.
 
 Current API coverage calls endpoint functions directly instead of `fastapi.testclient.TestClient`, because the earlier health task documented hangs in this environment. It verifies local synthetic status, filters, contact summaries, and absence of forbidden field names in responses.
+API tests configure a temporary DuckDB file and temporary data directory before
+calling endpoint functions, so persistent storage and snapshots do not leak
+between tests.
 
 Current analytics coverage verifies:
 
@@ -81,6 +86,8 @@ Current Bitrix boundary coverage uses mocked responses only. It verifies:
 - forbidden fields in mocked payloads are ignored during storage;
 - manual ingestion loads contacts, deals, deal-contact links, and stages idempotently;
 - existing normalization runs after mocked Bitrix raw loading;
+- successful mocked Bitrix ingestion activates the dataset for analytics reads;
+- failed mocked Bitrix ingestion records an error run without replacing or deactivating the previous successful active dataset;
 - `GET /api/bitrix/discovery`, `POST /api/bitrix/sync/run`, and `GET /api/bitrix/sync/status` fail safely without live credentials.
 
 Docker Compose configuration can be validated from the repository root:
@@ -96,7 +103,7 @@ According to `SPEC.md`, backend test coverage must later include production-orie
 - historical rate selection;
 - live Bitrix smoke checks with a read-only credential, kept outside the regular test suite;
 - NBRB integration and missing-rate failure behavior;
-- production dataset activation/swap mechanics;
+- full staging-table swap mechanics if the single active table-set model becomes insufficient;
 - persisted analytics tables if they are added later;
 - authentication once implemented.
 

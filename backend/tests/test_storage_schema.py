@@ -1,5 +1,7 @@
 import duckdb
 
+from app.core.config import Settings
+from app.storage.connection import connect_configured_duckdb
 from app.storage import initialize_schema, list_expected_tables
 
 
@@ -74,6 +76,29 @@ EXPECTED_COLUMNS = {
         "started_at",
         "finished_at",
     ),
+    "local_dataset_runs": (
+        "run_id",
+        "dataset_name",
+        "dataset_kind",
+        "state",
+        "message",
+        "raw_contacts_count",
+        "raw_deals_count",
+        "raw_links_count",
+        "normalized_contacts_count",
+        "normalized_deals_count",
+        "started_at",
+        "finished_at",
+        "snapshot_paths",
+        "is_active",
+    ),
+    "local_active_dataset": (
+        "singleton_id",
+        "run_id",
+        "dataset_name",
+        "dataset_kind",
+        "activated_at",
+    ),
 }
 
 FORBIDDEN_FIELD_PARTS = (
@@ -119,6 +144,38 @@ def test_schema_initialization_is_idempotent() -> None:
         initialize_schema(connection)
 
         assert table_names(connection) == set(list_expected_tables())
+
+
+def test_configured_duckdb_file_storage_persists_across_connections(tmp_path) -> None:
+    database_path = tmp_path / "analytics.duckdb"
+    settings = Settings(APP_DATA_DIR=tmp_path, APP_DUCKDB_PATH=database_path)
+
+    first_connection = connect_configured_duckdb(settings)
+    first_connection.execute(
+        """
+        INSERT INTO contact_type_rules (
+            raw_value,
+            normalized_type,
+            priority,
+            region,
+            is_active
+        )
+        VALUES ('raw', 'Normalized', 1, 'Region', true)
+        """
+    )
+    first_connection.close()
+
+    second_connection = connect_configured_duckdb(settings)
+    try:
+        initialize_schema(second_connection)
+        count = second_connection.execute(
+            "SELECT COUNT(*) FROM contact_type_rules"
+        ).fetchone()[0]
+    finally:
+        second_connection.close()
+
+    assert database_path.exists()
+    assert count == 1
 
 
 def test_schema_does_not_include_forbidden_columns() -> None:

@@ -4,7 +4,7 @@ Internal sales analytics system based on Bitrix CRM data.
 
 ## Current Stage
 
-The project is at the initial scaffold stage. The backend has a minimal FastAPI application with a health endpoint and pytest coverage. Business analytics, Bitrix integration, authentication, local storage, and frontend screens are not implemented yet.
+The backend has local DuckDB storage, synthetic and mocked Bitrix ingestion, local analytics endpoints, active dataset metadata, and allowlisted raw Parquet snapshots. Live Bitrix validation, NBRB integration, authentication, deployment hardening, and frontend screens are not implemented yet.
 
 Frontend implementation is blocked until the external design system is approved.
 
@@ -26,6 +26,7 @@ The backend serves:
 
 ```text
 GET http://localhost:8000/health
+GET http://localhost:8000/api/datasets/status
 ```
 
 Run backend tests locally:

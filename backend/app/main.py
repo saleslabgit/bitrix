@@ -8,6 +8,7 @@ from app.api.models import (
     ConcentrationReportResponse,
     ContactAnalyticsPageResponse,
     ContactSummaryPageResponse,
+    DatasetStorageStatusResponse,
     DealCycleReportResponse,
     FilterMetadataResponse,
     PipelineStatusResponse,
@@ -37,6 +38,7 @@ from app.reports.analytics import (
     list_stale_open_deals,
 )
 from app.reports.local import get_filter_metadata, list_contact_summaries
+from app.storage.status import get_dataset_storage_status
 
 
 settings = get_settings()
@@ -54,6 +56,7 @@ def sync_status() -> PipelineStatusResponse:
     status = get_latest_pipeline_status(get_connection())
     if status is None:
         return PipelineStatusResponse(
+            run_id=None,
             dataset_name="synthetic-fixture",
             dataset_kind="local_synthetic",
             state="not_run",
@@ -65,6 +68,8 @@ def sync_status() -> PipelineStatusResponse:
             normalized_deals_count=0,
             started_at=None,
             finished_at=None,
+            snapshot_paths=(),
+            is_active=False,
         )
 
     return PipelineStatusResponse.model_validate(status)
@@ -72,8 +77,17 @@ def sync_status() -> PipelineStatusResponse:
 
 @app.post("/api/sync/run", response_model=PipelineStatusResponse)
 def run_local_synthetic_sync() -> PipelineStatusResponse:
-    status = run_synthetic_pipeline(get_connection())
+    status = run_synthetic_pipeline(
+        get_connection(),
+        data_dir=settings.data_dir,
+    )
     return PipelineStatusResponse.model_validate(status)
+
+
+@app.get("/api/datasets/status", response_model=DatasetStorageStatusResponse)
+def dataset_status() -> DatasetStorageStatusResponse:
+    status = get_dataset_storage_status(get_connection())
+    return DatasetStorageStatusResponse.model_validate(status)
 
 
 @app.get("/api/bitrix/discovery", response_model=BitrixDiscoveryResponse)
@@ -106,6 +120,7 @@ def bitrix_sync_status() -> PipelineStatusResponse:
     status = get_latest_bitrix_ingestion_status(get_connection())
     if status is None:
         return PipelineStatusResponse(
+            run_id=None,
             dataset_name=BITRIX_MANUAL_DATASET_NAME,
             dataset_kind=BITRIX_MANUAL_DATASET_KIND,
             state="not_run",
@@ -117,6 +132,8 @@ def bitrix_sync_status() -> PipelineStatusResponse:
             normalized_deals_count=0,
             started_at=None,
             finished_at=None,
+            snapshot_paths=(),
+            is_active=False,
         )
 
     return PipelineStatusResponse.model_validate(status)
@@ -134,6 +151,7 @@ def run_manual_bitrix_sync() -> PipelineStatusResponse:
         get_connection(),
         client=client,
         contact_type_field=settings.bitrix_contact_type_field,
+        data_dir=settings.data_dir,
     )
     return PipelineStatusResponse.model_validate(status)
 

@@ -2,6 +2,8 @@ import duckdb
 
 from app.pipeline.normalization import NO_CONTACT_NAME, UNDEFINED_VALUE
 from app.pipeline.synthetic import run_synthetic_pipeline
+from app.storage.snapshots import RAW_SNAPSHOT_COLUMNS
+from app.storage.status import get_active_dataset_run
 
 
 def test_synthetic_pipeline_loads_and_normalizes_expected_counts() -> None:
@@ -16,6 +18,27 @@ def test_synthetic_pipeline_loads_and_normalizes_expected_counts() -> None:
         assert second_status.raw_links_count == 30
         assert second_status.normalized_contacts_count == 10
         assert second_status.normalized_deals_count == 30
+
+
+def test_synthetic_pipeline_writes_allowed_raw_parquet_snapshots(tmp_path) -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        status = run_synthetic_pipeline(connection, data_dir=tmp_path)
+
+        assert status.is_active is True
+        assert status.snapshot_paths
+        assert all(not path.startswith("/") for path in status.snapshot_paths)
+        assert get_active_dataset_run(connection).run_id == status.run_id
+
+        for snapshot_path in status.snapshot_paths:
+            table_name = snapshot_path.rsplit("/", maxsplit=1)[-1].removesuffix(
+                ".parquet"
+            )
+            full_path = tmp_path / snapshot_path
+            columns = connection.execute(
+                f"DESCRIBE SELECT * FROM read_parquet('{full_path}')"
+            ).fetchall()
+            assert full_path.exists()
+            assert tuple(row[0] for row in columns) == RAW_SNAPSHOT_COLUMNS[table_name]
 
 
 def test_normalized_contacts_include_type_region_and_fallbacks() -> None:

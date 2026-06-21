@@ -1,6 +1,7 @@
 from functools import lru_cache
+from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,6 +25,21 @@ class Settings(BaseSettings):
         le=50,
         validation_alias="BITRIX_PAGE_SIZE",
     )
+    data_dir: Path = Field(
+        default=Path("data"),
+        validation_alias="APP_DATA_DIR",
+    )
+    duckdb_path: Path | None = Field(
+        default=None,
+        validation_alias="APP_DUCKDB_PATH",
+    )
+
+    @field_validator("duckdb_path", mode="before")
+    @classmethod
+    def empty_duckdb_path_uses_default(cls, value: object) -> object:
+        if value == "":
+            return None
+        return value
 
     model_config = SettingsConfigDict(
         env_prefix="APP_",

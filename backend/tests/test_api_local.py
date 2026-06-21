@@ -1,4 +1,9 @@
+import pytest
+
+from app import main
+from app.local_database import reset_connection
 from app.main import (
+    dataset_status,
     meta_filters,
     report_abc,
     report_concentration,
@@ -25,6 +30,15 @@ FORBIDDEN_RESPONSE_PARTS = (
 )
 
 
+@pytest.fixture(autouse=True)
+def configured_temp_storage(monkeypatch, tmp_path):
+    reset_connection()
+    monkeypatch.setattr(main.settings, "data_dir", tmp_path)
+    monkeypatch.setattr(main.settings, "duckdb_path", tmp_path / "api.duckdb")
+    yield
+    reset_connection()
+
+
 def test_api_status_run_and_filters_return_local_synthetic_data() -> None:
     run_response = run_local_synthetic_sync()
     status_response = sync_status()
@@ -40,6 +54,21 @@ def test_api_status_run_and_filters_return_local_synthetic_data() -> None:
     assert "Не определено" in filters_response.contact_types
     assert filters_response.min_created_at is not None
     assert filters_response.max_created_at is not None
+
+
+def test_dataset_status_reports_active_and_latest_without_sensitive_paths() -> None:
+    run_response = run_local_synthetic_sync()
+    status_response = dataset_status()
+
+    assert status_response.active_dataset is not None
+    assert status_response.latest_run is not None
+    assert status_response.active_dataset.run_id == run_response.run_id
+    assert status_response.latest_run.dataset_kind == "local_synthetic"
+    assert status_response.latest_run.is_active is True
+    assert status_response.latest_run.snapshot_paths
+    assert all(
+        not path.startswith("/") for path in status_response.latest_run.snapshot_paths
+    )
 
 
 def test_api_contacts_report_supports_filters_and_search() -> None:
@@ -92,6 +121,7 @@ def test_api_responses_do_not_expose_forbidden_fields() -> None:
     run_local_synthetic_sync()
     responses = [
         sync_status().model_dump(),
+        dataset_status().model_dump(),
         meta_filters().model_dump(),
         report_contacts(limit=10, offset=0).model_dump(),
         report_contact_analytics(limit=10, offset=0).model_dump(),

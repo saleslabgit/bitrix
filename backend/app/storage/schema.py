@@ -11,6 +11,8 @@ EXPECTED_TABLES = (
     "normalized_contacts",
     "normalized_deals",
     "local_dataset_status",
+    "local_dataset_runs",
+    "local_active_dataset",
 )
 
 
@@ -132,6 +134,37 @@ def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
             normalized_deals_count BIGINT NOT NULL,
             started_at TIMESTAMP NOT NULL,
             finished_at TIMESTAMP NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS local_dataset_runs (
+            run_id VARCHAR PRIMARY KEY,
+            dataset_name VARCHAR NOT NULL,
+            dataset_kind VARCHAR NOT NULL,
+            state VARCHAR NOT NULL,
+            message VARCHAR NOT NULL,
+            raw_contacts_count BIGINT NOT NULL,
+            raw_deals_count BIGINT NOT NULL,
+            raw_links_count BIGINT NOT NULL,
+            normalized_contacts_count BIGINT NOT NULL,
+            normalized_deals_count BIGINT NOT NULL,
+            started_at TIMESTAMP NOT NULL,
+            finished_at TIMESTAMP NOT NULL,
+            snapshot_paths VARCHAR NOT NULL,
+            is_active BOOLEAN NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS local_active_dataset (
+            singleton_id BOOLEAN PRIMARY KEY CHECK (singleton_id = true),
+            run_id VARCHAR NOT NULL,
+            dataset_name VARCHAR NOT NULL,
+            dataset_kind VARCHAR NOT NULL,
+            activated_at TIMESTAMP NOT NULL
         )
         """
     )

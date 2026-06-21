@@ -116,13 +116,48 @@ Fields include original deal fields plus:
 
 Deals without contacts are preserved with `analytical_contact_id = NULL`, `analytical_contact_name = "Без контакта"`, and normalized type/region as `Не определено`.
 
-### Local Dataset Status
+### Local Dataset Runs And Activation
 
-`local_dataset_status` stores local pipeline state and row counts. Current dataset
-names are:
+Dataset runs are stored as local metadata and are the activation boundary for the
+single current raw/normalized table set.
+
+Current dataset names are:
 
 - `synthetic-fixture` for the local synthetic fixture pipeline;
 - `bitrix-manual` for the manual read-only Bitrix ingestion pipeline.
+
+`local_dataset_runs` is append-only run metadata with a run ID, dataset name,
+dataset kind, state, safe message, row counts, UTC timestamps, relative snapshot
+identifiers, and an active flag. `local_active_dataset` points to the latest
+successful active run. `local_dataset_status` remains as a compact
+backward-compatible latest-status table for existing sync status endpoints.
+
+Successful synthetic and manual Bitrix runs replace the current raw/normalized
+tables in a DuckDB transaction and become active. Handled failed Bitrix runs are
+recorded as error runs but do not activate and do not commit partial
+raw/normalized replacements.
+
+### Raw Parquet Snapshots
+
+Successful runs can write Parquet snapshots under the configured local data
+directory:
+
+```text
+snapshots/<dataset_kind>/<run_id>/<raw_table>.parquet
+```
+
+Snapshot status values expose only relative identifiers, not local absolute
+paths. The current snapshot allowlist is limited to these raw tables and their
+schema columns:
+
+- `raw_contacts`;
+- `raw_deals`;
+- `raw_deal_contact_links`;
+- `raw_stages`.
+
+Snapshots do not include phones, emails, addresses, messengers, comments,
+files, activity fields, arbitrary Bitrix fields, webhook values, local database
+files, CSV exports, or raw source exports.
 
 ### Analytics Outputs
 
@@ -159,16 +194,22 @@ The current tables are limited to allowed MVP data:
 - `currency_rates`.
 - `normalized_contacts`;
 - `normalized_deals`;
-- `local_dataset_status`.
+- `local_dataset_status`;
+- `local_dataset_runs`;
+- `local_active_dataset`.
 
-Analytics output tables, migrations, production dataset activation, Parquet snapshots, and production storage layout are still future work.
+`APP_DATA_DIR` and `APP_DUCKDB_PATH` define the local persistent DuckDB storage
+boundary for runtime. Tests can still pass in-memory or temporary file
+connections directly.
+
+Analytics output tables and production migration tooling are still future work.
 
 ## Local Synthetic Pipeline
 
-`backend/app/pipeline/synthetic.py` runs the local synthetic milestone:
+`backend/app/pipeline/synthetic.py` runs the local synthetic pipeline:
 
 ```text
-initialize schema -> load synthetic raw data -> normalize contacts/deals -> store local status
+initialize schema -> transaction -> load synthetic raw data -> normalize contacts/deals -> write optional snapshots -> activate dataset
 ```
 
 It uses only synthetic fixture data and does not call Bitrix, NBRB, or external APIs. Currency conversion to USD is implemented in the report layer using synthetic local `currency_rates`, not during normalization.
@@ -187,6 +228,11 @@ The manual Bitrix loader clears and reloads only the Bitrix raw tables:
 `raw_contacts`, `raw_deals`, `raw_deal_contact_links`, and `raw_stages`.
 It does not clear `contact_type_rules` or `currency_rates`; those remain local
 configuration/data until later production storage milestones.
+
+Manual Bitrix storage replacement, normalization, snapshot writing, run metadata
+storage, and activation happen inside a transaction. If a handled client,
+transform, or DuckDB error occurs, the transaction is rolled back and the
+previous successful active dataset remains available to read/report endpoints.
 
 Discovery may show candidate custom contact fields to help choose
 `BITRIX_CONTACT_TYPE_FIELD`, but ingestion never stores arbitrary custom fields.

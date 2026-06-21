@@ -7,7 +7,7 @@ FastAPI backend scaffold for the Bitrix sales analytics MVP.
 ```text
 app/
   main.py          # FastAPI application and current routes
-  local_database.py # In-memory DuckDB connection for the local synthetic milestone
+  local_database.py # Lazy configured DuckDB connection boundary
   api/
     models.py      # Pydantic response models for local read endpoints
   bitrix/
@@ -28,8 +28,11 @@ app/
     analytics.py          # Local analytics calculations over normalized DuckDB data
     local.py              # Read helpers for local report endpoints
   storage/
-    schema.py             # Minimal DuckDB schema initializer
+    connection.py         # Configured DuckDB data-dir/path connection helper
+    schema.py             # DuckDB schema initializer
     loaders.py            # Synthetic raw table loading helpers
+    snapshots.py          # Allowlisted raw Parquet snapshot writer
+    status.py             # Dataset run and active dataset metadata helpers
 tests/
   test_health.py             # Health endpoint coverage
   test_contact_selection.py  # Domain selection coverage
@@ -46,7 +49,7 @@ tests/
     synthetic_dataset.py     # Compatibility re-export for test fixture imports
 ```
 
-Manual read-only Bitrix ingestion is implemented as a backend/data boundary with mocked tests. NBRB integration, persisted analytics tables, production storage migrations, dataset activation, authentication, and frontend-facing report API hardening are intentionally not implemented yet.
+Manual read-only Bitrix ingestion is implemented as a backend/data boundary with mocked tests. Runtime uses a configured local DuckDB store, successful synthetic/Bitrix runs activate the local dataset, and allowlisted raw Parquet snapshots can be written under the local data directory. NBRB integration, persisted analytics tables, production storage migrations, authentication, and frontend-facing report API hardening are intentionally not implemented yet.
 
 ## Local Commands
 
@@ -73,6 +76,7 @@ Local synthetic pipeline endpoints after starting the backend:
 ```text
 POST /api/sync/run
 GET /api/sync/status
+GET /api/datasets/status
 GET /api/meta/filters
 GET /api/reports/contacts
 GET /api/reports/contacts/analytics
@@ -85,7 +89,7 @@ GET /api/reports/type-region
 GET /api/reports/types-regions
 ```
 
-These endpoints use an in-memory DuckDB dataset and synthetic data only. `POST /api/sync/run` is not a real Bitrix sync. Report endpoints calculate local analytics on demand and do not call Bitrix, NBRB, or external APIs.
+These endpoints use the configured local DuckDB dataset. `POST /api/sync/run` loads the synthetic fixture, writes allowlisted raw snapshots under `APP_DATA_DIR`, and activates it as the local dataset. It is not a real Bitrix sync. Report endpoints calculate local analytics on demand and do not call Bitrix, NBRB, or external APIs.
 
 Manual Bitrix endpoints after starting the backend:
 
@@ -107,6 +111,16 @@ docker compose up --build backend
 ## Environment
 
 Settings use `pydantic-settings` with the `APP_` environment prefix for application values and placeholder-safe defaults.
+
+Storage environment variables:
+
+```text
+APP_DATA_DIR=data
+APP_DUCKDB_PATH=
+```
+
+Blank `APP_DUCKDB_PATH` uses `APP_DATA_DIR/analytics.duckdb`. DuckDB files and
+snapshot Parquet files are generated local artifacts and must not be committed.
 
 Bitrix environment variables:
 

@@ -1,7 +1,10 @@
 import duckdb
 
 from app.bitrix.ingestion import run_bitrix_manual_ingestion
+from app.pipeline.synthetic import run_synthetic_pipeline
+from app.reports.analytics import list_contact_analytics
 from app.storage import initialize_schema
+from app.storage.status import get_active_dataset_run, get_dataset_storage_status
 
 
 class FakeBitrixClient:
@@ -80,7 +83,13 @@ class FakeBitrixClient:
         return [{"DEAL_ID": "200", "CONTACT_ID": "20", "IS_PRIMARY": "N"}]
 
 
-def test_manual_bitrix_ingestion_loads_allowed_raw_data_and_normalizes() -> None:
+class DuplicateDealBitrixClient(FakeBitrixClient):
+    def list_deals(self) -> list[dict[str, object]]:
+        rows = super().list_deals()
+        return [rows[0], rows[0]]
+
+
+def test_manual_bitrix_ingestion_loads_allowed_raw_data_and_normalizes(tmp_path) -> None:
     with duckdb.connect(database=":memory:") as connection:
         initialize_schema(connection)
         connection.execute(
@@ -100,11 +109,13 @@ def test_manual_bitrix_ingestion_loads_allowed_raw_data_and_normalizes() -> None
             connection,
             client=FakeBitrixClient(),
             contact_type_field="UF_CRM_CONTACT_TYPE",
+            data_dir=tmp_path,
         )
         second_status = run_bitrix_manual_ingestion(
             connection,
             client=FakeBitrixClient(),
             contact_type_field="UF_CRM_CONTACT_TYPE",
+            data_dir=tmp_path,
         )
 
         raw_contacts = connection.execute(
@@ -137,6 +148,8 @@ def test_manual_bitrix_ingestion_loads_allowed_raw_data_and_normalizes() -> None
         ).fetchone()
 
     assert status.state == "success"
+    assert status.is_active is True
+    assert status.snapshot_paths
     assert second_status.raw_contacts_count == 2
     assert second_status.raw_deals_count == 2
     assert second_status.raw_links_count == 2
@@ -149,6 +162,39 @@ def test_manual_bitrix_ingestion_loads_allowed_raw_data_and_normalizes() -> None
     assert raw_deals == [(100, "Won deal", "won"), (200, "Open deal", "open")]
     assert raw_links == [(100, 10, True, 10, "decision-maker"), (200, 20, False, None, None)]
     assert normalized_deal == (10, "Partner", "West")
+
+
+def test_failed_manual_bitrix_ingestion_keeps_previous_active_dataset(tmp_path) -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        run_synthetic_pipeline(connection, data_dir=tmp_path)
+        successful_status = run_bitrix_manual_ingestion(
+            connection,
+            client=FakeBitrixClient(),
+            contact_type_field="UF_CRM_CONTACT_TYPE",
+            data_dir=tmp_path,
+        )
+
+        failed_status = run_bitrix_manual_ingestion(
+            connection,
+            client=DuplicateDealBitrixClient(),
+            contact_type_field="UF_CRM_CONTACT_TYPE",
+            data_dir=tmp_path,
+        )
+        active_status = get_active_dataset_run(connection)
+        storage_status = get_dataset_storage_status(connection)
+        analytics_page = list_contact_analytics(connection, limit=10)
+        normalized_deal_count = connection.execute(
+            "SELECT COUNT(*) FROM normalized_deals"
+        ).fetchone()[0]
+
+    assert successful_status.state == "success"
+    assert failed_status.state == "error"
+    assert failed_status.is_active is False
+    assert active_status.run_id == successful_status.run_id
+    assert storage_status.latest_run.run_id == failed_status.run_id
+    assert storage_status.active_dataset.run_id == successful_status.run_id
+    assert normalized_deal_count == 2
+    assert analytics_page.total == 2
 
 
 def test_manual_bitrix_ingestion_stores_safe_error_status() -> None:

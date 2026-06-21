@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-Backend/data milestone for the Bitrix sales analytics MVP: local analytics plus the first read-only Bitrix ingestion boundary.
+Backend/data milestone for the Bitrix sales analytics MVP: local analytics, read-only Bitrix ingestion boundary, and persistent local DuckDB storage with active dataset metadata.
 
 ## Done In This Task
 
@@ -41,15 +41,22 @@ Backend/data milestone for the Bitrix sales analytics MVP: local analytics plus 
 - Added manual Bitrix raw ingestion into existing DuckDB raw tables with existing normalization.
 - Added typed backend endpoints for Bitrix discovery, manual sync run, and manual sync status.
 - Added mocked Bitrix boundary tests for allowlists, pagination, discovery, ingestion, idempotency, and no-credentials safety.
+- Added configurable local DuckDB storage with `APP_DATA_DIR` and `APP_DUCKDB_PATH`.
+- Added lazy shared backend connection initialization for configured runtime storage.
+- Added dataset run metadata and active dataset metadata tables.
+- Added transaction-backed activation for successful synthetic and manual Bitrix runs.
+- Added safe failed-run handling so handled Bitrix failures do not commit partial replacements or deactivate the previous successful dataset.
+- Added allowlisted raw Parquet snapshots for successful local runs.
+- Added `GET /api/datasets/status` for active dataset and latest run metadata.
+- Added tests for persistent temp DuckDB storage, schema idempotency on file storage, snapshots, activation, failed Bitrix run safety, and safe status output.
 
 ## Intentionally Not Done
 
 - NBRB currency integration.
-- Parquet snapshot writing.
-- Production Bitrix dataset activation/swap mechanics.
 - Live Bitrix credential validation against a real account.
 - Persisted analytics output tables.
-- Production migration tooling or dataset activation mechanics.
+- Full staging-table swap mechanics beyond the current transaction-backed single active table set.
+- Production migration tooling.
 - Authentication.
 - Frontend screens, UI components, design tokens, or Storybook.
 - CI and production deployment.
@@ -76,9 +83,9 @@ Backend/data milestone for the Bitrix sales analytics MVP: local analytics plus 
 - Actual pipelines, stages, and currencies in Bitrix.
 - Final design-system tokens and component decisions.
 - Deployment host, HTTPS setup, and backup destination.
-- Final production storage layout, migration strategy, and dataset activation mechanics.
+- Final production storage layout, migration strategy, and whether a full staging-table swap will be required.
 - Final frontend response-shape needs beyond the current compact local report API.
 
 ## Next Likely Steps
 
-Run discovery against a real read-only Bitrix credential, choose `BITRIX_CONTACT_TYPE_FIELD`, then plan production storage/dataset activation mechanics and NBRB currency integration.
+Run discovery against a real read-only Bitrix credential, choose `BITRIX_CONTACT_TYPE_FIELD`, then plan NBRB currency integration and decide whether the current transaction-backed activation model is sufficient for the first real export.
