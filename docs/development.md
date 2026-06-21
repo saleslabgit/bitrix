@@ -88,11 +88,16 @@ code before running real ingestion. The response does not include webhook values
 or contact/deal field values.
 
 `POST /api/bitrix/sync/run` is a manual read-only ingestion entry point. It
-loads allowed contacts, deals, deal-contact links, and stages into local raw
-DuckDB tables, then runs existing normalization. Successful runs activate the
-new local dataset. Handled failed runs do not activate and do not commit partial
-raw/normalized replacements. If `BITRIX_WEBHOOK_URL` is missing, it returns a
-safe error status and does not call Bitrix.
+loads allowed contacts, deals, locally reconstructed deal-contact links, and
+stages into local raw DuckDB tables, then runs existing normalization.
+Successful runs activate the new local dataset. Handled failed runs do not
+activate and do not commit partial raw/normalized replacements. If
+`BITRIX_WEBHOOK_URL` is missing, it returns a safe error status and does not
+call Bitrix.
+
+Normal manual sync builds deal-contact links from downloaded deal fields such
+as `CONTACT_ID` and `CONTACT_IDS`. It must not mass-call
+`crm.deal.contact.items.get` per deal.
 
 Safe local operator flow:
 

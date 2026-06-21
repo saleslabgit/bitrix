@@ -1,6 +1,7 @@
 import duckdb
 
 from app.bitrix.ingestion import run_bitrix_manual_ingestion
+from app.bitrix.transform import transform_deal_contact_links_from_deals
 from app.pipeline.synthetic import run_synthetic_pipeline
 from app.reports.analytics import list_contact_analytics
 from app.storage import initialize_schema
@@ -55,6 +56,8 @@ class FakeBitrixClient:
                 "CLOSEDATE": "2025-01-05T10:00:00+00:00",
                 "STAGE_ID": "WON",
                 "CATEGORY_ID": "0",
+                "CONTACT_ID": "10",
+                "CONTACT_IDS": ["10", "20"],
                 "COMMENTS": "hidden",
             },
             {
@@ -65,22 +68,9 @@ class FakeBitrixClient:
                 "DATE_CREATE": "2025-02-01T10:00:00+00:00",
                 "STAGE_ID": "OPEN",
                 "CATEGORY_ID": "0",
+                "CONTACT_ID": "20",
             },
         ]
-
-    def get_deal_contact_links(self, deal_id: int) -> list[dict[str, object]]:
-        if deal_id == 100:
-            return [
-                {
-                    "DEAL_ID": "100",
-                    "CONTACT_ID": "10",
-                    "IS_PRIMARY": "Y",
-                    "SORT": "10",
-                    "ROLE_ID": "decision-maker",
-                    "PHONE": "hidden",
-                }
-            ]
-        return [{"DEAL_ID": "200", "CONTACT_ID": "20", "IS_PRIMARY": "N"}]
 
 
 class DuplicateDealBitrixClient(FakeBitrixClient):
@@ -152,7 +142,7 @@ def test_manual_bitrix_ingestion_loads_allowed_raw_data_and_normalizes(tmp_path)
     assert status.snapshot_paths
     assert second_status.raw_contacts_count == 2
     assert second_status.raw_deals_count == 2
-    assert second_status.raw_links_count == 2
+    assert second_status.raw_links_count == 3
     assert second_status.normalized_contacts_count == 2
     assert second_status.normalized_deals_count == 2
     assert raw_contacts == [
@@ -160,8 +150,40 @@ def test_manual_bitrix_ingestion_loads_allowed_raw_data_and_normalizes(tmp_path)
         (20, "Grace Hopper", "client"),
     ]
     assert raw_deals == [(100, "Won deal", "won"), (200, "Open deal", "open")]
-    assert raw_links == [(100, 10, True, 10, "decision-maker"), (200, 20, False, None, None)]
+    assert raw_links == [
+        (100, 10, True, None, None),
+        (100, 20, False, None, None),
+        (200, 20, True, None, None),
+    ]
     assert normalized_deal == (10, "Partner", "West")
+
+
+def test_deal_contact_links_are_built_from_downloaded_deal_rows() -> None:
+    links = transform_deal_contact_links_from_deals(
+        [
+            {"ID": "1", "CONTACT_ID": "10", "CONTACT_IDS": ["10", "20", ""]},
+            {"ID": "2", "CONTACT_ID": "0", "CONTACT_IDS": "30, 40,0"},
+            {"ID": "3", "CONTACT_ID": None, "CONTACT_IDS": []},
+        ]
+    )
+
+    rows = [
+        (
+            link.deal_id,
+            link.contact_id,
+            link.is_primary,
+            link.sort_order,
+            link.role_id,
+        )
+        for link in links
+    ]
+
+    assert rows == [
+        (1, 10, True, None, None),
+        (1, 20, False, None, None),
+        (2, 30, False, None, None),
+        (2, 40, False, None, None),
+    ]
 
 
 def test_failed_manual_bitrix_ingestion_keeps_previous_active_dataset(tmp_path) -> None:

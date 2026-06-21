@@ -8,7 +8,7 @@ import duckdb
 from app.bitrix.client import BitrixClient, BitrixClientError
 from app.bitrix.transform import (
     transform_contacts,
-    transform_deal_contact_links,
+    transform_deal_contact_links_from_deals,
     transform_deals,
     transform_stages,
 )
@@ -48,14 +48,7 @@ def run_bitrix_manual_ingestion(
         )
         deal_rows = client.list_deals()
         deals = transform_deals(deal_rows, stages)
-        links = [
-            link
-            for deal in deals
-            for link in transform_deal_contact_links(
-                deal.deal_id,
-                client.get_deal_contact_links(deal.deal_id),
-            )
-        ]
+        links = transform_deal_contact_links_from_deals(deal_rows)
         connection.execute("BEGIN TRANSACTION")
         load_bitrix_raw_data(
             connection,

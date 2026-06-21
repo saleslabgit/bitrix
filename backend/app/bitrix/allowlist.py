@@ -14,6 +14,8 @@ DEAL_SELECT = (
     "CLOSEDATE",
     "STAGE_ID",
     "CATEGORY_ID",
+    "CONTACT_ID",
+    "CONTACT_IDS",
 )
 
 LINK_ALLOWED_FIELDS = (

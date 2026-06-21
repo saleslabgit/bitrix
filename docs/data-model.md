@@ -36,6 +36,8 @@ Real Bitrix ingestion stores only the allowed deal columns:
 - `CLOSEDATE` -> `closed_at`;
 - `STAGE_ID` -> `stage_id`;
 - `CATEGORY_ID` -> `category_id`.
+- `CONTACT_ID` and `CONTACT_IDS` are selected only to build local deal-contact
+  links; they are not stored in `raw_deals`.
 
 `status_group` is derived locally from loaded Bitrix stage semantics.
 
@@ -47,8 +49,12 @@ Current scaffold model: `DealContactLink`.
 
 Current raw storage table: `raw_deal_contact_links`.
 
-Real Bitrix ingestion stores only deal-contact link IDs plus allowed link metadata:
-deal ID, contact ID, Bitrix primary flag, sort order, and role ID when returned.
+Real Bitrix ingestion builds links locally from downloaded deal rows. Current
+live-safe fields are `CONTACT_ID` and `CONTACT_IDS`. A `CONTACT_ID` link is
+stored as primary. Extra IDs from `CONTACT_IDS` are stored as non-primary unless
+they duplicate the primary link. Empty, zero, and missing contact IDs are
+skipped. Sort order and role are stored as `NULL` because the normal sync does
+not call the per-deal link API.
 
 ### Stages
 
@@ -228,6 +234,11 @@ The manual Bitrix loader clears and reloads only the Bitrix raw tables:
 `raw_contacts`, `raw_deals`, `raw_deal_contact_links`, and `raw_stages`.
 It does not clear `contact_type_rules` or `currency_rates`; those remain local
 configuration/data until later production storage milestones.
+
+Normal manual Bitrix sync does not call `crm.deal.contact.items.get` per deal.
+Deal-contact links are reconstructed from already downloaded deal/contact list
+data. Any future diagnostic use of the per-deal link API must be planned
+separately and must not be reintroduced into the mass sync path.
 
 Manual Bitrix storage replacement, normalization, snapshot writing, run metadata
 storage, and activation happen inside a transaction. If a handled client,

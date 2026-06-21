@@ -23,6 +23,8 @@ def test_bitrix_allowlists_exclude_forbidden_fields_by_default() -> None:
 
     assert "*" not in all_fields
     assert "UF_CRM_CONTACT_TYPE" not in contact_select
+    assert "CONTACT_ID" in deal_select
+    assert "CONTACT_IDS" in deal_select
     assert all(
         forbidden not in field
         for field in all_fields

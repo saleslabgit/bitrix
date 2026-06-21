@@ -26,6 +26,8 @@ def test_discovery_reports_configured_contact_type_field_present() -> None:
                 "CLOSEDATE": {},
                 "STAGE_ID": {},
                 "CATEGORY_ID": {},
+                "CONTACT_ID": {},
+                "CONTACT_IDS": {},
             }
         }
 

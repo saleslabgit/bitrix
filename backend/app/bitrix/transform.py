@@ -76,6 +76,33 @@ def transform_deal_contact_links(
     return links
 
 
+def transform_deal_contact_links_from_deals(
+    rows: list[dict[str, Any]],
+) -> list[DealContactLink]:
+    links_by_key: dict[tuple[int, int], DealContactLink] = {}
+    for row in rows:
+        deal_id = _required_int(row, "ID", "id")
+        primary_contact_id = _optional_positive_int(_first(row, "CONTACT_ID", "contactId"))
+        contact_ids = _contact_ids(_first(row, "CONTACT_IDS", "contactIds"))
+        if primary_contact_id is not None:
+            contact_ids.insert(0, primary_contact_id)
+
+        for contact_id in contact_ids:
+            key = (deal_id, contact_id)
+            is_primary = contact_id == primary_contact_id
+            existing = links_by_key.get(key)
+            if existing is not None and existing.is_primary:
+                continue
+            links_by_key[key] = DealContactLink(
+                deal_id=deal_id,
+                contact_id=contact_id,
+                is_primary=is_primary,
+                sort_order=None,
+                role_id=None,
+            )
+    return list(links_by_key.values())
+
+
 def transform_stages(rows: list[dict[str, Any]]) -> list[StageSnapshot]:
     stages: list[StageSnapshot] = []
     for row in rows:
@@ -158,6 +185,29 @@ def _optional_int(value: Any) -> int | None:
     if value in (None, ""):
         return None
     return int(value)
+
+
+def _contact_ids(value: Any) -> list[int]:
+    if value in (None, ""):
+        return []
+    if isinstance(value, (list, tuple)):
+        values = value
+    else:
+        values = str(value).replace(";", ",").split(",")
+
+    contact_ids: list[int] = []
+    for item in values:
+        contact_id = _optional_positive_int(item)
+        if contact_id is not None:
+            contact_ids.append(contact_id)
+    return contact_ids
+
+
+def _optional_positive_int(value: Any) -> int | None:
+    parsed = _optional_int(value)
+    if parsed is None or parsed <= 0:
+        return None
+    return parsed
 
 
 def _decimal(value: Any) -> Decimal:

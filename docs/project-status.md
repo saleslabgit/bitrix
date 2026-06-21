@@ -49,11 +49,13 @@ Backend/data milestone for the Bitrix sales analytics MVP: local analytics, read
 - Added allowlisted raw Parquet snapshots for successful local runs.
 - Added `GET /api/datasets/status` for active dataset and latest run metadata.
 - Added tests for persistent temp DuckDB storage, schema idempotency on file storage, snapshots, activation, failed Bitrix run safety, and safe status output.
+- Confirmed live Bitrix contact type field `UF_CRM_1595304971232` exists in metadata.
+- Corrected manual Bitrix sync to build deal-contact links locally from downloaded deal fields instead of mass-calling `crm.deal.contact.items.get`.
+- Ran the first successful live read-only manual Bitrix sync with active local dataset status.
 
 ## Intentionally Not Done
 
 - NBRB currency integration.
-- Live Bitrix credential validation against a real account.
 - Persisted analytics output tables.
 - Full staging-table swap mechanics beyond the current transaction-backed single active table set.
 - Production migration tooling.
@@ -77,8 +79,7 @@ Backend/data milestone for the Bitrix sales analytics MVP: local analytics, read
 
 ## Unknowns
 
-- Actual Bitrix webhook URL and access method.
-- Actual Bitrix custom field code for contact type.
+- Real Bitrix webhook URL remains local secret and is not documented.
 - Actual contact types, priorities, and region mapping.
 - Actual pipelines, stages, and currencies in Bitrix.
 - Final design-system tokens and component decisions.
@@ -88,4 +89,4 @@ Backend/data milestone for the Bitrix sales analytics MVP: local analytics, read
 
 ## Next Likely Steps
 
-Run discovery against a real read-only Bitrix credential, choose `BITRIX_CONTACT_TYPE_FIELD`, then plan NBRB currency integration and decide whether the current transaction-backed activation model is sufficient for the first real export.
+Review the first live dataset quality, configure contact type/region rules from real values, then plan NBRB currency integration.
