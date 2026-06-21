@@ -7,22 +7,34 @@ FastAPI backend scaffold for the Bitrix sales analytics MVP.
 ```text
 app/
   main.py          # FastAPI application and current routes
+  local_database.py # In-memory DuckDB connection for the local synthetic milestone
+  api/
+    models.py      # Pydantic response models for local read endpoints
   core/config.py  # Environment-based settings
   domain/
     models.py             # Pydantic domain snapshots for allowed MVP entities
     contact_selection.py  # Pure analytical contact selection logic
+  pipeline/
+    synthetic_dataset.py  # Synthetic allowed local dataset
+    synthetic.py          # Local synthetic pipeline orchestration
+    normalization.py      # Raw-to-normalized local transforms
+  reports/
+    local.py              # Read helpers for local report endpoints
   storage/
     schema.py             # Minimal DuckDB schema initializer
+    loaders.py            # Synthetic raw table loading helpers
 tests/
   test_health.py             # Health endpoint coverage
   test_contact_selection.py  # Domain selection coverage
   test_storage_schema.py     # DuckDB schema coverage
   test_synthetic_dataset.py  # Synthetic fixture validation
+  test_pipeline.py           # Storage-backed local pipeline coverage
+  test_api_local.py          # Local read API coverage through endpoint functions
   fixtures/
-    synthetic_dataset.py     # Test-only dataset for future integration coverage
+    synthetic_dataset.py     # Compatibility re-export for test fixture imports
 ```
 
-Future Bitrix sync, normalization, analytics, production storage migrations, authentication, and report API modules are intentionally not implemented yet.
+Future Bitrix sync, currency conversion, full analytics, production storage migrations, authentication, and frontend-facing report API hardening are intentionally not implemented yet.
 
 ## Local Commands
 
@@ -43,6 +55,17 @@ Run locally after installing dependencies:
 ```bash
 uvicorn app.main:app --reload
 ```
+
+Local synthetic pipeline endpoints after starting the backend:
+
+```text
+POST /api/sync/run
+GET /api/sync/status
+GET /api/meta/filters
+GET /api/reports/contacts
+```
+
+These endpoints use an in-memory DuckDB dataset and synthetic data only. `POST /api/sync/run` is not a real Bitrix sync.
 
 Run through Docker Compose from the repository root:
 

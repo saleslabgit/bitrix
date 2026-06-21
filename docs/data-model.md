@@ -1,6 +1,6 @@
 # Data Model
 
-This file documents the MVP data model at a high level. The first Python domain scaffold lives under `backend/app/domain/`. The first DuckDB storage schema scaffold lives under `backend/app/storage/`.
+This file documents the MVP data model at a high level. The first Python domain scaffold lives under `backend/app/domain/`. The DuckDB storage schema scaffold lives under `backend/app/storage/`, and the first local synthetic pipeline lives under `backend/app/pipeline/`.
 
 ## Core Entities
 
@@ -52,11 +52,46 @@ Current scaffold model: `ContactTypeRule`.
 
 Current storage table: `contact_type_rules`.
 
+### Normalized Contacts
+
+Stores contact records after applying active contact type rules.
+
+Current normalized storage table: `normalized_contacts`.
+
+Fields:
+
+- `contact_id`;
+- `contact_name`;
+- `contact_type_raw`;
+- `contact_type_normalized`;
+- `region_normalized`.
+
+Unknown, missing, or inactive type rules normalize to `Не определено`.
+
+### Normalized Deals
+
+Stores one row per deal after stage status derivation and analytical contact assignment.
+
+Current normalized storage table: `normalized_deals`.
+
+Fields include original deal fields plus:
+
+- `analytical_contact_id`;
+- `analytical_contact_name`;
+- `contact_type_normalized`;
+- `region_normalized`.
+
+Deals without contacts are preserved with `analytical_contact_id = NULL`, `analytical_contact_name = "Без контакта"`, and normalized type/region as `Не определено`.
+
+### Local Dataset Status
+
+`local_dataset_status` stores the current local synthetic pipeline state and row counts. It is not real Bitrix sync status.
+
 ### Analytics Outputs
 
 Future analytics outputs include contact aggregates, ABC, ABC migration, RFM, reactivation, type and region aggregates, deal cycle metrics, stale open deals, and revenue concentration.
 
-No analytics output models are implemented yet.
+No full analytics output models are implemented yet.
 
 ## Storage Schema
 
@@ -73,8 +108,21 @@ The current tables are limited to allowed MVP data:
 - `raw_stages`;
 - `contact_type_rules`;
 - `currency_rates`.
+- `normalized_contacts`;
+- `normalized_deals`;
+- `local_dataset_status`.
 
-Normalized tables, analytics output tables, migrations, dataset activation, Parquet snapshots, and production storage layout are still future work.
+Analytics output tables, migrations, production dataset activation, Parquet snapshots, and production storage layout are still future work.
+
+## Local Synthetic Pipeline
+
+`backend/app/pipeline/synthetic.py` runs the local synthetic milestone:
+
+```text
+initialize schema -> load synthetic raw data -> normalize contacts/deals -> store local status
+```
+
+It uses only synthetic fixture data and does not call Bitrix, NBRB, or external APIs. Currency conversion to USD remains future work.
 
 ## Domain Logic
 

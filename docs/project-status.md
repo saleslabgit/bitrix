@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-Initial backend domain and storage scaffold for the Bitrix sales analytics MVP.
+Initial local backend pipeline milestone for the Bitrix sales analytics MVP.
 
 ## Done In This Task
 
@@ -20,13 +20,21 @@ Initial backend domain and storage scaffold for the Bitrix sales analytics MVP.
 - Added a minimal DuckDB schema initializer for allowed MVP scaffold tables.
 - Added a synthetic integration fixture dataset for future normalization and analytics tests.
 - Added storage schema and fixture validation tests.
+- Added local synthetic fixture loading into DuckDB raw tables.
+- Added normalized contacts and normalized deals tables.
+- Added contact type/region normalization, stage status representation, and analytical contact assignment.
+- Added local synthetic pipeline status storage.
+- Added minimal read API endpoints for local synthetic status, pipeline run, filters, and contact summaries.
+- Added storage-backed pipeline and API tests.
 
 ## Intentionally Not Done
 
 - Real Bitrix integration.
 - NBRB currency integration.
 - Parquet snapshot writing.
-- Contact normalization or analytics calculations.
+- Real Bitrix data loading.
+- Currency conversion to USD.
+- ABC/RFM/reactivation/stale-deal/concentration analytics.
 - Production migration tooling or dataset activation mechanics.
 - Authentication.
 - Frontend screens, UI components, design tokens, or Storybook.
@@ -58,4 +66,4 @@ Initial backend domain and storage scaffold for the Bitrix sales analytics MVP.
 
 ## Next Likely Steps
 
-Implement the first normalization rules and storage-backed pipeline tests using the synthetic fixture before adding real Bitrix integration.
+Plan the real Bitrix read-only ingestion boundary and field allowlist discovery, or add the next local analytics slice on top of the normalized synthetic tables.

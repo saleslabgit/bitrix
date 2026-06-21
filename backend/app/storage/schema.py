@@ -8,6 +8,9 @@ EXPECTED_TABLES = (
     "raw_stages",
     "contact_type_rules",
     "currency_rates",
+    "normalized_contacts",
+    "normalized_deals",
+    "local_dataset_status",
 )
 
 
@@ -32,8 +35,8 @@ def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
             deal_name VARCHAR NOT NULL,
             amount_original DECIMAL(18, 2) NOT NULL,
             currency_original VARCHAR NOT NULL,
-            created_at TIMESTAMPTZ NOT NULL,
-            closed_at TIMESTAMPTZ,
+            created_at TIMESTAMP NOT NULL,
+            closed_at TIMESTAMP,
             stage_id VARCHAR NOT NULL,
             category_id INTEGER,
             status_group VARCHAR NOT NULL CHECK (status_group IN ('won', 'open', 'lost'))
@@ -80,8 +83,55 @@ def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
             source_rate_byn DECIMAL(18, 8) NOT NULL,
             usd_rate_byn DECIMAL(18, 8) NOT NULL,
             rate_source VARCHAR NOT NULL,
-            rate_fetched_at TIMESTAMPTZ NOT NULL,
+            rate_fetched_at TIMESTAMP NOT NULL,
             PRIMARY KEY (currency, rate_date)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS normalized_contacts (
+            contact_id BIGINT PRIMARY KEY,
+            contact_name VARCHAR NOT NULL,
+            contact_type_raw VARCHAR,
+            contact_type_normalized VARCHAR NOT NULL,
+            region_normalized VARCHAR NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS normalized_deals (
+            deal_id BIGINT PRIMARY KEY,
+            deal_name VARCHAR NOT NULL,
+            amount_original DECIMAL(18, 2) NOT NULL,
+            currency_original VARCHAR NOT NULL,
+            created_at TIMESTAMP NOT NULL,
+            closed_at TIMESTAMP,
+            stage_id VARCHAR NOT NULL,
+            category_id INTEGER,
+            status_group VARCHAR NOT NULL CHECK (status_group IN ('won', 'open', 'lost')),
+            analytical_contact_id BIGINT,
+            analytical_contact_name VARCHAR NOT NULL,
+            contact_type_normalized VARCHAR NOT NULL,
+            region_normalized VARCHAR NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS local_dataset_status (
+            dataset_name VARCHAR PRIMARY KEY,
+            dataset_kind VARCHAR NOT NULL,
+            state VARCHAR NOT NULL,
+            message VARCHAR NOT NULL,
+            raw_contacts_count BIGINT NOT NULL,
+            raw_deals_count BIGINT NOT NULL,
+            raw_links_count BIGINT NOT NULL,
+            normalized_contacts_count BIGINT NOT NULL,
+            normalized_deals_count BIGINT NOT NULL,
+            started_at TIMESTAMP NOT NULL,
+            finished_at TIMESTAMP NOT NULL
         )
         """
     )

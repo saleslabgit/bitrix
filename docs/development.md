@@ -31,6 +31,17 @@ Backend health endpoint:
 GET http://localhost:8000/health
 ```
 
+Local synthetic API endpoints:
+
+```text
+GET  http://localhost:8000/api/sync/status
+POST http://localhost:8000/api/sync/run
+GET  http://localhost:8000/api/meta/filters
+GET  http://localhost:8000/api/reports/contacts
+```
+
+`POST /api/sync/run` runs only the local synthetic fixture pipeline in an in-memory DuckDB connection. It does not call Bitrix and does not create a local database file.
+
 ## Backend Tests
 
 From the backend directory:
@@ -53,7 +64,7 @@ If Docker commands print a WSL integration error, enable Docker Desktop integrat
 
 ## Current Limitations
 
-- Only the health endpoint is implemented.
-- No Bitrix, NBRB, DuckDB, Parquet, analytics, authentication, or report APIs are implemented.
+- The API currently uses an in-memory local synthetic DuckDB dataset.
+- No real Bitrix sync, NBRB integration, Parquet writing, full analytics, authentication, or frontend is implemented.
 - Frontend implementation is blocked until the approved design system is available.
 - Docker Compose currently runs only the backend service.
