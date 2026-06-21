@@ -1,168 +1,141 @@
-# Task: TASK-2026-06-21-11
+# Task: TASK-2026-06-21-12
 
 Status: planned
-Created from commit: 51faa0e810b620133334f91d42437f848222f715
+Created from commit: d75899d5835452b3032fd4ece19947873f582c53
 
 ## Title
 
-Implement persistent dataset storage milestone
+Validate live Bitrix read-only discovery
 
 ## Goal
 
-Move the backend from process-local/in-memory data toward a real local analytics store that can survive restarts and safely hold manually loaded Bitrix datasets.
+Use the locally configured Bitrix webhook to perform the first live read-only validation of the Bitrix boundary: confirm credentials are loaded correctly, run metadata discovery, identify the configured contact type field candidate, and determine whether a first manual read-only sync is safe to run next.
 
-This is a backend/data milestone before frontend work. It should make the existing synthetic and Bitrix pipelines use a configurable DuckDB storage boundary, add safe dataset activation semantics for manual Bitrix ingestion, and write allowlisted raw snapshots to Parquet for traceability without committing data files.
+This is a live validation/reporting milestone. It must not call any Bitrix write method. It must not test write-method rejection on the production webhook.
 
-Do not implement NBRB integration, authentication, frontend, scheduler, live Bitrix smoke tests, CI, deployment, or write-back to Bitrix in this task.
+## User Context
 
-## Context
+- The user has added the Bitrix webhook locally.
+- The webhook must never be committed, printed, logged, or copied into `.ai/report.md`.
+- Tests of forbidden write methods must remain mocked/unit-only.
+- Do not call live methods such as:
+  - `crm.deal.add`
+  - `crm.deal.update`
+  - `crm.deal.delete`
+  - any other create/update/delete/write-capable CRM method.
 
-- TASK-07 added local synthetic raw loading, normalization, status, and minimal read API endpoints.
-- TASK-08 added local analytics endpoints over normalized DuckDB data.
-- TASK-09 added a read-only Bitrix client, allowlists, discovery, and manual mocked Bitrix ingestion into existing raw tables.
-- TASK-10 corrected the TASK-09 workflow report gate.
-- Current docs still mark production dataset activation and Parquet snapshots as not done.
-- Current API/data behavior is still too close to in-memory scaffolding for a real first export.
+## Allowed Live Bitrix Methods
 
-## Product Intent
+Before any live call, verify that the code path can call only the current read-only allowlist:
 
-After this task, the backend should be ready for a real operator flow in a local environment:
+- `crm.contact.fields`
+- `crm.deal.fields`
+- `crm.contact.list`
+- `crm.deal.list`
+- `crm.deal.contact.items.get`
+- `crm.status.list`
 
-```text
-configure env -> start backend -> run discovery -> configure contact type field -> run manual Bitrix sync -> data persists locally -> analytics endpoints read the active local dataset
-```
+For this task, prefer live discovery first. Do not run manual sync until discovery succeeds and the report explains the observed metadata shape.
 
-Tests must still run without live Bitrix credentials and without writing real raw data into git.
+If you decide a tiny smoke read is needed beyond discovery, it must use only allowlisted read-only list/status methods already implemented by the client and must avoid printing raw rows.
 
 ## Scope
 
-Build this as one coherent storage milestone. Prefer explicit, boring storage code over broad abstractions.
+### 1. Confirm Secret Handling And Runtime Wiring
 
-### 1. Persistent DuckDB Storage Boundary
+- Confirm `.env` is not tracked and remains ignored.
+- Confirm the app can load `BITRIX_WEBHOOK_URL` from the local environment without exposing its value.
+- If Docker Compose currently does not load the user's `.env` into the backend container, make the smallest safe repo change needed to support local `.env` runtime loading without committing secrets.
+- Do not modify `.env.example` with real values.
 
-Add configurable local storage settings and a connection boundary.
+### 2. Verify Read-Only Guardrails Before Live Calls
 
-Minimum expected behavior:
+- Inspect/confirm the Bitrix client allowlist before making live calls.
+- Run existing mocked/unit tests that prove write methods are rejected without touching the live webhook.
+- Do not perform live negative tests against write methods.
+- If tests are missing or insufficient, add/adjust mocked tests only.
 
-- Add settings for a local data directory and DuckDB database path, for example `APP_DATA_DIR` and/or `APP_DUCKDB_PATH`.
-- Default local runtime should use a persistent path under a gitignored local data directory.
-- Tests must still be able to use isolated in-memory or temporary DuckDB databases.
-- Backend startup/API code should initialize the schema before reading or writing.
-- Existing API endpoints should continue to use the shared configured connection unless tests inject isolated connections.
-- Do not commit local database files.
+### 3. Run Live Discovery
 
-### 2. Dataset Run And Activation Semantics
+Run the minimal live discovery path against the configured webhook:
 
-Make manual Bitrix ingestion safer than direct destructive replacement of the active dataset.
+- `GET /api/bitrix/discovery`, or the equivalent service call if easier in this environment.
 
-Minimum expected behavior:
+Capture only safe metadata in `.ai/report.md`:
 
-- Represent each pipeline run with a clear dataset/run identity, state, timestamps, counts, and safe message.
-- A failed manual Bitrix run must not leave the active normalized dataset half-replaced.
-- A successful manual Bitrix run should become the active local dataset for read/report endpoints.
-- Existing synthetic pipeline may remain available as a local fixture/dev dataset, but active dataset semantics must be documented.
-- The current `local_dataset_status` approach may be extended or replaced if needed, but keep migrations/simple schema changes testable.
-- If full staging-table swap is too large for one task, implement a minimal transaction-backed approach that guarantees no committed partial raw/normalized replacement on handled failures.
+- discovery state;
+- contact fields count;
+- deal fields count;
+- whether required fields are missing;
+- candidate safe custom contact fields for choosing `BITRIX_CONTACT_TYPE_FIELD`;
+- whether current `BITRIX_CONTACT_TYPE_FIELD` is configured and exists;
+- any permission/API error code or safe message without webhook URL, tokens, raw values, or personal data.
 
-### 3. Raw Parquet Snapshots For Allowed Data
+Do not include raw contact/deal rows, webhook URLs, tokens, phones, emails, addresses, comments, files, or arbitrary field values in the report.
 
-Add raw snapshot writing for successfully loaded local datasets.
+### 4. Decide Next Step
 
-Minimum expected behavior:
+Based on discovery, report one of these outcomes:
 
-- Write Parquet snapshots for allowlisted raw tables after successful synthetic or Bitrix ingestion.
-- Snapshot output must include only allowed local raw tables and columns already in the schema.
-- Snapshot paths must live under the configured local data directory.
-- Snapshot filenames/directories should be deterministic enough to inspect but unique enough per run, for example by dataset/run id and timestamp.
-- Never write or commit forbidden Bitrix fields, secrets, local DB files, CSV exports, dependency folders, caches, or frontend builds.
-- Tests must verify snapshot files are created for mocked data and contain only expected columns.
+- contact type field is identified and can be configured next;
+- discovery succeeded but contact type field remains ambiguous and user decision is needed;
+- discovery failed due to permissions/configuration and the exact safe next action is needed;
+- manual read-only sync appears safe to run next after setting `BITRIX_CONTACT_TYPE_FIELD`.
 
-### 4. API/Status Surface
+Do not run the full manual sync in this task unless discovery succeeds, credentials are read-only, no contact type ambiguity blocks the run, and the report can safely summarize counts only. If unsure, stop after discovery and report.
 
-Expose enough typed backend status for operator and future frontend use.
+### 5. Documentation/Report
 
-Minimum expected behavior:
+Update `.ai/report.md` with:
 
-- Existing sync status endpoints continue to work.
-- Add or extend a typed endpoint/service that reports the active dataset and latest run status, including dataset kind, state, counts, timestamps, and safe message.
-- Status responses must not expose secrets, raw rows, webhook URLs, file contents, or local absolute paths if those paths could leak environment details. Relative/logical snapshot identifiers are acceptable.
-- Existing analytics/report endpoints should read from the active configured local store.
+- changed files;
+- checks run;
+- live methods actually called;
+- explicit statement that no live write methods were called;
+- safe discovery facts;
+- whether any repo code/config changes were needed;
+- recommended next task.
 
-### 5. Tests
-
-Add focused tests that prove the storage milestone works without live credentials.
-
-Minimum coverage:
-
-- Configured DuckDB storage can use a temporary file path and persists data across new connections.
-- Tests can still use isolated in-memory/temp stores without cross-test contamination.
-- Schema initialization is idempotent for persistent storage.
-- Synthetic pipeline still works.
-- Mocked Bitrix ingestion still works.
-- Failed mocked Bitrix ingestion does not activate a partial dataset or destroy the previous successful active dataset.
-- Successful mocked Bitrix ingestion activates the dataset and existing analytics/read endpoints can read it.
-- Raw Parquet snapshots are created only for allowed raw tables/columns.
-- Status endpoint/service returns active dataset/latest run metadata without secrets or raw rows.
-
-### 6. Documentation And AGENTS.md
-
-Update project documentation so the next agent can orient quickly.
-
-Minimum documentation updates:
-
-- `docs/data-model.md` — describe persistent DuckDB storage, dataset activation, and raw snapshot boundaries.
-- `docs/development.md` and/or `backend/README.md` — document local data env vars, safe local run flow, and where generated data lives.
-- `docs/project-status.md` — update done/not done/next steps.
-- `docs/testing.md` — document persistent storage and snapshot tests.
-- `.ai/report.md` — full implementation report with changed files, checks, facts, assumptions, unknowns, and next step.
-- `AGENTS.md` — update only if needed so Codex has accurate instructions about current storage, generated files, and workflow. Keep it concise; do not churn unrelated sections.
+Update docs only if a repo/runtime issue is fixed and docs would otherwise be misleading. Keep docs changes minimal.
 
 ## Out Of Scope
 
-- Live Bitrix smoke test against a real account.
-- NBRB currency integration and production missing-rate policy.
-- Authentication and roles.
-- Frontend implementation or `ui-kits/` usage.
+- Calling any live write method.
+- Testing write-method rejection against the production webhook.
+- Committing `.env`, webhook URLs, tokens, raw Bitrix data, DuckDB files, Parquet snapshots, CSV exports, logs, caches, or generated data.
+- Running full sync if discovery is ambiguous or unsafe.
+- NBRB integration.
+- Authentication.
+- Frontend or `ui-kits/` work.
 - Scheduler/automatic sync.
-- Persisted analytics output tables unless a tiny metadata table is needed for activation.
-- Complex migration framework if simple idempotent schema updates are enough.
-- CSV export.
-- Companies, leads, products, activities, comments, calls, emails, files, Roistat.
-- Writing back to Bitrix.
-- CI/GitHub Actions setup.
-- Production deployment, HTTPS, backups.
+- Production deployment.
 
 ## Constraints
 
 - Follow `AGENTS.md`, `docs/workflow.md`, and current `.ai/task.md`.
-- Bitrix access remains strictly read-only.
-- Do not run live Bitrix calls in tests.
-- Do not invent real Bitrix field codes or contact type mappings.
-- Do not commit generated local data: DuckDB files, Parquet snapshots, CSV files, raw exports, env files, caches, virtual environments, dependency folders, or frontend builds.
-- Do not include forbidden Bitrix fields in storage, snapshots, API responses, docs, logs, or tests except as negative test input proving they are ignored.
+- Bitrix is strictly read-only.
+- Live validation must use only allowed read-only methods.
+- Do not print or commit secrets.
+- Do not include raw CRM records or personal fields in `.ai/report.md`.
+- Do not use `git add .`.
 - Do not modify `ui-kits/`.
-- Keep existing endpoints backward-compatible unless the docs and tests clearly justify a compatible extension.
-- If a design choice affects product semantics, data safety, or future frontend contract and is not clear from docs, stop and ask before committing.
+- Do not stage `.env` or generated data under `data/`.
+- If the live environment is unavailable or the webhook is not visible to the process, document the exact safe reason and stop without inventing results.
 
 ## Acceptance Criteria
 
-- Backend has configurable persistent DuckDB storage for local runtime.
-- Tests can use isolated in-memory/temp storage.
-- Schema initialization is idempotent for persistent storage.
-- Existing synthetic pipeline still passes tests.
-- Mocked Bitrix ingestion still passes tests.
-- Successful Bitrix ingestion activates a local dataset for read/report endpoints.
-- Failed Bitrix ingestion does not leave a partial active dataset or destroy the previous active dataset.
-- Raw Parquet snapshots are written for allowed raw tables/columns after successful ingestion.
-- Generated storage/snapshot artifacts are gitignored and not committed.
-- Typed status surface reports active/latest dataset metadata without secrets/raw rows/local sensitive paths.
-- Documentation and `.ai/report.md` accurately describe persistent storage, snapshots, activation, checks, assumptions, and next step.
-- `AGENTS.md` is updated if current agent instructions would otherwise be stale or misleading.
-- No frontend, `ui-kits/`, live Bitrix, NBRB, auth, scheduler, or deployment work is included.
+- `.env` remains untracked/ignored and no secret is committed.
+- Live Bitrix validation uses only read-only allowlisted methods.
+- No live write-method test is performed.
+- Existing mocked write-method rejection tests pass or are strengthened without live calls.
+- Discovery is run, or the exact safe reason it could not be run is reported.
+- `.ai/report.md` contains safe discovery metadata and no webhook/token/raw CRM data.
+- The report clearly recommends the next task: set `BITRIX_CONTACT_TYPE_FIELD`, run first read-only manual sync, fix permissions/config, or ask user to choose among candidates.
+- Any repo changes are minimal and directly related to safe local runtime loading or mocked guardrail tests.
 - The implementation commit uses the exact required message:
 
 ```text
-codex: TASK-2026-06-21-11 Implement persistent dataset storage milestone
+codex: TASK-2026-06-21-12 Validate live Bitrix read-only discovery
 ```
 
 ## Checks
@@ -180,12 +153,12 @@ Run from `backend/` in the configured dev environment:
 python -m pytest
 ```
 
-If dependencies are not installed in the current environment, install/use the existing backend dev environment and document the exact command used.
+If dependencies are not installed in the current environment, use the existing backend dev environment and document the exact command.
 
-Run syntax/import-level checks if useful:
+Run targeted guardrail tests if useful, for example:
 
 ```bash
-python -m py_compile app/*.py app/**/*.py tests/*.py tests/**/*.py
+python -m pytest tests/test_bitrix_client.py tests/test_bitrix_discovery.py tests/test_api_bitrix.py
 ```
 
 Run from repository root:
@@ -203,7 +176,7 @@ git diff --name-only --cached
 git diff --check -- ':!AGENTS.md' ':!.ai/task.md'
 ```
 
-If any required check cannot be run, document the exact reason in `.ai/report.md`.
+If any required check or live discovery cannot be run, document the exact reason in `.ai/report.md`.
 
 ## Hard Workflow Gate
 
@@ -212,9 +185,10 @@ Codex must not commit until all conditions below are true:
 - the latest relevant commit is this planner commit;
 - `.ai/report.md` is updated;
 - every required check is either run and reported, or explicitly documented as not run with reason;
-- staged files are only files intentionally changed for TASK-11 plus `.ai/report.md`;
-- `ui-kits/` is not staged;
-- generated local data artifacts are not staged;
+- all live Bitrix methods actually called are listed in `.ai/report.md`;
+- `.ai/report.md` explicitly states that no live write methods were called;
+- staged files are only files intentionally changed for TASK-12 plus `.ai/report.md`;
+- `.env`, generated data, DuckDB files, Parquet snapshots, CSV exports, logs, caches, and `ui-kits/` are not staged;
 - `.ai/task.md` is not staged unless the user explicitly requested changing the task;
 - the final commit message exactly matches the required `codex:` message above.
 
