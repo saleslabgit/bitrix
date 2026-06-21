@@ -8,11 +8,15 @@ FastAPI backend scaffold for the Bitrix sales analytics MVP.
 app/
   main.py          # FastAPI application and current routes
   core/config.py  # Environment-based settings
+  domain/
+    models.py             # Pydantic domain snapshots for allowed MVP entities
+    contact_selection.py  # Pure analytical contact selection logic
 tests/
-  test_health.py  # Health endpoint coverage
+  test_health.py             # Health endpoint coverage
+  test_contact_selection.py  # Domain selection coverage
 ```
 
-Future Bitrix sync, normalization, analytics, storage, authentication, and report API modules are intentionally not implemented in this task.
+Future Bitrix sync, normalization, analytics, storage, authentication, and report API modules are intentionally not implemented yet.
 
 ## Local Commands
 

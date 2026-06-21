@@ -2,13 +2,21 @@
 
 ## Current Checks
 
-The current scaffold has one backend test for the health endpoint:
+The current scaffold has backend tests for the health endpoint and analytical contact selection:
 
 ```bash
 cd backend
 pip install -e ".[dev]"
 pytest
 ```
+
+Current domain test coverage includes:
+
+- best configured contact type priority wins;
+- `is_primary` breaks equal priority ties;
+- minimum `contact_id` breaks remaining ties;
+- deals without contacts return `None`;
+- unknown or missing contact type uses a neutral fallback without hardcoded business-specific type values.
 
 Docker Compose configuration can be validated from the repository root:
 
@@ -36,4 +44,4 @@ According to `SPEC.md`, backend test coverage must later include:
 - stale open deals;
 - revenue concentration.
 
-Integration fixtures must later cover contacts, deals, currencies, multiple contact links, equal priorities, missing contacts, old A-segment contacts without recent sales, one-deal contacts, and long-open deals.
+Integration fixtures must later cover contacts, deals, currencies, multiple contact links, equal priorities, missing contacts, old A-segment contacts without recent sales, one-deal contacts, and long-open deals. The fixture plan is documented in `docs/fixtures.md`.

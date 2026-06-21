@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-Initial project scaffold for the Bitrix sales analytics MVP.
+Initial backend domain scaffold for the Bitrix sales analytics MVP.
 
 ## Done In This Task
 
@@ -13,13 +13,17 @@ Initial project scaffold for the Bitrix sales analytics MVP.
 - Added placeholder environment configuration.
 - Added repository hygiene rules in `.gitignore`.
 - Created the initial documentation backbone.
+- Added Pydantic domain snapshots for allowed MVP entities.
+- Added pure analytical contact selection logic.
+- Added focused unit tests for contact selection.
+- Added the future integration fixture plan.
 
 ## Intentionally Not Done
 
 - Real Bitrix integration.
 - NBRB currency integration.
 - DuckDB schemas and Parquet snapshot writing.
-- Contact normalization or analytics calculations.
+- Contact normalization, storage schemas, or analytics calculations.
 - Authentication.
 - Frontend screens, UI components, design tokens, or Storybook.
 - CI and production deployment.
@@ -46,7 +50,8 @@ Initial project scaffold for the Bitrix sales analytics MVP.
 - Actual pipelines, stages, and currencies in Bitrix.
 - Final design-system tokens and component decisions.
 - Deployment host, HTTPS setup, and backup destination.
+- Whether pytest and Docker checks pass in an environment with `pip`, test dependencies, and Docker available.
 
 ## Next Likely Steps
 
-Prepare backend data model scaffolding, fixture strategy, and integration boundaries after the design-system and next implementation task are planned.
+Plan the local storage schema, synthetic integration fixture data, and first normalization tests before adding real Bitrix integration.
