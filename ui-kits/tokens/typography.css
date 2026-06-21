@@ -1,0 +1,116 @@
+/* Manrope via Google Fonts — substitute for local font files (see readme.md) */
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&display=swap');
+
+:root {
+  /* ─── Font Families ─────────────────────────────────────────── */
+  --font-primary: 'Manrope', system-ui, sans-serif;
+
+  /* ─── Font Weights ──────────────────────────────────────────── */
+  --font-weight-light:     300;
+  --font-weight-regular:   400;
+  --font-weight-medium:    500;
+  --font-weight-semibold:  600;
+  --font-weight-bold:      700;
+  --font-weight-extrabold: 800;
+
+  /* ─── Title Scale ───────────────────────────────────────────── */
+  --text-h1-family:      var(--font-primary);
+  --text-h1-size:        72px;
+  --text-h1-weight:      var(--font-weight-bold);
+  --text-h1-line-height: 1.2;
+  --text-h1-letter:      -0.02em;
+
+  --text-h2-family:      var(--font-primary);
+  --text-h2-size:        64px;
+  --text-h2-weight:      var(--font-weight-bold);
+  --text-h2-line-height: 1.2;
+  --text-h2-letter:      -0.02em;
+
+  --text-h3-family:      var(--font-primary);
+  --text-h3-size:        48px;
+  --text-h3-weight:      var(--font-weight-bold);
+  --text-h3-line-height: 1.4;
+  --text-h3-letter:      -0.01em;
+
+  --text-h4-family:      var(--font-primary);
+  --text-h4-size:        32px;
+  --text-h4-weight:      var(--font-weight-bold);
+  --text-h4-line-height: 1.4;
+  --text-h4-letter:      -0.01em;
+
+  --text-h5-family:      var(--font-primary);
+  --text-h5-size:        32px;
+  --text-h5-weight:      var(--font-weight-medium);
+  --text-h5-line-height: 1.4;
+  --text-h5-letter:      0;
+
+  /* ─── Subtitle Scale ────────────────────────────────────────── */
+  --text-subtitle1-family:      var(--font-primary);
+  --text-subtitle1-size:        24px;
+  --text-subtitle1-weight:      var(--font-weight-bold);
+  --text-subtitle1-line-height: 1.0;
+
+  --text-subtitle2-family:      var(--font-primary);
+  --text-subtitle2-size:        24px;
+  --text-subtitle2-weight:      var(--font-weight-medium);
+  --text-subtitle2-line-height: 1.0;
+
+  /* ─── Body / Paragraph Scale ────────────────────────────────── */
+  /* Paragraph 1 — Bold body */
+  --text-body1-family:      var(--font-primary);
+  --text-body1-size:        14px;
+  --text-body1-weight:      var(--font-weight-bold);
+  --text-body1-line-height: 1.5;
+
+  /* Paragraph 2 — Medium body */
+  --text-body2-family:      var(--font-primary);
+  --text-body2-size:        14px;
+  --text-body2-weight:      var(--font-weight-medium);
+  --text-body2-line-height: 1.5;
+
+  /* Paragraph 3 — Regular body */
+  --text-body3-family:      var(--font-primary);
+  --text-body3-size:        14px;
+  --text-body3-weight:      var(--font-weight-regular);
+  --text-body3-line-height: 1.5;
+
+  /* Paragraph 4 — Light body */
+  --text-body4-family:      var(--font-primary);
+  --text-body4-size:        14px;
+  --text-body4-weight:      var(--font-weight-light);
+  --text-body4-line-height: 1.5;
+
+  /* ─── UI / Label Scale ──────────────────────────────────────── */
+  --text-label-family:      var(--font-primary);
+  --text-label-size:        12px;
+  --text-label-weight:      var(--font-weight-medium);
+  --text-label-line-height: 1.4;
+
+  --text-caption-family:      var(--font-primary);
+  --text-caption-size:        11px;
+  --text-caption-weight:      var(--font-weight-regular);
+  --text-caption-line-height: 1.3;
+
+  --text-overline-family:      var(--font-primary);
+  --text-overline-size:        11px;
+  --text-overline-weight:      var(--font-weight-semibold);
+  --text-overline-line-height: 1.3;
+  --text-overline-letter:      0.08em;
+  --text-overline-transform:   uppercase;
+}
+
+/* ─── Global Base ────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-primary);
+  font-size: var(--text-body3-size);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--text-body3-line-height);
+  color: var(--color-text-primary);
+  background-color: var(--color-bg-grey);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}

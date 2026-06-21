@@ -1,0 +1,46 @@
+:root {
+  /* ─── Spacing Scale (rem-based, 2px unit) ───────────────────── */
+  --space-1:  2px;   /* 0.125rem */
+  --space-2:  4px;   /* 0.25rem  */
+  --space-3:  8px;   /* 0.5rem   */
+  --space-4:  12px;  /* 0.75rem  */
+  --space-5:  16px;  /* 1rem     */
+  --space-6:  20px;  /* 1.25rem  */
+  --space-7:  24px;  /* 1.5rem   */
+  --space-8:  32px;  /* 2rem     */
+  --space-9:  40px;  /* 2.5rem   */
+  --space-10: 48px;  /* 3rem     */
+  --space-11: 56px;  /* 3.5rem   */
+  --space-12: 64px;  /* 4rem     */
+  --space-14: 80px;  /* 5rem     */
+  --space-16: 96px;  /* 6rem     */
+  --space-20: 128px; /* 8rem     */
+  --space-24: 160px; /* 10rem    */
+
+  /* ─── Component-specific Spacing ───────────────────────────── */
+  --space-button-px-xs:  10px;
+  --space-button-px-s:   12px;
+  --space-button-px-m:   14px;
+  --space-button-px-l:   18px;
+  --space-button-px-xl:  20px;
+  --space-button-px-xxl: 24px;
+
+  --space-input-px:  16px;
+  --space-input-py:  10px;
+  --space-card-sm:   16px;
+  --space-card-md:   24px;
+  --space-card-lg:   32px;
+
+  /* ─── Grid System ───────────────────────────────────────────── */
+  /* Desktop — 1440px, 12 columns */
+  --grid-desktop-max:     1440px;
+  --grid-desktop-columns: 12; /* @kind other */
+  --grid-desktop-gutter:  30px;
+  --grid-desktop-margin:  68px;
+
+  /* Mobile — 375px, 4 columns */
+  --grid-mobile-max:     375px;
+  --grid-mobile-columns: 4;  /* @kind other */
+  --grid-mobile-gutter:  16px;
+  --grid-mobile-margin:  16px;
+}

@@ -1,0 +1,76 @@
+<!-- @dsCard group="Components" viewport="700x400" name="Navigation" subtitle="Navbar (top) · Sidebar (light + dark + collapsed)" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="../../styles.css">
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+  <script src="../../_ds_bundle.js"></script>
+  <style>
+    body { margin: 0; background: var(--color-bg-grey); font-family: var(--font-primary); }
+    .section { padding: 16px 24px; }
+    .section-label { font-size: 10px; font-weight: 600; color: var(--color-neutral-400); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { Navbar, Sidebar } = window.VartiDesignSystem_07c3de;
+
+    const NAV_ITEMS = [
+      { label: 'Work', hasDropdown: true },
+      { label: 'Product', hasDropdown: true },
+      { label: 'Download', hasDropdown: true },
+      { label: 'Resources', hasDropdown: true },
+      { label: 'About' },
+    ];
+
+    const SIDEBAR_ITEMS = [
+      { label: 'Dashboard', icon: 'dashboard', isActive: true },
+      { label: 'Calendar', icon: 'calendar' },
+      { label: 'Notifications', icon: 'notifications' },
+      { label: 'Analytics', icon: 'analytics' },
+      { label: 'Support', icon: 'support' },
+    ];
+
+    function Demo() {
+      return (
+        <div>
+          <div className="section">
+            <div className="section-label">Navbar</div>
+            <div style={{ borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-sm)' }}>
+              <Navbar items={NAV_ITEMS} ctaLabel="Sign In" logoAlt="Bitrix Sales" />
+            </div>
+          </div>
+
+          <div className="section">
+            <div className="section-label">Sidebar variants</div>
+            <div style={{ display: 'flex', gap: 12 }}>
+              {/* Light */}
+              <div style={{ borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-sm)', height: 220 }}>
+                <Sidebar items={SIDEBAR_ITEMS} variant="light" logoText="Bitrix Sales" style={{ minHeight: '220px' }} />
+              </div>
+              {/* Dark */}
+              <div style={{ borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-sm)', height: 220 }}>
+                <Sidebar items={SIDEBAR_ITEMS} variant="dark" logoText="Bitrix Sales" style={{ minHeight: '220px' }} />
+              </div>
+              {/* Collapsed light */}
+              <div style={{ borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-sm)', height: 220 }}>
+                <Sidebar items={SIDEBAR_ITEMS} variant="light" logoText="Bitrix Sales" isCollapsed={true} style={{ minHeight: '220px' }} />
+              </div>
+              {/* Collapsed dark */}
+              <div style={{ borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-sm)', height: 220 }}>
+                <Sidebar items={SIDEBAR_ITEMS} variant="dark" logoText="Bitrix Sales" isCollapsed={true} style={{ minHeight: '220px' }} />
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+  </script>
+</body>
+</html>

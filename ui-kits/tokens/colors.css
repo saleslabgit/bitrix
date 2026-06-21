@@ -1,0 +1,123 @@
+:root {
+  /* ─── Primary Blue ─────────────────────────────────────────── */
+  --color-primary-50:  #EEF1FF;
+  --color-primary-100: #D4D9FD;
+  --color-primary-200: #ACB4FA;
+  --color-primary-300: #7E8EF5;
+  --color-primary-400: #5363E5;
+  --color-primary-500: #3040CC; /* base */
+  --color-primary-600: #2430B0;
+  --color-primary-700: #192290;
+  --color-primary-800: #10166A;
+  --color-primary-900: #080D42;
+
+  /* ─── Secondary / Warm Orange ──────────────────────────────── */
+  --color-warm-orange-50:  #FFF8F0;
+  --color-warm-orange-100: #FFECD4;
+  --color-warm-orange-200: #FFD4A0;
+  --color-warm-orange-300: #FFB870;
+  --color-warm-orange-400: #F5983C;
+  --color-warm-orange-500: #E07818; /* base */
+  --color-warm-orange-600: #C06014;
+  --color-warm-orange-700: #9A4C0E;
+  --color-warm-orange-800: #72340A;
+  --color-warm-orange-900: #52180F;
+
+  /* ─── Secondary / Blue (Cyan) ──────────────────────────────── */
+  --color-sec-blue-50:  #EBF8FF;
+  --color-sec-blue-100: #D0EEFF;
+  --color-sec-blue-200: #A6DCFF;
+  --color-sec-blue-300: #6CCAFF;
+  --color-sec-blue-400: #38B0F5;
+  --color-sec-blue-500: #1295E0; /* base */
+  --color-sec-blue-600: #0E7BBE;
+  --color-sec-blue-700: #095E9A;
+  --color-sec-blue-800: #054374;
+  --color-sec-blue-900: #022A4C;
+
+  /* ─── Secondary / Yellow ───────────────────────────────────── */
+  --color-yellow-50:  #FFFDE8;
+  --color-yellow-100: #FFF6C0;
+  --color-yellow-200: #FFE890;
+  --color-yellow-300: #FFD450;
+  --color-yellow-400: #F0BC18;
+  --color-yellow-500: #D4A00A; /* base */
+  --color-yellow-600: #B08206;
+  --color-yellow-700: #8A6402;
+  --color-yellow-800: #624800;
+  --color-yellow-900: #3C2C00;
+
+  /* ─── Secondary / Red ──────────────────────────────────────── */
+  --color-red-50:  #FFF0F0;
+  --color-red-100: #FFD6D6;
+  --color-red-200: #FFAAAA;
+  --color-red-300: #FF7070;
+  --color-red-400: #F54040;
+  --color-red-500: #E01414; /* base */
+  --color-red-600: #BE0C0C;
+  --color-red-700: #960606;
+  --color-red-800: #6E0202;
+  --color-red-900: #440000;
+
+  /* ─── Secondary / Green ────────────────────────────────────── */
+  --color-green-50:  #EDFFF5;
+  --color-green-100: #D0FFE6;
+  --color-green-200: #9EFFD0;
+  --color-green-300: #5EEAA6;
+  --color-green-400: #26D47C;
+  --color-green-500: #0EBD60; /* base */
+  --color-green-600: #0A9C50;
+  --color-green-700: #077A3C;
+  --color-green-800: #03582A;
+  --color-green-900: #013418;
+
+  /* ─── Neutral ───────────────────────────────────────────────── */
+  --color-neutral-25:  #F8FAFD;
+  --color-neutral-50:  #F2F5F9;
+  --color-neutral-100: #E4E9F2;
+  --color-neutral-200: #C8D2E4;
+  --color-neutral-300: #A8B6D2;
+  --color-neutral-400: #8898C0;
+  --color-neutral-500: #6880AB; /* base */
+  --color-neutral-600: #4E6690;
+  --color-neutral-700: #384C72;
+  --color-neutral-800: #243454;
+  --color-neutral-900: #131F38;
+
+  /* ─── Content ───────────────────────────────────────────────── */
+  --color-white: #FFFFFF;
+  --color-black: #000000;
+
+  /* ─── Background ────────────────────────────────────────────── */
+  --color-bg-grey: #F3F4F4;
+  --color-bg-sand: #F1F1F3;
+
+  /* ─── Semantic Aliases ──────────────────────────────────────── */
+  --color-brand:              var(--color-primary-500);
+  --color-brand-hover:        var(--color-primary-600);
+  --color-brand-active:       var(--color-primary-700);
+  --color-brand-subtle:       var(--color-primary-50);
+  --color-brand-light:        var(--color-primary-100);
+
+  --color-text-primary:       var(--color-black);
+  --color-text-secondary:     var(--color-neutral-700);
+  --color-text-tertiary:      var(--color-neutral-500);
+  --color-text-placeholder:   var(--color-neutral-400);
+  --color-text-disabled:      var(--color-neutral-300);
+  --color-text-on-brand:      var(--color-white);
+  --color-text-link:          var(--color-primary-500);
+  --color-text-error:         var(--color-red-500);
+  --color-text-success:       var(--color-green-600);
+  --color-text-warning:       var(--color-warm-orange-600);
+
+  --color-surface-base:       var(--color-white);
+  --color-surface-raised:     var(--color-white);
+  --color-surface-sunken:     var(--color-bg-grey);
+  --color-surface-overlay:    var(--color-white);
+
+  --color-border-default:     var(--color-neutral-200);
+  --color-border-strong:      var(--color-neutral-400);
+  --color-border-focus:       var(--color-primary-500);
+  --color-border-error:       var(--color-red-400);
+  --color-border-success:     var(--color-green-400);
+}

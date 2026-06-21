@@ -1,0 +1,42 @@
+<!-- @dsCard group="Brand" viewport="700x200" name="Brand Assets" subtitle="Wordmark · Icon · Gradient" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="../styles.css">
+  <style>
+    body { margin: 0; padding: 24px; background: #fff; font-family: var(--font-primary); }
+    .row { display: flex; gap: 16px; align-items: stretch; }
+    .asset { border: 1px solid var(--color-neutral-100); border-radius: var(--radius-lg); padding: 20px 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
+    .asset-label { font-size: 10px; color: var(--color-neutral-400); font-weight: 500; letter-spacing: 0.04em; }
+    .dark { background: #0A0A12; border-color: transparent; }
+    .wordmark { font-size: 28px; font-weight: 800; letter-spacing: -0.04em; color: var(--color-primary-900); }
+    .wordmark-wh { font-size: 28px; font-weight: 800; letter-spacing: -0.04em; color: #fff; }
+    .icon-box { width: 48px; height: 48px; background: var(--color-primary-500); border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 24px; font-weight: 800; }
+    .gradient-box { width: 140px; height: 64px; border-radius: var(--radius-md); background: #0A0A12; position: relative; overflow: hidden; }
+    .blob1 { position: absolute; width: 100px; height: 80px; left: -10px; top: -20px; background: radial-gradient(circle, #3040CC88, transparent 70%); }
+    .blob2 { position: absolute; width: 80px; height: 70px; right: -10px; top: -10px; background: radial-gradient(circle, #60309088, transparent 70%); }
+    .blob3 { position: absolute; width: 70px; height: 60px; left: 20px; bottom: -20px; background: radial-gradient(circle, #1295E088, transparent 70%); }
+  </style>
+</head>
+<body>
+  <div class="row">
+    <div class="asset" style="flex:1;">
+      <div class="wordmark">Bitrix24 Sales</div>
+      <div class="asset-label">Wordmark · Dark</div>
+    </div>
+    <div class="asset dark" style="flex:1;">
+      <div class="wordmark-wh">Bitrix24 Sales</div>
+      <div class="asset-label" style="color:rgba(255,255,255,0.4)">Wordmark · White</div>
+    </div>
+    <div class="asset">
+      <div class="icon-box">BS</div>
+      <div class="asset-label">App Icon</div>
+    </div>
+    <div class="asset" style="flex:1.2;">
+      <div class="gradient-box"><div class="blob1"></div><div class="blob2"></div><div class="blob3"></div></div>
+      <div class="asset-label">Hero Gradient</div>
+    </div>
+  </div>
+</body>
+</html>
