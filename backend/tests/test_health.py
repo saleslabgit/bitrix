@@ -1,12 +1,17 @@
-from fastapi.testclient import TestClient
-
-from app.main import app
+from app.main import app, health
 
 
-def test_health_returns_ok() -> None:
-    client = TestClient(app)
+def test_health_route_is_registered() -> None:
+    routes = [
+        route
+        for route in app.routes
+        if getattr(route, "path", None) == "/health"
+        and "GET" in getattr(route, "methods", set())
+    ]
 
-    response = client.get("/health")
+    assert len(routes) == 1
+    assert getattr(routes[0], "endpoint", None) is health
 
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok", "environment": "local"}
+
+def test_health_returns_ok_payload() -> None:
+    assert health() == {"status": "ok", "environment": "local"}

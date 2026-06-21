@@ -18,6 +18,8 @@ Current domain test coverage includes:
 - deals without contacts return `None`;
 - unknown or missing contact type uses a neutral fallback without hardcoded business-specific type values.
 
+Current health endpoint coverage avoids `fastapi.testclient.TestClient` because it hangs in the current WSL temporary dependency target. It verifies that `GET /health` is registered and that the endpoint function returns the expected payload.
+
 Docker Compose configuration can be validated from the repository root:
 
 ```bash
