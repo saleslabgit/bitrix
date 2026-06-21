@@ -1,0 +1,274 @@
+from datetime import date, datetime, timezone
+from decimal import Decimal
+
+import duckdb
+
+from app.pipeline.synthetic import run_synthetic_pipeline
+from app.reports.analytics import (
+    NO_SALES_SEGMENT,
+    get_abc_report,
+    get_concentration_report,
+    get_deal_cycle_report,
+    get_rfm_report,
+    get_type_region_analytics,
+    list_contact_analytics,
+    list_currency_conversions,
+    list_stale_open_deals,
+)
+from app.storage import initialize_schema
+
+
+def test_currency_conversion_uses_local_rates_for_usd_eur_and_byn() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        run_synthetic_pipeline(connection)
+
+        conversions = {
+            row.deal_id: row for row in list_currency_conversions(connection)
+        }
+
+    assert conversions[1].amount_usd == Decimal("120000.00")
+    assert conversions[1].rate_date == date(2023, 1, 1)
+    assert conversions[2].amount_usd == Decimal("120000.00")
+    assert conversions[4].amount_usd == Decimal("24242.42")
+    assert conversions[15].rate_date == date(2025, 1, 1)
+
+
+def test_contact_analytics_counts_only_won_revenue_and_profit() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        run_synthetic_pipeline(connection)
+
+        page = list_contact_analytics(connection, limit=20)
+        rows = {row.contact_id: row for row in page.items}
+
+    assert page.total == 10
+    assert rows[1].total_deals_count == 4
+    assert rows[1].won_deals_count == 4
+    assert rows[1].revenue_usd == Decimal("354242.42")
+    assert rows[1].estimated_profit_usd == Decimal("177121.21")
+    assert rows[2].open_deals_count == 1
+    assert rows[2].revenue_usd == Decimal("146454.55")
+    assert rows[2].has_sales is True
+
+
+def test_contact_analytics_abc_and_rfm_handle_no_sales_contact() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        run_synthetic_pipeline(connection)
+        connection.execute(
+            """
+            INSERT INTO normalized_contacts (
+                contact_id,
+                contact_name,
+                contact_type_raw,
+                contact_type_normalized,
+                region_normalized
+            )
+            VALUES (99, 'Synthetic No Sales', NULL, 'Не определено', 'Не определено')
+            """
+        )
+
+        contact_row = [
+            row
+            for row in list_contact_analytics(connection, limit=100).items
+            if row.contact_id == 99
+        ][0]
+        abc_row = [
+            row for row in get_abc_report(connection) if row.contact_id == 99
+        ][0]
+        rfm_row = [
+            row for row in get_rfm_report(connection) if row.contact_id == 99
+        ][0]
+
+    assert contact_row.revenue_usd == Decimal("0.00")
+    assert contact_row.has_sales is False
+    assert abc_row.abc_full == NO_SALES_SEGMENT
+    assert abc_row.abc_12m == NO_SALES_SEGMENT
+    assert rfm_row.rfm_code == "000"
+    assert rfm_row.segment == NO_SALES_SEGMENT
+
+
+def test_abc_boundaries_at_80_and_95_percent_are_deterministic() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        _load_abc_boundary_dataset(connection)
+
+        rows = {row.contact_id: row for row in get_abc_report(connection)}
+
+    assert rows[1].abc_full == "A"
+    assert rows[2].abc_full == "B"
+    assert rows[3].abc_full == "C"
+    assert rows[4].abc_full == NO_SALES_SEGMENT
+
+
+def test_abc_comparison_uses_deterministic_last_12_month_anchor() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        run_synthetic_pipeline(connection)
+
+        rows = {row.contact_id: row for row in get_abc_report(connection)}
+
+    assert rows[1].abc_full == "A"
+    assert rows[1].abc_12m == NO_SALES_SEGMENT
+    assert rows[1].abc_change == "A -> Нет продаж"
+    assert rows[1].migration_priority == "срочно"
+
+
+def test_rfm_covers_old_high_value_recent_single_and_reactivation_cases() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        run_synthetic_pipeline(connection)
+
+        rows = {row.contact_id: row for row in get_rfm_report(connection)}
+
+    assert rows[1].needs_reactivation is True
+    assert rows[1].frequency == 4
+    assert rows[7].frequency == 1
+    assert rows[7].segment in {"Новые", "Одноразовые", "Остальные"}
+    assert rows[6].recency_days is not None
+    assert rows[6].recency_days < rows[1].recency_days
+
+
+def test_stale_open_deals_detects_long_open_synthetic_deal() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        run_synthetic_pipeline(connection)
+
+        rows = list_stale_open_deals(connection)
+
+    assert any(row.deal_id == 21 for row in rows)
+    assert all(row.days_over_threshold > 0 for row in rows)
+
+
+def test_deal_cycle_metrics_calculate_local_durations() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        run_synthetic_pipeline(connection)
+
+        report = get_deal_cycle_report(connection)
+
+    assert report.overall.deals_count == 25
+    assert report.overall.p75_days > 0
+    assert any(
+        row.group_name == "Synthetic Direct"
+        for row in report.by_contact_type
+    )
+    assert any(row.group_name == "Synthetic North" for row in report.by_region)
+
+
+def test_concentration_output_is_deterministic() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        run_synthetic_pipeline(connection)
+
+        report = get_concentration_report(connection)
+
+    assert report.total_revenue_usd > 0
+    assert [entry.top_n for entry in report.entries] == [1, 3, 5]
+    assert report.entries[0].revenue_usd == Decimal("354242.42")
+    assert report.entries[0].share_percent <= report.entries[1].share_percent
+
+
+def test_type_region_analytics_uses_normalized_values_and_fallback() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        run_synthetic_pipeline(connection)
+
+        report = get_type_region_analytics(connection)
+        type_rows = {row.group_name: row for row in report.type_rows}
+        region_rows = {row.group_name: row for row in report.region_rows}
+
+    assert type_rows["Synthetic Direct"].revenue_usd == Decimal("161424.25")
+    assert type_rows["Не определено"].contact_count == 2
+    assert type_rows["Не определено"].lost_deals_count >= 1
+    assert region_rows["Synthetic North"].won_deals_count == 9
+
+
+def _load_abc_boundary_dataset(connection: duckdb.DuckDBPyConnection) -> None:
+    initialize_schema(connection)
+    connection.executemany(
+        """
+        INSERT INTO normalized_contacts (
+            contact_id,
+            contact_name,
+            contact_type_raw,
+            contact_type_normalized,
+            region_normalized
+        )
+        VALUES (?, ?, NULL, 'Synthetic Type', 'Synthetic Region')
+        """,
+        [
+            (1, "Boundary Contact 1"),
+            (2, "Boundary Contact 2"),
+            (3, "Boundary Contact 3"),
+            (4, "Boundary Contact 4"),
+        ],
+    )
+    connection.execute(
+        """
+        INSERT INTO currency_rates (
+            currency,
+            rate_date,
+            source_rate_byn,
+            usd_rate_byn,
+            rate_source,
+            rate_fetched_at
+        )
+        VALUES ('USD', DATE '2025-01-01', 3.30000000, 3.30000000, 'NBRB', ?)
+        """,
+        [datetime(2025, 1, 2, tzinfo=timezone.utc)],
+    )
+    connection.executemany(
+        """
+        INSERT INTO normalized_deals (
+            deal_id,
+            deal_name,
+            amount_original,
+            currency_original,
+            created_at,
+            closed_at,
+            stage_id,
+            category_id,
+            status_group,
+            analytical_contact_id,
+            analytical_contact_name,
+            contact_type_normalized,
+            region_normalized
+        )
+        VALUES (
+            ?,
+            ?,
+            ?,
+            'USD',
+            ?,
+            ?,
+            'SYN:WON',
+            1,
+            'won',
+            ?,
+            ?,
+            'Synthetic Type',
+            'Synthetic Region'
+        )
+        """,
+        [
+            (
+                1,
+                "Boundary Deal 1",
+                Decimal("80.00"),
+                datetime(2025, 1, 1, tzinfo=timezone.utc),
+                datetime(2025, 1, 2, tzinfo=timezone.utc),
+                1,
+                "Boundary Contact 1",
+            ),
+            (
+                2,
+                "Boundary Deal 2",
+                Decimal("15.00"),
+                datetime(2025, 1, 1, tzinfo=timezone.utc),
+                datetime(2025, 1, 2, tzinfo=timezone.utc),
+                2,
+                "Boundary Contact 2",
+            ),
+            (
+                3,
+                "Boundary Deal 3",
+                Decimal("5.00"),
+                datetime(2025, 1, 1, tzinfo=timezone.utc),
+                datetime(2025, 1, 2, tzinfo=timezone.utc),
+                3,
+                "Boundary Contact 3",
+            ),
+        ],
+    )

@@ -19,6 +19,7 @@ app/
     synthetic.py          # Local synthetic pipeline orchestration
     normalization.py      # Raw-to-normalized local transforms
   reports/
+    analytics.py          # Local analytics calculations over normalized DuckDB data
     local.py              # Read helpers for local report endpoints
   storage/
     schema.py             # Minimal DuckDB schema initializer
@@ -29,12 +30,13 @@ tests/
   test_storage_schema.py     # DuckDB schema coverage
   test_synthetic_dataset.py  # Synthetic fixture validation
   test_pipeline.py           # Storage-backed local pipeline coverage
+  test_analytics.py          # Storage-backed local analytics coverage
   test_api_local.py          # Local read API coverage through endpoint functions
   fixtures/
     synthetic_dataset.py     # Compatibility re-export for test fixture imports
 ```
 
-Future Bitrix sync, currency conversion, full analytics, production storage migrations, authentication, and frontend-facing report API hardening are intentionally not implemented yet.
+Future Bitrix sync, NBRB integration, persisted analytics tables, production storage migrations, authentication, and frontend-facing report API hardening are intentionally not implemented yet.
 
 ## Local Commands
 
@@ -63,9 +65,17 @@ POST /api/sync/run
 GET /api/sync/status
 GET /api/meta/filters
 GET /api/reports/contacts
+GET /api/reports/contacts/analytics
+GET /api/reports/abc
+GET /api/reports/rfm
+GET /api/reports/stale-deals
+GET /api/reports/deal-cycle
+GET /api/reports/concentration
+GET /api/reports/type-region
+GET /api/reports/types-regions
 ```
 
-These endpoints use an in-memory DuckDB dataset and synthetic data only. `POST /api/sync/run` is not a real Bitrix sync.
+These endpoints use an in-memory DuckDB dataset and synthetic data only. `POST /api/sync/run` is not a real Bitrix sync. Report endpoints calculate local analytics on demand and do not call Bitrix, NBRB, or external APIs.
 
 Run through Docker Compose from the repository root:
 

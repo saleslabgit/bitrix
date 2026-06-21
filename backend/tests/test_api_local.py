@@ -1,6 +1,13 @@
 from app.main import (
     meta_filters,
+    report_abc,
+    report_concentration,
+    report_contact_analytics,
     report_contacts,
+    report_deal_cycle,
+    report_rfm,
+    report_stale_deals,
+    report_type_region,
     run_local_synthetic_sync,
     sync_status,
 )
@@ -57,12 +64,43 @@ def test_api_contacts_report_supports_filters_and_search() -> None:
     assert all(item.open_deals_count >= 1 for item in status_page.items)
 
 
+def test_api_analytics_reports_return_local_typed_data() -> None:
+    run_local_synthetic_sync()
+
+    contacts = report_contact_analytics(limit=10, offset=0)
+    abc = report_abc()
+    rfm = report_rfm()
+    stale_deals = report_stale_deals()
+    deal_cycle = report_deal_cycle()
+    concentration = report_concentration()
+    type_region = report_type_region()
+
+    assert contacts.total == 10
+    assert contacts.items[0].revenue_usd > 0
+    assert len(abc) == 10
+    assert any(row.abc_12m == "Нет продаж" for row in abc)
+    assert len(rfm) == 10
+    assert any(row.needs_reactivation for row in rfm)
+    assert any(row.deal_id == 21 for row in stale_deals)
+    assert deal_cycle.overall.deals_count == 25
+    assert concentration.total_revenue_usd > 0
+    assert type_region.type_rows
+    assert type_region.region_rows
+
+
 def test_api_responses_do_not_expose_forbidden_fields() -> None:
     run_local_synthetic_sync()
     responses = [
         sync_status().model_dump(),
         meta_filters().model_dump(),
         report_contacts(limit=10, offset=0).model_dump(),
+        report_contact_analytics(limit=10, offset=0).model_dump(),
+        [row.model_dump() for row in report_abc()],
+        [row.model_dump() for row in report_rfm()],
+        [row.model_dump() for row in report_stale_deals()],
+        report_deal_cycle().model_dump(),
+        report_concentration().model_dump(),
+        report_type_region().model_dump(),
     ]
 
     response_text = repr(responses).lower()

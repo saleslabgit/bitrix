@@ -1,95 +1,99 @@
-# Отчет: TASK-2026-06-21-07
+# Отчет: TASK-2026-06-21-08
 
 Статус: done
 
 ## Кратко
 
-Реализовал первый локальный backend pipeline milestone на синтетических данных: данные fixture загружаются в DuckDB raw tables, нормализуются в `normalized_contacts` и `normalized_deals`, сохраняется local synthetic pipeline status, а FastAPI получил минимальные read-only endpoints для статуса, запуска локального synthetic pipeline, фильтров и contact summary.
+Реализован локальный backend analytics milestone поверх normalized DuckDB data: добавлены deterministic USD conversion helpers на synthetic `currency_rates`, контактная аналитика, ABC full vs last 12 months, RFM и reactivation signal, deal-cycle metrics, stale open deals, concentration, type/region aggregates и typed FastAPI endpoints.
 
-Реальная интеграция Bitrix, NBRB, Parquet, USD conversion и полноценная аналитика не добавлялись.
+Реальная интеграция Bitrix, NBRB, frontend, authentication, Parquet и persisted analytics tables не добавлялись.
 
 ## Измененные файлы
 
-- `backend/app/api/__init__.py`
 - `backend/app/api/models.py`
-- `backend/app/local_database.py`
 - `backend/app/main.py`
-- `backend/app/pipeline/__init__.py`
-- `backend/app/pipeline/normalization.py`
-- `backend/app/pipeline/synthetic.py`
 - `backend/app/pipeline/synthetic_dataset.py`
-- `backend/app/reports/__init__.py`
-- `backend/app/reports/local.py`
-- `backend/app/storage/loaders.py`
-- `backend/app/storage/schema.py`
-- `backend/pyproject.toml`
-- `backend/tests/fixtures/synthetic_dataset.py`
+- `backend/app/reports/analytics.py`
+- `backend/tests/test_analytics.py`
 - `backend/tests/test_api_local.py`
-- `backend/tests/test_pipeline.py`
-- `backend/tests/test_storage_schema.py`
 - `backend/README.md`
+- `docs/architecture.md`
 - `docs/data-model.md`
 - `docs/development.md`
+- `docs/fixtures.md`
 - `docs/project-status.md`
 - `docs/testing.md`
 - `.ai/report.md`
 
 ## Запущенные проверки
 
-- `git log --oneline -5` — passed; latest relevant commit is `1aca235 planner: TASK-2026-06-21-07 Implement local normalized pipeline and read API milestone`.
-- `git status --short` before implementation — passed; showed pre-existing modified `.ai/task.md` and `AGENTS.md` line-ending changes. They were not edited or staged by this task.
-- `python3 -m pytest` from `backend/` — failed before test collection because the system interpreter has no `pytest` installed.
-- `/tmp/bitrix-task-06-venv/bin/python -m pytest` from `backend/` — passed: 20 tests passed.
+- `git status --short` before implementation — passed; showed pre-existing modified `.ai/task.md` and `AGENTS.md`. They were not edited for the task.
 - `/tmp/bitrix-task-06-venv/bin/python -m py_compile app/*.py app/**/*.py tests/*.py tests/**/*.py` from `backend/` — passed.
-- `docker compose config` from repository root — passed.
+- `/tmp/bitrix-task-06-venv/bin/python -m pytest` from `backend/` — passed: 31 tests passed.
+- `git diff --check` — failed only on pre-existing `.ai/task.md` and `AGENTS.md` whitespace/line-ending changes.
+- `git diff --check -- ':!AGENTS.md' ':!.ai/task.md'` — passed for task files.
 - Generated Python `__pycache__` artifacts created by checks were removed.
 
 ## Критерии приемки
 
-- Raw fixture data can be loaded into DuckDB idempotently — выполнено.
-- Normalized contacts and deals are generated from local raw tables — выполнено.
-- Contact type and region normalization works with active rules and `Не определено` fallback — выполнено.
-- Analytical contact assignment works and each deal appears once in normalized deals — выполнено.
-- Deal without contact is preserved as `Без контакта` and `Не определено` — выполнено.
-- Status groups are represented correctly for won/open/lost synthetic deals — выполнено.
-- Minimal local read API endpoints work against local DuckDB data and return no forbidden fields — выполнено.
-- Storage-backed tests cover pipeline and API behavior — выполнено.
-- Existing tests continue to pass — выполнено.
-- Documentation and `.ai/report.md` reflect the new milestone — выполнено.
-- No real secrets, raw data, databases, Parquet snapshots, CSV exports, dependency folders, virtual environments, caches, or generated artifacts are included in task files — выполнено.
+- Local USD conversion works from synthetic `currency_rates` without external calls — выполнено.
+- Contact analytics calculates won revenue USD, profit USD, counts, and dates correctly — выполнено.
+- Revenue and profit include only won deals — выполнено.
+- ABC full-period and last-12-month classifications are implemented and tested — выполнено.
+- Contacts without won sales are classified as `Нет продаж` in test coverage — выполнено.
+- RFM and reactivation signals are implemented and tested on synthetic edge cases — выполнено.
+- Deal cycle and stale open deal analytics are implemented and tested — выполнено.
+- Concentration, type analytics, and region analytics are implemented and tested — выполнено.
+- New API endpoints return typed local analytics data and no forbidden fields — выполнено.
+- Existing TASK-07 pipeline/API tests continue to pass — выполнено.
+- Documentation and `.ai/report.md` reflect the new analytics milestone and note `ui-kits/` as future frontend design-system input — выполнено.
+- No real secrets, raw data, databases, Parquet snapshots, CSV exports, dependency folders, virtual environments, caches, generated artifacts, or frontend builds are included in task files — выполнено.
 
 ## Факты
 
-- New normalized tables: `normalized_contacts`, `normalized_deals`.
-- New status table: `local_dataset_status`.
-- New local API endpoints:
-  - `GET /api/sync/status`;
-  - `POST /api/sync/run`;
-  - `GET /api/meta/filters`;
-  - `GET /api/reports/contacts`.
-- `POST /api/sync/run` runs only the local synthetic fixture pipeline in an in-memory DuckDB connection.
-- Normalization uses active `contact_type_rules`; inactive, missing, or unknown rules normalize to `Не определено`.
-- Deal `7` resolves to contact `4` through the existing priority/primary/id analytical contact rules.
-- Deal `30` has no contact and is preserved in normalized deals with `Без контакта`.
-- The API tests call endpoint functions directly, not `fastapi.testclient.TestClient`, because the earlier health task documented `TestClient` hangs in this environment.
-- DuckDB `TIMESTAMPTZ` fetching required `pytz` in this environment, so the local scaffold stores UTC timestamps in DuckDB `TIMESTAMP` columns and restores UTC-aware datetimes when building domain models.
+- New analytics module: `backend/app/reports/analytics.py`.
+- New local report endpoints:
+  - `GET /api/reports/contacts/analytics`;
+  - `GET /api/reports/abc`;
+  - `GET /api/reports/rfm`;
+  - `GET /api/reports/stale-deals`;
+  - `GET /api/reports/deal-cycle`;
+  - `GET /api/reports/concentration`;
+  - `GET /api/reports/type-region`;
+  - `GET /api/reports/types-regions`.
+- Existing `GET /api/reports/contacts` remains available.
+- Report endpoints calculate on demand from `normalized_contacts`, `normalized_deals`, and `currency_rates`.
+- No Bitrix, NBRB, or external API calls are made.
+- Financial analytics use local USD conversion:
+  - `amount_usd = amount_original * source_rate_byn / usd_rate_byn`.
+- Closed deals use `closed_at` for rate selection; open deals use `created_at`.
+- The selected rate is the latest local rate on or before the target date.
+- Synthetic currency rates now include 2023-01-01 and 2025-01-01 rows so historical selection is deterministic for the fixture.
+- Estimated profit is always `revenue_usd * 0.50`.
+- ABC uses the maximum local report date as the default analysis date and compares full period against the previous 12 months.
+- RFM includes explicit `Нет продаж` rows for contacts without won deals in the selected period.
+- Reactivation is flagged for repeat buyers whose last won deal is older than the local threshold.
+- Stale open deals compare open age with the P75 won-deal cycle for the same contact type and fall back to overall P75.
+- API response field for latest deal date is `latest_deal_date`; no activity fields are exposed.
 
 ## Предположения
 
-- In-memory DuckDB is sufficient for this local synthetic milestone and avoids committing local database files.
-- Direct DuckDB queries and small helper modules are enough before designing production repository/migration abstractions.
-- Contact summaries may include local deal counts and original amount totals without implementing revenue/USD analytics.
-- Keeping `tests/fixtures/synthetic_dataset.py` as a compatibility re-export is acceptable after moving the reusable synthetic dataset builder into `app.pipeline.synthetic_dataset`.
+- On-demand analytics are acceptable for this milestone before persisted analytics output tables exist.
+- Compact response shapes are sufficient for future frontend iteration and can evolve after screen composition is finalized.
+- A local reactivation threshold of 365 days is acceptable because the current docs do not define a separate exact threshold.
+- The default synthetic analysis date should be derived from local normalized deal data for deterministic tests.
+- `GET /api/reports/types-regions` is kept as a compatibility alias for the SPEC naming while `/api/reports/type-region` satisfies the task naming.
 
 ## Неизвестное
 
 - Actual Bitrix webhook URL and access method.
 - Actual Bitrix custom field code for contact type.
-- Actual contact type values, priorities, and region mapping.
-- Actual pipelines, stages, and currencies in Bitrix.
+- Actual production contact type values, priorities, and region mapping.
+- Actual production pipelines, stages, and currencies in Bitrix.
 - Final production storage layout, migration strategy, dataset activation mechanics, and Parquet snapshot format.
-- Final frontend response-shape needs beyond the current minimal local API.
+- Final frontend response-shape needs beyond the current compact local report API.
+- Production NBRB missing-rate policy beyond the documented MVP rule.
 
 ## Риски или следующий шаг
 
-Next step: choose the next milestone explicitly: either plan real Bitrix read-only ingestion and field allowlist discovery, or add the first analytics slice on top of the normalized synthetic tables.
+Next likely backend milestone: plan real Bitrix read-only ingestion and field allowlist discovery, or production storage/dataset activation mechanics for the local pipeline.

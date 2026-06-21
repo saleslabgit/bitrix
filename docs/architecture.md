@@ -24,9 +24,11 @@ Transforms Bitrix identifiers, stage semantics, contact type mapping, region map
 
 Stores reproducible outputs for reports: revenue, estimated profit, ABC, RFM, reactivation, type and region aggregates, deal-cycle metrics, stale deals, and concentration. Revenue and ABC/RFM are based only on won deals.
 
+Current local implementation calculates these outputs on demand from normalized DuckDB tables and synthetic local currency rates. Persisted analytics tables are still future work.
+
 ### Backend API
 
-FastAPI exposes health, sync, metadata, and report endpoints. Only `GET /health` exists in the current scaffold.
+FastAPI exposes health, local synthetic sync, metadata, contact summary, and local analytics report endpoints. Current report endpoints read only local DuckDB data and do not call Bitrix or external currency services.
 
 ### Web Interface
 
@@ -34,10 +36,13 @@ The frontend will consume the backend API after the design system is approved. I
 
 ## Current Implementation
 
-The repository currently contains a minimal backend package:
+The repository currently contains a local backend package:
 
 - `backend/app/main.py` creates the FastAPI app and `/health`.
 - `backend/app/core/config.py` defines environment-based settings.
-- `backend/tests/test_health.py` verifies the health endpoint.
+- `backend/app/pipeline/` loads and normalizes the synthetic fixture.
+- `backend/app/reports/local.py` provides local metadata and contact summary helpers.
+- `backend/app/reports/analytics.py` provides local USD conversion, contact analytics, ABC, RFM, stale-deal, deal-cycle, concentration, and type/region calculations.
+- `backend/tests/` verifies health, schema, synthetic fixture shape, normalization, analytics, and local API endpoints.
 
-No business data modules are implemented yet.
+Real Bitrix extraction, NBRB integration, persisted analytics tables, production dataset activation, authentication, and frontend screens are not implemented yet.

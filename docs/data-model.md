@@ -44,6 +44,14 @@ Current scaffold model: `CurrencyRateSnapshot`.
 
 Current storage table: `currency_rates`.
 
+In the local synthetic milestone, rates are deterministic fixture rows only. No NBRB or external API calls are made. Conversion is calculated on demand for reports:
+
+```text
+amount_usd = amount_original * source_rate_byn / usd_rate_byn
+```
+
+The selected rate is the latest local rate for the deal currency on or before the target date. Closed deals use `closed_at`; open deals use `created_at`. USD is still converted through the local rate formula, with equal source and USD rates in the fixture.
+
 ### Contact Type And Region Config
 
 Contact type normalization, priority, and region mapping are configuration or local data. Concrete values are unknown until real Bitrix data is inspected.
@@ -89,9 +97,21 @@ Deals without contacts are preserved with `analytical_contact_id = NULL`, `analy
 
 ### Analytics Outputs
 
-Future analytics outputs include contact aggregates, ABC, ABC migration, RFM, reactivation, type and region aggregates, deal cycle metrics, stale open deals, and revenue concentration.
+The first local analytics outputs are calculated on demand from `normalized_contacts`, `normalized_deals`, and `currency_rates` in `backend/app/reports/analytics.py`. They are not persisted as analytics tables yet.
 
-No full analytics output models are implemented yet.
+Implemented local report outputs:
+
+- contact analytics with deal counts, won revenue USD, estimated profit USD, first/last won dates, latest deal date, and sales flag;
+- ABC comparison for full period vs last 12 months, with `Нет продаж` for contacts without won revenue in a period;
+- RFM rows with 1-5 scores, segment, and a reactivation flag;
+- stale open deals based on open age compared with the P75 won-deal cycle for the same contact type, falling back to overall P75;
+- deal-cycle metrics overall, by normalized contact type, and by normalized region;
+- revenue concentration for top 1, top 3, and top 5 contacts;
+- type, region, and type-region aggregate rows.
+
+Revenue, ABC, RFM monetary values, concentration, and estimated profit use only won deals. Estimated profit is always `revenue_usd * 0.50`. Deals without an analytical contact remain represented as `Без контакта` / `Не определено` in deal, type, and region outputs and do not create a fake contact.
+
+For deterministic synthetic reports, the default analysis date is the maximum local report date from normalized deals. Last-12-month ABC starts from the same month/day one year before that analysis date.
 
 ## Storage Schema
 
@@ -122,7 +142,7 @@ Analytics output tables, migrations, production dataset activation, Parquet snap
 initialize schema -> load synthetic raw data -> normalize contacts/deals -> store local status
 ```
 
-It uses only synthetic fixture data and does not call Bitrix, NBRB, or external APIs. Currency conversion to USD remains future work.
+It uses only synthetic fixture data and does not call Bitrix, NBRB, or external APIs. Currency conversion to USD is implemented in the report layer using synthetic local `currency_rates`, not during normalization.
 
 ## Domain Logic
 

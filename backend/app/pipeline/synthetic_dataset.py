@@ -99,28 +99,20 @@ def build_synthetic_dataset() -> SyntheticDataset:
         ),
     )
 
-    currency_rates = (
+    currency_rates = tuple(
         CurrencyRateSnapshot(
-            currency="USD",
-            rate_date=date(2025, 1, 1),
-            source_rate_byn=Decimal("3.30000000"),
+            currency=currency,
+            rate_date=rate_date,
+            source_rate_byn=source_rate_byn,
             usd_rate_byn=Decimal("3.30000000"),
-            rate_fetched_at=utc_datetime(2025, 1, 2),
-        ),
-        CurrencyRateSnapshot(
-            currency="EUR",
-            rate_date=date(2025, 1, 1),
-            source_rate_byn=Decimal("3.60000000"),
-            usd_rate_byn=Decimal("3.30000000"),
-            rate_fetched_at=utc_datetime(2025, 1, 2),
-        ),
-        CurrencyRateSnapshot(
-            currency="BYN",
-            rate_date=date(2025, 1, 1),
-            source_rate_byn=Decimal("1.00000000"),
-            usd_rate_byn=Decimal("3.30000000"),
-            rate_fetched_at=utc_datetime(2025, 1, 2),
-        ),
+            rate_fetched_at=utc_datetime(rate_date.year, rate_date.month, rate_date.day + 1),
+        )
+        for rate_date in (date(2023, 1, 1), date(2025, 1, 1))
+        for currency, source_rate_byn in (
+            ("USD", Decimal("3.30000000")),
+            ("EUR", Decimal("3.60000000")),
+            ("BYN", Decimal("1.00000000")),
+        )
     )
 
     deal_specs = (

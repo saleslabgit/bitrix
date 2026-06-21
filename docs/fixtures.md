@@ -20,6 +20,7 @@ The current fixture includes at least:
 - 30 deals;
 - won, open, and lost deals;
 - several currencies;
+- synthetic local currency rates for 2023-01-01 and 2025-01-01;
 - one deal linked to multiple contacts;
 - equal contact type priorities;
 - one deal without any contact;
@@ -27,7 +28,7 @@ The current fixture includes at least:
 - one contact with a single won deal;
 - one long-open deal.
 
-Validation coverage lives in `backend/tests/test_synthetic_dataset.py`. These tests verify fixture shape and allowed fields only; they intentionally do not calculate ABC, RFM, currency conversion, stale-deal analytics, or revenue metrics yet.
+Validation coverage lives in `backend/tests/test_synthetic_dataset.py`. Analytics coverage in `backend/tests/test_analytics.py` reuses the fixture to calculate ABC, RFM, currency conversion, stale-deal analytics, revenue metrics, concentration, and type/region aggregates.
 
 ## Allowed Data Shapes
 
@@ -42,9 +43,9 @@ Fixture records should use only the MVP fields documented in `docs/data-model.md
 
 Do not include phones, emails, addresses, messengers, requisites, comments, files, activity fields, or arbitrary non-allowlisted Bitrix fields.
 
-## Future Checks
+## Current And Future Checks
 
-Once the local storage, normalization, and analytics layers exist, the fixture should support tests for:
+The fixture currently supports local tests for:
 
 - analytical contact selection;
 - status derivation;
@@ -56,3 +57,5 @@ Once the local storage, normalization, and analytics layers exist, the fixture s
 - reactivation candidates;
 - deal-cycle and stale-deal metrics;
 - concentration analytics.
+
+Future production-oriented fixture work should cover real Bitrix field allowlist discovery, NBRB rate behavior, and dataset activation only after those features are planned.
