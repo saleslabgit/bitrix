@@ -1,121 +1,132 @@
-# Отчет: TASK-2026-06-21-11
+# Отчет: TASK-2026-06-21-12
 
 Статус: done
 
 ## Кратко
 
-Реализован storage milestone: backend теперь использует настраиваемый локальный DuckDB storage boundary, хранит append-only metadata по dataset runs, активирует только успешные synthetic/Bitrix runs, откатывает handled failed Bitrix replacements, пишет allowlisted raw Parquet snapshots и отдает общий typed status по активному dataset/latest run.
+Выполнена live read-only validation для Bitrix discovery. Локальный webhook виден backend settings, `.env` остается ignored/untracked, Bitrix client guardrails проверены mocked tests, live discovery успешно получил metadata только read-only методами.
 
-Фронтенд, live Bitrix smoke test, NBRB, auth, scheduler, persisted analytics tables, CI и deployment не реализовывались.
+Полный manual sync не запускался: `BITRIX_CONTACT_TYPE_FIELD` сейчас не настроен, discovery нашел много custom contact field candidates и 5 metadata-label candidates, поэтому нужен выбор поля пользователем перед безопасным sync.
 
 ## Измененные файлы
 
-- `.env.example` — добавлены placeholder storage env vars.
-- `docker-compose.yml` — добавлен bind mount `./data:/app/data` для локального persistent runtime.
-- `README.md` — обновлен текущий backend/storage статус.
-- `backend/README.md` — задокументированы storage modules, env vars, snapshots и dataset status endpoint.
-- `backend/app/core/config.py` — добавлены `APP_DATA_DIR`, `APP_DUCKDB_PATH`, нормализация пустого DuckDB path.
-- `backend/app/local_database.py` — shared DuckDB connection стал lazy и настраиваемым.
-- `backend/app/storage/connection.py` — новый configured DuckDB connection helper.
-- `backend/app/storage/schema.py` — добавлены `local_dataset_runs` и `local_active_dataset`.
-- `backend/app/storage/snapshots.py` — новый allowlisted raw Parquet snapshot writer.
-- `backend/app/storage/status.py` — новый слой dataset run/active metadata.
-- `backend/app/storage/__init__.py` — обновлено описание storage package.
-- `backend/app/pipeline/synthetic.py` — synthetic run теперь транзакционно загружает, snapshot-ит и активирует dataset.
-- `backend/app/bitrix/ingestion.py` — manual Bitrix ingestion теперь транзакционно загружает, snapshot-ит и активирует только success; handled failures пишут error run без активации.
-- `backend/app/api/models.py` — расширен `PipelineStatusResponse`, добавлен `DatasetStorageStatusResponse`.
-- `backend/app/main.py` — synthetic/Bitrix sync передают configured data dir; добавлен `GET /api/datasets/status`.
-- `backend/tests/test_storage_schema.py` — добавлены проверки persistent temp DuckDB и новых metadata tables.
-- `backend/tests/test_pipeline.py` — добавлена проверка raw Parquet snapshots и active run для synthetic.
-- `backend/tests/test_bitrix_ingestion.py` — добавлены проверки snapshots, activation и failed run preservation.
-- `backend/tests/test_api_local.py` — API tests используют temp persistent storage; добавлена проверка `/api/datasets/status`.
-- `backend/tests/test_api_bitrix.py` — no-credentials API test изолирован temp persistent storage.
-- `docs/architecture.md` — обновлены storage/snapshot/activation факты.
-- `docs/data-model.md` — описаны persistent DuckDB, dataset activation и snapshot boundaries.
-- `docs/development.md` — описаны storage env vars, generated data location и safe local flow.
-- `docs/project-status.md` — обновлены done/not done/next steps.
-- `docs/testing.md` — обновлена текущая storage/snapshot/activation test coverage.
+- `docker-compose.yml` — backend service теперь грузит `.env.example` и optional local `.env`, чтобы локальный контейнер видел webhook без коммита секрета.
+- `docs/development.md` — кратко задокументировано, что Docker Compose загружает локальный `.env`, если он есть.
+- `.ai/report.md` — текущий safe validation report.
 
-`AGENTS.md` не изменялся: текущие правила уже запрещают коммитить DuckDB, Parquet, raw exports и secrets.
+Code guardrails, Bitrix client, tests, `AGENTS.md`, `.env.example`, `.env`, generated data и `ui-kits/` не изменялись.
+
+## Secret Handling
+
+- `.env` is ignored by `.gitignore`: `git check-ignore -v .env` passed.
+- `BITRIX_WEBHOOK_URL` is loaded by backend settings: checked as boolean only, URL value was not copied into this report.
+- `BITRIX_CONTACT_TYPE_FIELD` is currently not configured.
+- No webhook URL, token, raw CRM rows, personal data, phone, email, address, comment, file content, DuckDB file, Parquet file, CSV export, or generated data was staged.
+
+## Read-Only Guardrails
+
+Inspected current client allowlist before live calls. The only methods allowed by `READ_ONLY_METHODS` are:
+
+- `crm.contact.fields`
+- `crm.deal.fields`
+- `crm.contact.list`
+- `crm.deal.list`
+- `crm.deal.contact.items.get`
+- `crm.status.list`
+
+Mocked guardrail tests passed and include write-method rejection for `crm.deal.update`.
+
+No live write-method rejection test was performed.
+
+## Live Bitrix Calls
+
+Live methods actually called in this task:
+
+- `crm.contact.fields` — metadata discovery and metadata-only candidate narrowing.
+- `crm.deal.fields` — metadata discovery.
+
+No live write methods were called. Specifically, no live `crm.deal.add`, `crm.deal.update`, `crm.deal.delete`, or other create/update/delete/write-capable CRM method was called.
+
+No live contact/deal list rows were requested or printed. Full manual sync was not run.
+
+## Safe Discovery Facts
+
+Discovery result:
+
+- state: `success`
+- contact fields count: `175`
+- deal fields count: `176`
+- missing required contact fields count: `0`
+- missing required deal fields count: `0`
+- configured contact type field present in settings: `false`
+- configured contact type field exists in metadata: `null` because no field is configured
+- safe custom contact field candidates count: `125`
+
+Metadata-only label narrowing found 5 candidates whose labels mention type:
+
+- `UF_CRM_1595304971232` — `Тип контакта`
+- `UF_CRM_1634045879452` — `Тип контакту`
+- `UF_CRM_6178F2A32AB4A` — `Тип`
+- `UF_CRM_6178F2A36EF3A` — `Тип события`
+- `UF_CRM_6178F2A71A78D` — `Тип покрытия`
+
+Inference from metadata: `UF_CRM_1595304971232` looks like the strongest contact type candidate because its label is exactly `Тип контакта`, but this still needs user confirmation before configuring sync.
 
 ## Запущенные проверки
 
 Before implementation:
 
 - `git log --oneline -5` — passed. Latest relevant commit before work:
-  `327a582 planner: TASK-2026-06-21-11 Implement persistent dataset storage milestone`.
-- `git status --short` — passed. Showed pre-existing modified `.ai/task.md`.
+  `daac6d4 planner: TASK-2026-06-21-12 Validate live Bitrix read-only discovery`.
+- `git status --short --branch` — passed. Showed only pre-existing modified `.ai/task.md`.
 
-Syntax/import:
+Guardrail tests:
 
-- `python -m py_compile app/*.py app/**/*.py tests/*.py tests/**/*.py` from `backend/` — not run: `python` command is absent in this environment.
-- `python3 -m py_compile app/*.py app/**/*.py tests/*.py tests/**/*.py` from `backend/` — passed.
+- `/tmp/bitrix-task-06-venv/bin/python -m pytest tests/test_bitrix_client.py tests/test_bitrix_discovery.py tests/test_api_bitrix.py` from `backend/` — passed: 10 tests passed.
 
-Tests:
+Full tests:
 
 - `python -m pytest` from `backend/` — not run: `python` command is absent in this environment.
-- `python3 -m pytest` from `backend/` — not run: system Python has no `pytest` installed.
-- `/tmp/bitrix-task-06-venv/bin/python -m pytest` from `backend/` — passed: 47 tests passed in 39.63s.
+- `/tmp/bitrix-task-06-venv/bin/python -m pytest` from `backend/` — passed: 47 tests passed in 39.54s.
 
-Compose and sanity:
+Runtime/config checks:
 
-- `docker compose config` from repo root — passed. Rendered backend service with `APP_DATA_DIR=data`, blank `APP_DUCKDB_PATH`, and bind mount `./data:/app/data`; no real secrets.
-- `/tmp/bitrix-task-06-venv/bin/python -c "from app.core.config import Settings; from app.storage.connection import resolve_duckdb_path; s=Settings(APP_DATA_DIR='data', APP_DUCKDB_PATH=''); print(resolve_duckdb_path(s))"` from `backend/` — passed; output `data/analytics.duckdb`.
+- `git check-ignore -v .env` — passed; `.env` is ignored by `.gitignore`.
+- `/tmp/bitrix-task-06-venv/bin/python -c ...` safe settings check — passed; reported webhook configured as boolean, contact type field not configured, page size `50`.
+- `docker compose config` after optional `.env` wiring — passed. Because Compose renders service environment values, the safe recorded check used redaction for `BITRIX_WEBHOOK_URL` and this report does not include the secret.
+
+Live discovery:
+
+- Metadata discovery with `crm.contact.fields` and `crm.deal.fields` — passed.
+- Metadata-only candidate narrowing with `crm.contact.fields` — passed.
 
 Final git checks after staging:
 
-- `git status --short --branch` — passed. Showed TASK-11 files staged and pre-existing `.ai/task.md` still unstaged.
-- `git diff --stat HEAD` — passed. Included staged TASK-11 changes plus the pre-existing unstaged `.ai/task.md` diff.
-- `git diff --name-only --cached` — passed. Listed only TASK-11 implementation/docs/test files plus `.ai/report.md`; did not include `.ai/task.md`, `ui-kits/`, generated data, DuckDB files, Parquet files, CSV exports, dependency folders, caches, or frontend builds.
+- `git status --short --branch` — passed. Showed `.ai/report.md`, `docker-compose.yml`, and `docs/development.md` staged; pre-existing `.ai/task.md` remained unstaged.
+- `git diff --stat HEAD` — passed. Included staged TASK-12 changes plus the pre-existing unstaged `.ai/task.md` diff.
+- `git diff --name-only --cached` — passed. Output exactly `.ai/report.md`, `docker-compose.yml`, and `docs/development.md`.
 - `git diff --check -- ':!AGENTS.md' ':!.ai/task.md'` — passed with no output.
 
-## Реализованное поведение
+## Решение По Следующему Шагу
 
-- Runtime DuckDB path is configurable:
-  - `APP_DATA_DIR=data`;
-  - blank `APP_DUCKDB_PATH` uses `APP_DATA_DIR/analytics.duckdb`;
-  - tests can still pass `:memory:` or temp file DuckDB connections directly.
-- Backend shared connection is lazy and initialized through the configured storage boundary.
-- Schema initialization remains idempotent and now includes:
-  - `local_dataset_runs`;
-  - `local_active_dataset`;
-  - existing `local_dataset_status` for backward-compatible sync status.
-- Successful synthetic and manual Bitrix runs:
-  - load raw data;
-  - normalize data;
-  - write allowlisted raw Parquet snapshots when a data dir is provided;
-  - store run metadata;
-  - become the active local dataset.
-- Handled manual Bitrix failures:
-  - rollback any transaction-backed raw/normalized replacement;
-  - store an error run;
-  - do not replace or deactivate the previous successful active dataset.
-- Snapshot output is limited to allowed raw tables/columns:
-  - `raw_contacts`;
-  - `raw_deals`;
-  - `raw_deal_contact_links`;
-  - `raw_stages`.
-- `GET /api/datasets/status` returns active dataset/latest run metadata with safe messages, counts, UTC timestamps, relative snapshot identifiers, and no local absolute paths, raw rows, webhook URLs, or file contents.
+Discovery succeeded and permissions are sufficient for metadata reads. Manual read-only sync appears technically reachable, but it should not run yet because `BITRIX_CONTACT_TYPE_FIELD` is not configured and the contact type field remains ambiguous.
+
+Recommended next task: user confirms the correct contact type field, likely from the 5 metadata-label candidates above. After setting `BITRIX_CONTACT_TYPE_FIELD` in local `.env`, run discovery again to verify `contact_type_field_exists=true`, then run the first manual read-only sync with counts-only reporting.
 
 ## Факты
 
-- No live Bitrix calls were made.
-- No real credentials, raw Bitrix data, DuckDB files, Parquet files, CSV exports, dependency folders, caches, or frontend builds were staged.
-- `.ai/task.md` had a pre-existing working-tree modification before TASK-11 implementation and was not edited intentionally.
-- `ui-kits/` was not modified.
+- Latest relevant commit before implementation was the TASK-12 planner commit.
+- `.env` exists locally for runtime but is ignored and was not staged.
+- Docker Compose needed a repo change to load local `.env` into the backend container safely.
+- Live Bitrix validation used only metadata read methods.
+- No raw CRM rows were read or written in this task.
 
 ## Предположения
 
-- The current single active raw/normalized table set plus transaction rollback is sufficient for this milestone; a full staging-table swap can be planned later if needed.
-- Relative snapshot identifiers such as `snapshots/<dataset_kind>/<run_id>/<table>.parquet` are safe to expose in status responses.
-- The existing `/tmp/bitrix-task-06-venv` is the configured backend dev environment for this workspace because system Python lacks pytest.
+- Bitrix metadata field codes and labels are safe to report because they are schema metadata, not contact/deal row values.
+- The exact field label `Тип контакта` is a strong candidate but still requires product/user confirmation.
 
 ## Неизвестное
 
-- Live Bitrix field availability and real `BITRIX_CONTACT_TYPE_FIELD`.
-- Real production data volume and whether it will require a full staging-table swap instead of the current transaction-backed replacement.
-- Final production migration, backup, and deployment strategy.
-
-## Риски или следующий шаг
-
-Next step: run discovery against a real read-only Bitrix credential, set `BITRIX_CONTACT_TYPE_FIELD`, perform a manual local sync, and then decide whether NBRB integration or a full staging-table swap should be the next backend milestone.
+- Which of the candidate fields is the approved contact type field for MVP analytics.
+- Whether the webhook has enough read permissions for full `crm.contact.list`, `crm.deal.list`, `crm.deal.contact.items.get`, and `crm.status.list`; those live methods were intentionally not called because discovery/contact type configuration is not complete.

@@ -7,7 +7,10 @@
 
 ## Environment Policy
 
-Use `.env.example` as a placeholder template only. Real `.env` files, Bitrix webhook URLs, secrets, raw data, local databases, Parquet snapshots, and CSV exports must not be committed.
+Use `.env.example` as a placeholder template only. Docker Compose also loads a
+local `.env` file when present. Real `.env` files, Bitrix webhook URLs, secrets,
+raw data, local databases, Parquet snapshots, and CSV exports must not be
+committed.
 
 Default display timezone is `Europe/Minsk`. Store future persisted timestamps in UTC.
 
