@@ -23,7 +23,7 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["app", "app.core", "app.domain"]
+packages = ["app", "app.core", "app.domain", "app.storage"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

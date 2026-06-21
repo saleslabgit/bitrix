@@ -2,7 +2,7 @@
 
 ## Current Checks
 
-The current scaffold has backend tests for the health endpoint and analytical contact selection:
+The current scaffold has backend tests for the health endpoint, analytical contact selection, DuckDB schema initialization, and the synthetic integration fixture:
 
 ```bash
 cd backend
@@ -19,6 +19,16 @@ Current domain test coverage includes:
 - unknown or missing contact type uses a neutral fallback without hardcoded business-specific type values.
 
 Current health endpoint coverage avoids `fastapi.testclient.TestClient` because it hangs in the current WSL temporary dependency target. It verifies that `GET /health` is registered and that the endpoint function returns the expected payload.
+
+Current storage schema coverage verifies:
+
+- `initialize_schema()` runs on an in-memory DuckDB connection;
+- all expected MVP scaffold tables are created;
+- expected columns exist;
+- forbidden personal/out-of-scope field names are absent;
+- schema initialization is idempotent.
+
+Current fixture coverage verifies that `backend/tests/fixtures/synthetic_dataset.py` includes the required synthetic shape: contacts, deals, currencies, won/open/lost statuses, multiple contacts on one deal, equal type priorities, one deal without a contact, an old high-value contact scenario, a single-won-deal contact, and a long-open deal.
 
 Docker Compose configuration can be validated from the repository root:
 
@@ -46,4 +56,4 @@ According to `SPEC.md`, backend test coverage must later include:
 - stale open deals;
 - revenue concentration.
 
-Integration fixtures must later cover contacts, deals, currencies, multiple contact links, equal priorities, missing contacts, old A-segment contacts without recent sales, one-deal contacts, and long-open deals. The fixture plan is documented in `docs/fixtures.md`.
+The current synthetic fixture covers the minimum integration shape. Future tests should reuse it for normalization, storage-backed pipeline checks, and analytics once those layers exist.

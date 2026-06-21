@@ -11,12 +11,18 @@ app/
   domain/
     models.py             # Pydantic domain snapshots for allowed MVP entities
     contact_selection.py  # Pure analytical contact selection logic
+  storage/
+    schema.py             # Minimal DuckDB schema initializer
 tests/
   test_health.py             # Health endpoint coverage
   test_contact_selection.py  # Domain selection coverage
+  test_storage_schema.py     # DuckDB schema coverage
+  test_synthetic_dataset.py  # Synthetic fixture validation
+  fixtures/
+    synthetic_dataset.py     # Test-only dataset for future integration coverage
 ```
 
-Future Bitrix sync, normalization, analytics, storage, authentication, and report API modules are intentionally not implemented yet.
+Future Bitrix sync, normalization, analytics, production storage migrations, authentication, and report API modules are intentionally not implemented yet.
 
 ## Local Commands
 

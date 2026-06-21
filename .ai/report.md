@@ -1,67 +1,79 @@
-# Отчет: TASK-2026-06-21-05
+# Отчет: TASK-2026-06-21-06
 
 Статус: done
 
 ## Кратко
 
-Стабилизировал backend test runtime: health-тест больше не использует `fastapi.testclient.TestClient`, который зависал в текущей WSL temporary-target среде. Вместо этого тест проверяет регистрацию `GET /health` в FastAPI app и напрямую проверяет payload endpoint-функции. Полный backend pytest теперь завершается: 7 тестов passed.
+Добавил первый backend storage scaffold: пакет `app.storage` с явной DuckDB-схемой для разрешенных MVP таблиц и минимальным API инициализации. Добавил полностью синтетический fixture dataset на существующих доменных моделях и тесты, которые проверяют форму dataset без расчета аналитики.
 
-После пользовательской настройки WSL/Docker повторная проверка прошла без временного `/tmp` bootstrap: системные `pip` и `venv` доступны, зависимости устанавливаются в обычный virtualenv, `python -m pytest` проходит, `docker compose config` проходит.
+Документация обновлена под новое состояние: storage schema scaffold и synthetic fixture теперь реализованы, а следующий шаг остается за normalization rules и storage-backed pipeline tests.
 
 ## Измененные файлы
 
-- `backend/tests/test_health.py`
+- `backend/app/storage/__init__.py`
+- `backend/app/storage/schema.py`
+- `backend/tests/fixtures/__init__.py`
+- `backend/tests/fixtures/synthetic_dataset.py`
+- `backend/tests/test_storage_schema.py`
+- `backend/tests/test_synthetic_dataset.py`
+- `backend/pyproject.toml`
+- `backend/README.md`
+- `docs/data-model.md`
+- `docs/fixtures.md`
+- `docs/project-status.md`
 - `docs/testing.md`
 - `.ai/report.md`
 
 ## Запущенные проверки
 
-- `PYTHONPATH=/tmp/pip-bootstrap/usr/lib/python3/dist-packages python3 -m pip --version` — passed: pip 24.0 из временного `/tmp` bootstrap.
-- `python3 -m pip --version` — failed: system pip still unavailable (`No module named pip`).
-- `TMPDIR=/tmp PYTHONPATH=/tmp/pip-bootstrap/usr/lib/python3/dist-packages python3 -m pip install --no-cache-dir --no-compile --target /tmp/bitrix-python-deps ".[dev]"` — passed.
-- `PYTHONPATH=/tmp/bitrix-python-deps:/tmp/pip-bootstrap/usr/lib/python3/dist-packages python3 -m pytest` — passed: 7 tests passed in 0.94s.
-- `python3 -m py_compile backend/app/*.py backend/app/core/*.py backend/app/domain/*.py backend/tests/test_*.py` — passed.
-- `docker compose config` — failed: Docker reports it is not available in this WSL 2 distro and recommends enabling Docker Desktop WSL integration.
-- Generated artifacts (`backend/.pytest_cache`, `__pycache__`, `backend/bitrix_sales_analytics_backend.egg-info`, `/tmp/bitrix-python-deps`) were removed before commit.
-
-Post-setup verification after user enabled host tooling:
-
-- `python3 -m pip --version` — passed: pip 24.0 for Python 3.12.
-- `dpkg -l python3-pip python3-venv python3.12-venv` — passed: all three packages are installed.
-- `python3 -m venv /tmp/bitrix-check-venv` — passed.
-- `/tmp/bitrix-check-venv/bin/python -m pip install -e ".[dev]"` from `backend/` — passed.
-- `/tmp/bitrix-check-venv/bin/python -m pytest` from `backend/` — passed: 7 tests passed in 0.54s.
+- `git log --oneline -5` — passed; latest relevant commit is `60b0ba3 planner: TASK-2026-06-21-06 Add storage schema and synthetic fixture scaffold`.
+- `git status --short` before implementation — passed; showed pre-existing modified `.ai/task.md` and `AGENTS.md` line-ending changes. They were not edited or staged by this task.
+- `python3 -m pytest` from `backend/` — failed before test collection because the system interpreter has no `pytest` installed.
+- `python3 -m venv /tmp/bitrix-task-06-venv` — passed.
+- `/tmp/bitrix-task-06-venv/bin/python -m pip install -e ".[dev]"` from `backend/` — passed.
+- `/tmp/bitrix-task-06-venv/bin/python -m pytest` from `backend/` — passed: 13 tests passed.
+- `/tmp/bitrix-task-06-venv/bin/python -m py_compile app/*.py app/**/*.py tests/*.py tests/**/*.py` from `backend/` — passed.
 - `docker compose config` from repository root — passed.
-- Temporary virtualenv and generated Python artifacts were removed after verification.
+- Generated verification artifacts under `backend/__pycache__`, `backend/tests/__pycache__`, and `backend/bitrix_sales_analytics_backend.egg-info` were removed.
 
 ## Критерии приемки
 
-- Health endpoint test no longer hangs silently — выполнено.
-- `python3 -m pytest` passes all current tests or completes with documented blocker — выполнено: pytest passed via temporary dependency target.
-- Existing contact selection tests remain intact and pass — выполнено.
-- Dependency or test strategy change is minimal and documented — выполнено; dependencies were not changed.
-- Docs updated for health test strategy — выполнено in `docs/testing.md`.
+- `backend/app/storage/` exists and exposes a small schema initialization API — выполнено.
+- DuckDB schema initialization creates all required MVP scaffold tables — выполнено.
+- Schema initialization is idempotent — выполнено.
+- Tests verify expected table names and columns — выполнено.
+- Tests verify forbidden out-of-scope field names are absent from schema columns — выполнено.
+- A synthetic integration fixture exists and satisfies the minimum dataset shape — выполнено.
+- Fixture validation tests pass without real Bitrix data or forbidden personal data — выполнено.
+- Existing health and contact selection tests still pass — выполнено.
+- Documentation reflects the new storage schema and fixture scaffold — выполнено.
 - `.ai/report.md` lists changed files, checks, results, facts, assumptions, unknowns, and next step — выполнено.
-- No secrets, raw data, databases, Parquet, CSV, dependency folders, virtual environments, caches, or generated artifacts are committed — выполнено.
+- No real secrets, raw data, databases, Parquet snapshots, CSV exports, dependency folders, virtual environments, caches, or generated artifacts are included in task files — выполнено.
 
 ## Факты
 
-- The previous hang was specific to `fastapi.testclient.TestClient(app).get("/health")` in this environment.
-- Direct `health()` call returns `{"status": "ok", "environment": "local"}`.
-- The FastAPI app contains exactly one registered `GET /health` route.
-- Full backend test suite now contains 7 tests: 5 contact selection tests and 2 health tests.
-- The original implementation-time test execution used the temporary `/tmp` pip bootstrap documented in TASK-04 because system `pip` was absent at that time.
-- After user setup, system `pip`, `venv`, and Docker Compose validation are available in this WSL distro.
+- DuckDB is already a backend dependency in `backend/pyproject.toml`.
+- The new storage API is `initialize_schema(connection)` and `list_expected_tables()`.
+- Current schema tables are `raw_contacts`, `raw_deals`, `raw_deal_contact_links`, `raw_stages`, `contact_type_rules`, and `currency_rates`.
+- The synthetic fixture uses existing domain models only.
+- The fixture includes 10 contacts, 30 deals, won/open/lost deals, several currencies, one multi-contact deal, equal type priorities, one deal without a contact, one old high-value contact scenario, one single-won-deal contact, and one long-open deal.
+- No Bitrix client, webhook access, Parquet writing, normalization, currency conversion, or analytics calculations were added.
 
 ## Предположения
 
-- For the current scaffold, route registration plus direct endpoint payload coverage is sufficient and safer than a hanging ASGI client path.
-- A future task can reintroduce ASGI client coverage once a durable venv and known-good FastAPI/Starlette/httpx runtime are available.
+- A direct SQL schema initializer is sufficient for the first scaffold before final migration tooling is designed.
+- Synthetic type values, stage IDs, currencies, priorities, and regions are acceptable because they are clearly test-only and do not represent production Bitrix data.
+- Fixture validation can check shape and edge-case coverage without implementing ABC, RFM, stale-deal, or currency analytics.
 
 ## Неизвестное
 
-- Whether `TestClient` would pass in a normal host-created virtual environment with system `python3-pip` and `python3-venv`; it was not reintroduced or retested because the accepted task fix avoids that hanging path.
+- Actual Bitrix webhook URL and access method.
+- Actual Bitrix custom field code for contact type.
+- Actual contact type values, priorities, and region mapping.
+- Actual pipelines, stages, and currencies in Bitrix.
+- Final production storage layout, migration strategy, and dataset activation mechanics.
+- Whether future Parquet raw snapshots will mirror the DuckDB table names exactly.
 
 ## Риски или следующий шаг
 
-Host tooling blocker is resolved. Next step: ChatGPT acceptance review for `TASK-2026-06-21-05`, including `git show`, `.ai/report.md`, and the documented passing checks.
+Next step: implement the first normalization rules and storage-backed pipeline tests using the synthetic fixture, still without real Bitrix integration.

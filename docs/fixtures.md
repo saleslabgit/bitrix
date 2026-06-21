@@ -1,6 +1,6 @@
 # Fixture Strategy
 
-This document describes the future integration fixture required for analytics tests. The fixture must be synthetic and must not contain real Bitrix data, secrets, raw exports, local databases, Parquet snapshots, CSV exports, or forbidden personal fields.
+This document describes the synthetic integration fixture required for analytics tests. The fixture must be synthetic and must not contain real Bitrix data, secrets, raw exports, local databases, Parquet snapshots, CSV exports, or forbidden personal fields.
 
 ## Purpose
 
@@ -10,11 +10,11 @@ The fixture will validate the full local pipeline once implemented:
 allowed Bitrix-shaped data -> local raw layer -> normalization -> analytics -> API
 ```
 
-It is not implemented as a full dataset yet because real Bitrix field codes, pipelines, stages, currencies, contact type values, priorities, and region mapping are still unknown.
+The first reusable fixture dataset is implemented at `backend/tests/fixtures/synthetic_dataset.py`. It uses invented test-only values through the existing domain models. Real Bitrix field codes, pipelines, stages, currencies, contact type values, priorities, and region mapping are still unknown.
 
 ## Minimum Dataset
 
-The future integration fixture must include at least:
+The current fixture includes at least:
 
 - 10 contacts;
 - 30 deals;
@@ -26,6 +26,8 @@ The future integration fixture must include at least:
 - one A-segment contact without sales in the last 12 months;
 - one contact with a single won deal;
 - one long-open deal.
+
+Validation coverage lives in `backend/tests/test_synthetic_dataset.py`. These tests verify fixture shape and allowed fields only; they intentionally do not calculate ABC, RFM, currency conversion, stale-deal analytics, or revenue metrics yet.
 
 ## Allowed Data Shapes
 
