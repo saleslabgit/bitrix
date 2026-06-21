@@ -10,6 +10,12 @@ app/
   local_database.py # In-memory DuckDB connection for the local synthetic milestone
   api/
     models.py      # Pydantic response models for local read endpoints
+  bitrix/
+    allowlist.py   # Central allowed Bitrix field lists
+    client.py      # Read-only Bitrix REST client
+    discovery.py   # Safe metadata discovery service
+    ingestion.py   # Manual Bitrix raw ingestion orchestration
+    transform.py   # Bitrix payload to domain snapshot transforms
   core/config.py  # Environment-based settings
   domain/
     models.py             # Pydantic domain snapshots for allowed MVP entities
@@ -32,11 +38,15 @@ tests/
   test_pipeline.py           # Storage-backed local pipeline coverage
   test_analytics.py          # Storage-backed local analytics coverage
   test_api_local.py          # Local read API coverage through endpoint functions
+  test_api_bitrix.py         # Bitrix API no-credentials safety coverage
+  test_bitrix_client.py      # Read-only client, allowlist, pagination coverage
+  test_bitrix_discovery.py   # Metadata discovery coverage
+  test_bitrix_ingestion.py   # Mocked manual ingestion coverage
   fixtures/
     synthetic_dataset.py     # Compatibility re-export for test fixture imports
 ```
 
-Future Bitrix sync, NBRB integration, persisted analytics tables, production storage migrations, authentication, and frontend-facing report API hardening are intentionally not implemented yet.
+Manual read-only Bitrix ingestion is implemented as a backend/data boundary with mocked tests. NBRB integration, persisted analytics tables, production storage migrations, dataset activation, authentication, and frontend-facing report API hardening are intentionally not implemented yet.
 
 ## Local Commands
 
@@ -77,6 +87,17 @@ GET /api/reports/types-regions
 
 These endpoints use an in-memory DuckDB dataset and synthetic data only. `POST /api/sync/run` is not a real Bitrix sync. Report endpoints calculate local analytics on demand and do not call Bitrix, NBRB, or external APIs.
 
+Manual Bitrix endpoints after starting the backend:
+
+```text
+GET /api/bitrix/discovery
+POST /api/bitrix/sync/run
+GET /api/bitrix/sync/status
+```
+
+These endpoints require `BITRIX_WEBHOOK_URL` for live calls. Without credentials
+they return safe error/status payloads and tests still pass.
+
 Run through Docker Compose from the repository root:
 
 ```bash
@@ -85,4 +106,14 @@ docker compose up --build backend
 
 ## Environment
 
-Settings use `pydantic-settings` with the `APP_` environment prefix for application values and placeholder-safe defaults. The Bitrix webhook placeholder is read from `BITRIX_WEBHOOK_URL`. Real Bitrix webhook URLs and secrets must stay in local environment files or deployment secrets and must not be committed.
+Settings use `pydantic-settings` with the `APP_` environment prefix for application values and placeholder-safe defaults.
+
+Bitrix environment variables:
+
+```text
+BITRIX_WEBHOOK_URL=
+BITRIX_CONTACT_TYPE_FIELD=
+BITRIX_PAGE_SIZE=50
+```
+
+Real Bitrix webhook URLs and secrets must stay in local environment files or deployment secrets and must not be committed.

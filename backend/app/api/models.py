@@ -22,6 +22,20 @@ class PipelineStatusResponse(ApiModel):
     finished_at: datetime | None
 
 
+class BitrixDiscoveryResponse(ApiModel):
+    state: str
+    message: str
+    configured_contact_type_field: str | None
+    contact_type_field_exists: bool | None
+    contact_fields_count: int
+    deal_fields_count: int
+    allowed_contact_fields: tuple[str, ...]
+    allowed_deal_fields: tuple[str, ...]
+    candidate_contact_type_fields: tuple[str, ...]
+    missing_required_contact_fields: tuple[str, ...]
+    missing_required_deal_fields: tuple[str, ...]
+
+
 class FilterMetadataResponse(ApiModel):
     contact_types: tuple[str, ...]
     regions: tuple[str, ...]

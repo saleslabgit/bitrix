@@ -2,7 +2,7 @@
 
 ## Current Checks
 
-The current scaffold has backend tests for the health endpoint, analytical contact selection, DuckDB schema initialization, synthetic fixture, local normalization pipeline, local analytics calculations, and local read API:
+The current backend tests cover the health endpoint, analytical contact selection, DuckDB schema initialization, synthetic fixture, local normalization pipeline, local analytics calculations, local read API, and the mocked read-only Bitrix boundary:
 
 ```bash
 cd backend
@@ -68,6 +68,21 @@ GET /api/reports/type-region
 GET /api/reports/types-regions
 ```
 
+Current Bitrix boundary coverage uses mocked responses only. It verifies:
+
+- Bitrix settings can be absent without breaking tests;
+- read-only client allowlists methods and rejects write methods;
+- pagination works for list methods;
+- API errors do not expose webhook secrets;
+- contact/deal select fields never use `*` and exclude forbidden field names;
+- configured contact type field is included only when explicitly configured;
+- forbidden configured contact type fields are rejected;
+- discovery reports present and missing contact type fields;
+- forbidden fields in mocked payloads are ignored during storage;
+- manual ingestion loads contacts, deals, deal-contact links, and stages idempotently;
+- existing normalization runs after mocked Bitrix raw loading;
+- `GET /api/bitrix/discovery`, `POST /api/bitrix/sync/run`, and `GET /api/bitrix/sync/status` fail safely without live credentials.
+
 Docker Compose configuration can be validated from the repository root:
 
 ```bash
@@ -79,7 +94,7 @@ docker compose config
 According to `SPEC.md`, backend test coverage must later include production-oriented areas that are still outside the local synthetic milestone:
 
 - historical rate selection;
-- real Bitrix extraction field allowlist and pagination;
+- live Bitrix smoke checks with a read-only credential, kept outside the regular test suite;
 - NBRB integration and missing-rate failure behavior;
 - production dataset activation/swap mechanics;
 - persisted analytics tables if they are added later;

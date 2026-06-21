@@ -11,6 +11,16 @@ Use `.env.example` as a placeholder template only. Real `.env` files, Bitrix web
 
 Default display timezone is `Europe/Minsk`. Store future persisted timestamps in UTC.
 
+Bitrix settings:
+
+```text
+BITRIX_WEBHOOK_URL=              # secret read-only webhook base URL; blank disables live calls
+BITRIX_CONTACT_TYPE_FIELD=       # optional discovered contact type field code
+BITRIX_PAGE_SIZE=50              # optional Bitrix list page size, max 50
+```
+
+Tests and regular local development do not require live Bitrix credentials.
+
 ## Docker Compose
 
 Validate Compose configuration:
@@ -51,6 +61,24 @@ GET  http://localhost:8000/api/reports/type-region
 
 The report endpoints calculate analytics on demand from normalized local DuckDB tables and synthetic local currency rates. They do not call Bitrix, NBRB, or any external API. Period parameters `date_from` and `date_to` are supported where meaningful.
 
+Manual Bitrix backend endpoints:
+
+```text
+GET  http://localhost:8000/api/bitrix/discovery
+POST http://localhost:8000/api/bitrix/sync/run
+GET  http://localhost:8000/api/bitrix/sync/status
+```
+
+`GET /api/bitrix/discovery` reads Bitrix field metadata and reports whether
+`BITRIX_CONTACT_TYPE_FIELD` exists. Use it to choose the contact type field
+code before running real ingestion. The response does not include webhook values
+or contact/deal field values.
+
+`POST /api/bitrix/sync/run` is a manual read-only ingestion entry point. It
+loads allowed contacts, deals, deal-contact links, and stages into local raw
+DuckDB tables, then runs existing normalization. If `BITRIX_WEBHOOK_URL` is
+missing, it returns a safe error status and does not call Bitrix.
+
 ## Backend Tests
 
 From the backend directory:
@@ -73,7 +101,8 @@ If Docker commands print a WSL integration error, enable Docker Desktop integrat
 
 ## Current Limitations
 
-- The API currently uses an in-memory local synthetic DuckDB dataset.
-- No real Bitrix sync, NBRB integration, Parquet writing, persisted analytics tables, authentication, or frontend is implemented.
+- The API currently uses an in-memory DuckDB connection.
+- Manual Bitrix ingestion exists, but production dataset activation/swap mechanics are not implemented.
+- No NBRB integration, Parquet writing, persisted analytics tables, authentication, scheduler, or frontend is implemented.
 - Future frontend implementation should use `ui-kits/` as the design-system source; no frontend screens are implemented in this backend milestone.
 - Docker Compose currently runs only the backend service.

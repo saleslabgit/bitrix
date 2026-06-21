@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-Local backend analytics milestone for the Bitrix sales analytics MVP.
+Backend/data milestone for the Bitrix sales analytics MVP: local analytics plus the first read-only Bitrix ingestion boundary.
 
 ## Done In This Task
 
@@ -34,13 +34,20 @@ Local backend analytics milestone for the Bitrix sales analytics MVP.
 - Added revenue concentration, type analytics, region analytics, and type-region matrix rows.
 - Added typed FastAPI report endpoints for the new local analytics outputs.
 - Added storage-backed analytics and report API coverage.
+- Added safe Bitrix settings for webhook URL, contact type field, and page size.
+- Added a read-only Bitrix REST client with allowlisted methods, pagination, and safe errors.
+- Added centralized Bitrix field allowlists for contacts, deals, links, and stages.
+- Added Bitrix metadata discovery for contact/deal fields and configured contact type field presence.
+- Added manual Bitrix raw ingestion into existing DuckDB raw tables with existing normalization.
+- Added typed backend endpoints for Bitrix discovery, manual sync run, and manual sync status.
+- Added mocked Bitrix boundary tests for allowlists, pagination, discovery, ingestion, idempotency, and no-credentials safety.
 
 ## Intentionally Not Done
 
-- Real Bitrix integration.
 - NBRB currency integration.
 - Parquet snapshot writing.
-- Real Bitrix data loading.
+- Production Bitrix dataset activation/swap mechanics.
+- Live Bitrix credential validation against a real account.
 - Persisted analytics output tables.
 - Production migration tooling or dataset activation mechanics.
 - Authentication.
@@ -74,4 +81,4 @@ Local backend analytics milestone for the Bitrix sales analytics MVP.
 
 ## Next Likely Steps
 
-Plan the next backend milestone: real Bitrix read-only ingestion boundary and field allowlist discovery, or production storage/dataset activation mechanics for the local pipeline.
+Run discovery against a real read-only Bitrix credential, choose `BITRIX_CONTACT_TYPE_FIELD`, then plan production storage/dataset activation mechanics and NBRB currency integration.

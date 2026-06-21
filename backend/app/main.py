@@ -4,6 +4,7 @@ from fastapi import FastAPI, Query
 
 from app.api.models import (
     AbcResponse,
+    BitrixDiscoveryResponse,
     ConcentrationReportResponse,
     ContactAnalyticsPageResponse,
     ContactSummaryPageResponse,
@@ -13,6 +14,15 @@ from app.api.models import (
     RfmResponse,
     StaleDealResponse,
     TypeRegionAnalyticsReportResponse,
+)
+from app.bitrix.client import BitrixClient, BitrixClientError
+from app.bitrix.discovery import BitrixDiscoveryResult, discover_bitrix_metadata
+from app.bitrix.ingestion import (
+    BITRIX_MANUAL_DATASET_KIND,
+    BITRIX_MANUAL_DATASET_NAME,
+    get_latest_bitrix_ingestion_status,
+    run_bitrix_manual_ingestion,
+    store_bitrix_ingestion_error,
 )
 from app.core.config import get_settings
 from app.local_database import get_connection
@@ -66,10 +76,79 @@ def run_local_synthetic_sync() -> PipelineStatusResponse:
     return PipelineStatusResponse.model_validate(status)
 
 
+@app.get("/api/bitrix/discovery", response_model=BitrixDiscoveryResponse)
+def bitrix_discovery() -> BitrixDiscoveryResponse:
+    try:
+        client = _build_bitrix_client()
+        result = discover_bitrix_metadata(
+            client,
+            contact_type_field=settings.bitrix_contact_type_field,
+        )
+    except (BitrixClientError, ValueError) as exc:
+        result = BitrixDiscoveryResult(
+            state="error",
+            message=str(exc),
+            configured_contact_type_field=settings.bitrix_contact_type_field,
+            contact_type_field_exists=None,
+            contact_fields_count=0,
+            deal_fields_count=0,
+            allowed_contact_fields=(),
+            allowed_deal_fields=(),
+            candidate_contact_type_fields=(),
+            missing_required_contact_fields=(),
+            missing_required_deal_fields=(),
+        )
+    return BitrixDiscoveryResponse.model_validate(result)
+
+
+@app.get("/api/bitrix/sync/status", response_model=PipelineStatusResponse)
+def bitrix_sync_status() -> PipelineStatusResponse:
+    status = get_latest_bitrix_ingestion_status(get_connection())
+    if status is None:
+        return PipelineStatusResponse(
+            dataset_name=BITRIX_MANUAL_DATASET_NAME,
+            dataset_kind=BITRIX_MANUAL_DATASET_KIND,
+            state="not_run",
+            message="Manual Bitrix ingestion has not been run.",
+            raw_contacts_count=0,
+            raw_deals_count=0,
+            raw_links_count=0,
+            normalized_contacts_count=0,
+            normalized_deals_count=0,
+            started_at=None,
+            finished_at=None,
+        )
+
+    return PipelineStatusResponse.model_validate(status)
+
+
+@app.post("/api/bitrix/sync/run", response_model=PipelineStatusResponse)
+def run_manual_bitrix_sync() -> PipelineStatusResponse:
+    try:
+        client = _build_bitrix_client()
+    except (BitrixClientError, ValueError) as exc:
+        status = store_bitrix_ingestion_error(get_connection(), str(exc))
+        return PipelineStatusResponse.model_validate(status)
+
+    status = run_bitrix_manual_ingestion(
+        get_connection(),
+        client=client,
+        contact_type_field=settings.bitrix_contact_type_field,
+    )
+    return PipelineStatusResponse.model_validate(status)
+
+
 @app.get("/api/meta/filters", response_model=FilterMetadataResponse)
 def meta_filters() -> FilterMetadataResponse:
     filters = get_filter_metadata(get_connection())
     return FilterMetadataResponse.model_validate(filters)
+
+
+def _build_bitrix_client() -> BitrixClient:
+    return BitrixClient(
+        settings.bitrix_webhook_url,
+        page_size=settings.bitrix_page_size,
+    )
 
 
 @app.get("/api/reports/contacts", response_model=ContactSummaryPageResponse)

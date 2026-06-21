@@ -12,6 +12,12 @@ Current scaffold model: `ContactSnapshot`.
 
 Current raw storage table: `raw_contacts`.
 
+Real Bitrix ingestion stores only the allowed contact columns:
+
+- `ID` -> `contact_id`;
+- `NAME`, `SECOND_NAME`, and `LAST_NAME` -> `contact_name`;
+- configured `BITRIX_CONTACT_TYPE_FIELD` -> `contact_type_raw`, only when explicitly configured.
+
 ### Deals
 
 Used for revenue, lifecycle, ABC, RFM, stale-deal, and concentration analytics. Required fields include deal ID, name, original amount, original currency, created and closed timestamps, stage, category, and calculated status group.
@@ -19,6 +25,19 @@ Used for revenue, lifecycle, ABC, RFM, stale-deal, and concentration analytics. 
 Current scaffold model: `DealSnapshot`.
 
 Current raw storage table: `raw_deals`.
+
+Real Bitrix ingestion stores only the allowed deal columns:
+
+- `ID` -> `deal_id`;
+- `TITLE` -> `deal_name`;
+- `OPPORTUNITY` -> `amount_original`;
+- `CURRENCY_ID` -> `currency_original`;
+- `DATE_CREATE` -> `created_at`;
+- `CLOSEDATE` -> `closed_at`;
+- `STAGE_ID` -> `stage_id`;
+- `CATEGORY_ID` -> `category_id`.
+
+`status_group` is derived locally from loaded Bitrix stage semantics.
 
 ### Deal-Contact Links
 
@@ -28,6 +47,9 @@ Current scaffold model: `DealContactLink`.
 
 Current raw storage table: `raw_deal_contact_links`.
 
+Real Bitrix ingestion stores only deal-contact link IDs plus allowed link metadata:
+deal ID, contact ID, Bitrix primary flag, sort order, and role ID when returned.
+
 ### Stages
 
 Stage dictionaries define whether a deal is `won`, `open`, or `lost`, taking Bitrix pipelines into account.
@@ -35,6 +57,9 @@ Stage dictionaries define whether a deal is `won`, `open`, or `lost`, taking Bit
 Current scaffold model: `StageSnapshot`.
 
 Current raw storage table: `raw_stages`.
+
+Real Bitrix ingestion stores only stage ID, category ID, and local `status_group`
+derived from Bitrix stage semantics (`won`, `open`, or `lost`).
 
 ### Currency Rates
 
@@ -93,7 +118,11 @@ Deals without contacts are preserved with `analytical_contact_id = NULL`, `analy
 
 ### Local Dataset Status
 
-`local_dataset_status` stores the current local synthetic pipeline state and row counts. It is not real Bitrix sync status.
+`local_dataset_status` stores local pipeline state and row counts. Current dataset
+names are:
+
+- `synthetic-fixture` for the local synthetic fixture pipeline;
+- `bitrix-manual` for the manual read-only Bitrix ingestion pipeline.
 
 ### Analytics Outputs
 
@@ -144,6 +173,24 @@ initialize schema -> load synthetic raw data -> normalize contacts/deals -> stor
 
 It uses only synthetic fixture data and does not call Bitrix, NBRB, or external APIs. Currency conversion to USD is implemented in the report layer using synthetic local `currency_rates`, not during normalization.
 
+## Real Bitrix Boundary
+
+`backend/app/bitrix/` contains the first read-only Bitrix boundary:
+
+- `allowlist.py` is the single source of truth for allowed Bitrix select fields.
+- `client.py` calls only approved read-only REST methods and handles pagination.
+- `discovery.py` reads contact/deal metadata and reports whether the configured contact type field exists.
+- `ingestion.py` orchestrates manual raw loading into DuckDB and then runs existing normalization.
+- `transform.py` maps allowed Bitrix payload fields into the current domain snapshots.
+
+The manual Bitrix loader clears and reloads only the Bitrix raw tables:
+`raw_contacts`, `raw_deals`, `raw_deal_contact_links`, and `raw_stages`.
+It does not clear `contact_type_rules` or `currency_rates`; those remain local
+configuration/data until later production storage milestones.
+
+Discovery may show candidate custom contact fields to help choose
+`BITRIX_CONTACT_TYPE_FIELD`, but ingestion never stores arbitrary custom fields.
+
 ## Domain Logic
 
 `backend/app/domain/contact_selection.py` contains pure analytical contact selection logic. It selects one contact per deal by configured priority, then `is_primary`, then minimum `contact_id`. Deals without contacts return `None`; no fake contact is created.
@@ -151,6 +198,8 @@ It uses only synthetic fixture data and does not call Bitrix, NBRB, or external 
 ## Safety Rules
 
 - Do not store phones, emails, addresses, messengers, requisites, comments, files, activity fields, or arbitrary non-allowlisted Bitrix fields.
+- Do not use `select: ["*"]` for Bitrix extraction.
+- Do not log, return, or document real Bitrix webhook URLs.
 - Do not commit raw Bitrix exports, local databases, Parquet snapshots, CSV exports, or secrets.
 - Store time in UTC. Default display timezone is `Europe/Minsk`.
 - Revenue is calculated only from won deals.

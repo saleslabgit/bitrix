@@ -26,6 +26,7 @@ dev = [
 packages = [
     "app",
     "app.api",
+    "app.bitrix",
     "app.core",
     "app.domain",
     "app.pipeline",

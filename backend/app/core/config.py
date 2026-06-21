@@ -10,9 +10,19 @@ class Settings(BaseSettings):
     debug: bool = False
     timezone: str = "Europe/Minsk"
     allowed_origins: str = "http://localhost:3000"
-    bitrix_webhook_url: str = Field(
-        default="https://example.bitrix24.com/rest/USER_ID/WEBHOOK_TOKEN/",
+    bitrix_webhook_url: str | None = Field(
+        default=None,
         validation_alias="BITRIX_WEBHOOK_URL",
+    )
+    bitrix_contact_type_field: str | None = Field(
+        default=None,
+        validation_alias="BITRIX_CONTACT_TYPE_FIELD",
+    )
+    bitrix_page_size: int = Field(
+        default=50,
+        ge=1,
+        le=50,
+        validation_alias="BITRIX_PAGE_SIZE",
     )
 
     model_config = SettingsConfigDict(

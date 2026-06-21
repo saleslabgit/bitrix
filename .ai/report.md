@@ -1,99 +1,106 @@
-# Отчет: TASK-2026-06-21-08
+# Отчет: TASK-2026-06-21-09
 
 Статус: done
 
 ## Кратко
 
-Реализован локальный backend analytics milestone поверх normalized DuckDB data: добавлены deterministic USD conversion helpers на synthetic `currency_rates`, контактная аналитика, ABC full vs last 12 months, RFM и reactivation signal, deal-cycle metrics, stale open deals, concentration, type/region aggregates и typed FastAPI endpoints.
+Реализован первый read-only Bitrix boundary для MVP: безопасные настройки, явные allowlist-ы Bitrix полей, read-only REST client с пагинацией, metadata discovery, ручная mocked-testable загрузка contacts/deals/links/stages в существующие raw DuckDB таблицы и последующая нормализация.
 
-Реальная интеграция Bitrix, NBRB, frontend, authentication, Parquet и persisted analytics tables не добавлялись.
+Frontend, NBRB, Parquet snapshots, production dataset activation, scheduler, authentication и live Bitrix checks не добавлялись.
 
 ## Измененные файлы
 
+- `backend/app/core/config.py`
+- `backend/app/bitrix/__init__.py`
+- `backend/app/bitrix/allowlist.py`
+- `backend/app/bitrix/client.py`
+- `backend/app/bitrix/discovery.py`
+- `backend/app/bitrix/ingestion.py`
+- `backend/app/bitrix/transform.py`
+- `backend/app/storage/loaders.py`
 - `backend/app/api/models.py`
 - `backend/app/main.py`
-- `backend/app/pipeline/synthetic_dataset.py`
-- `backend/app/reports/analytics.py`
-- `backend/tests/test_analytics.py`
-- `backend/tests/test_api_local.py`
+- `backend/pyproject.toml`
+- `backend/tests/test_bitrix_client.py`
+- `backend/tests/test_bitrix_discovery.py`
+- `backend/tests/test_bitrix_ingestion.py`
+- `backend/tests/test_api_bitrix.py`
+- `.env.example`
 - `backend/README.md`
 - `docs/architecture.md`
 - `docs/data-model.md`
 - `docs/development.md`
-- `docs/fixtures.md`
 - `docs/project-status.md`
 - `docs/testing.md`
 - `.ai/report.md`
 
 ## Запущенные проверки
 
-- `git status --short` before implementation — passed; showed pre-existing modified `.ai/task.md` and `AGENTS.md`. They were not edited for the task.
-- `/tmp/bitrix-task-06-venv/bin/python -m py_compile app/*.py app/**/*.py tests/*.py tests/**/*.py` from `backend/` — passed.
-- `/tmp/bitrix-task-06-venv/bin/python -m pytest` from `backend/` — passed: 31 tests passed.
-- `git diff --check` — failed only on pre-existing `.ai/task.md` and `AGENTS.md` whitespace/line-ending changes.
-- `git diff --check -- ':!AGENTS.md' ':!.ai/task.md'` — passed for task files.
-- Generated Python `__pycache__` artifacts created by checks were removed.
+- `git log --oneline -5` before implementation — passed.
+- `git status --short` before implementation — passed; showed pre-existing modified `.ai/task.md`. It was not edited for this task.
+- `python -m py_compile app/*.py app/**/*.py tests/*.py tests/**/*.py` from `backend/` — not run because `python` command is absent in this environment.
+- `python3 -m py_compile app/*.py app/**/*.py tests/*.py tests/**/*.py` from `backend/` — passed.
+- `python3 -m pytest` from `backend/` — not run because system Python has no `pytest` installed.
+- `/tmp/bitrix-task-06-venv/bin/python -m pytest` from `backend/` — passed: 43 tests passed.
 
 ## Критерии приемки
 
-- Local USD conversion works from synthetic `currency_rates` without external calls — выполнено.
-- Contact analytics calculates won revenue USD, profit USD, counts, and dates correctly — выполнено.
-- Revenue and profit include only won deals — выполнено.
-- ABC full-period and last-12-month classifications are implemented and tested — выполнено.
-- Contacts without won sales are classified as `Нет продаж` in test coverage — выполнено.
-- RFM and reactivation signals are implemented and tested on synthetic edge cases — выполнено.
-- Deal cycle and stale open deal analytics are implemented and tested — выполнено.
-- Concentration, type analytics, and region analytics are implemented and tested — выполнено.
-- New API endpoints return typed local analytics data and no forbidden fields — выполнено.
-- Existing TASK-07 pipeline/API tests continue to pass — выполнено.
-- Documentation and `.ai/report.md` reflect the new analytics milestone and note `ui-kits/` as future frontend design-system input — выполнено.
-- No real secrets, raw data, databases, Parquet snapshots, CSV exports, dependency folders, virtual environments, caches, generated artifacts, or frontend builds are included in task files — выполнено.
+- Bitrix settings are added safely and tests run without live credentials — выполнено.
+- Read-only Bitrix client supports mocked metadata/list/link/stage flows — выполнено.
+- Field allowlists are centralized and tested — выполнено.
+- Forbidden fields are not requested and are ignored if present in mocked responses — выполнено.
+- Discovery reports configured contact type field present/missing status safely — выполнено.
+- Manual mocked ingestion loads contacts, deals, links, and stages into raw DuckDB tables idempotently — выполнено.
+- Existing normalization runs after mocked Bitrix raw ingestion — выполнено.
+- Sync/discovery status surfaces expose counts/errors without secrets — выполнено.
+- Existing synthetic pipeline, analytics, and API tests continue to pass — выполнено.
+- Documentation and `.ai/report.md` reflect the new real Bitrix boundary milestone — выполнено.
+- No secrets, raw data, databases, Parquet snapshots, CSV exports, dependency folders, virtual environments, caches, generated artifacts, frontend builds, or `ui-kits/` changes were added — выполнено.
 
 ## Факты
 
-- New analytics module: `backend/app/reports/analytics.py`.
-- New local report endpoints:
-  - `GET /api/reports/contacts/analytics`;
-  - `GET /api/reports/abc`;
-  - `GET /api/reports/rfm`;
-  - `GET /api/reports/stale-deals`;
-  - `GET /api/reports/deal-cycle`;
-  - `GET /api/reports/concentration`;
-  - `GET /api/reports/type-region`;
-  - `GET /api/reports/types-regions`.
-- Existing `GET /api/reports/contacts` remains available.
-- Report endpoints calculate on demand from `normalized_contacts`, `normalized_deals`, and `currency_rates`.
-- No Bitrix, NBRB, or external API calls are made.
-- Financial analytics use local USD conversion:
-  - `amount_usd = amount_original * source_rate_byn / usd_rate_byn`.
-- Closed deals use `closed_at` for rate selection; open deals use `created_at`.
-- The selected rate is the latest local rate on or before the target date.
-- Synthetic currency rates now include 2023-01-01 and 2025-01-01 rows so historical selection is deterministic for the fixture.
-- Estimated profit is always `revenue_usd * 0.50`.
-- ABC uses the maximum local report date as the default analysis date and compares full period against the previous 12 months.
-- RFM includes explicit `Нет продаж` rows for contacts without won deals in the selected period.
-- Reactivation is flagged for repeat buyers whose last won deal is older than the local threshold.
-- Stale open deals compare open age with the P75 won-deal cycle for the same contact type and fall back to overall P75.
-- API response field for latest deal date is `latest_deal_date`; no activity fields are exposed.
+- New Bitrix package: `backend/app/bitrix/`.
+- New settings:
+  - `BITRIX_WEBHOOK_URL`;
+  - `BITRIX_CONTACT_TYPE_FIELD`;
+  - `BITRIX_PAGE_SIZE`.
+- New manual Bitrix endpoints:
+  - `GET /api/bitrix/discovery`;
+  - `POST /api/bitrix/sync/run`;
+  - `GET /api/bitrix/sync/status`.
+- Existing local synthetic endpoints remain unchanged:
+  - `POST /api/sync/run`;
+  - `GET /api/sync/status`.
+- The Bitrix client allows only read methods:
+  - `crm.contact.fields`;
+  - `crm.deal.fields`;
+  - `crm.contact.list`;
+  - `crm.deal.list`;
+  - `crm.deal.contact.items.get`;
+  - `crm.status.list`.
+- Contact select fields are limited to `ID`, `NAME`, `SECOND_NAME`, `LAST_NAME`, plus configured `BITRIX_CONTACT_TYPE_FIELD` when present.
+- Deal select fields are limited to `ID`, `TITLE`, `OPPORTUNITY`, `CURRENCY_ID`, `DATE_CREATE`, `CLOSEDATE`, `STAGE_ID`, and `CATEGORY_ID`.
+- Manual Bitrix ingestion reloads only `raw_contacts`, `raw_deals`, `raw_deal_contact_links`, and `raw_stages`.
+- Manual Bitrix ingestion preserves local `contact_type_rules` and `currency_rates`.
+- Missing credentials produce safe structured error/status responses and do not break the regular test suite.
 
 ## Предположения
 
-- On-demand analytics are acceptable for this milestone before persisted analytics output tables exist.
-- Compact response shapes are sufficient for future frontend iteration and can evolve after screen composition is finalized.
-- A local reactivation threshold of 365 days is acceptable because the current docs do not define a separate exact threshold.
-- The default synthetic analysis date should be derived from local normalized deal data for deterministic tests.
-- `GET /api/reports/types-regions` is kept as a compatibility alias for the SPEC naming while `/api/reports/type-region` satisfies the task naming.
+- Traditional Bitrix CRM methods `crm.contact.list` and `crm.deal.list` are acceptable for this first boundary because they match the current raw schema and allow explicit field selection.
+- Universal Bitrix item methods can be added later if the real account requires them.
+- Discovery candidate fields can list safe custom `UF_*` contact field codes to help choose `BITRIX_CONTACT_TYPE_FIELD`; ingestion still stores only the configured field.
+- Existing `local_dataset_status` is acceptable for the first manual Bitrix status row before production dataset activation exists.
 
 ## Неизвестное
 
 - Actual Bitrix webhook URL and access method.
 - Actual Bitrix custom field code for contact type.
 - Actual production contact type values, priorities, and region mapping.
-- Actual production pipelines, stages, and currencies in Bitrix.
+- Actual production pipelines, stage IDs, category IDs, currencies, and deal-contact link behavior.
+- Whether Bitrix account permissions allow all required read-only methods.
 - Final production storage layout, migration strategy, dataset activation mechanics, and Parquet snapshot format.
-- Final frontend response-shape needs beyond the current compact local report API.
-- Production NBRB missing-rate policy beyond the documented MVP rule.
+- Whether the real account should use universal `crm.item.list` methods instead of traditional CRM list methods.
 
 ## Риски или следующий шаг
 
-Next likely backend milestone: plan real Bitrix read-only ingestion and field allowlist discovery, or production storage/dataset activation mechanics for the local pipeline.
+Next likely step: run `GET /api/bitrix/discovery` with a real read-only Bitrix credential, choose and configure `BITRIX_CONTACT_TYPE_FIELD`, then plan production dataset activation and NBRB currency integration.
