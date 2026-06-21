@@ -1,189 +1,213 @@
-# Task: TASK-2026-06-21-06
+# Task: TASK-2026-06-21-07
 
 Status: planned
-Created from commit: 1400ba4269be6fe7e3b1b64c37eb05ac47404517
+Created from commit: f45754eb3f7abfb7a63fb9e60a860f7792ed25e0
 
 ## Title
 
-Add storage schema and synthetic fixture scaffold
+Implement local normalized pipeline and read API milestone
 
 ## Goal
 
-Add the first local data-layer scaffold for the backend: a minimal DuckDB schema initializer for allowed MVP data tables and a fully synthetic integration fixture dataset that future normalization and analytics tests can reuse.
+Implement the first meaningful local backend pipeline milestone using only the synthetic fixture and local DuckDB storage:
 
-This task should make the project ready for the next step: implementing normalization rules and storage-backed pipeline tests. Do not connect to Bitrix, fetch real data, write Parquet snapshots, or implement analytics calculations in this task.
+1. load the synthetic allowed raw data into DuckDB;
+2. normalize contact type/region, stage status, and analytical contact assignment;
+3. expose minimal read-only API endpoints for health, sync/status-like local dataset status, filters, and contact/deal summaries;
+4. cover the milestone with storage-backed tests.
+
+This is a larger backend milestone. It should move the project from static schema/fixtures to a working local data pipeline without real Bitrix integration, without NBRB integration, and without frontend work.
 
 ## Facts
 
-- `TASK-2026-06-21-05` stabilized backend tests.
-- Backend tests now complete: 7 tests passed in the latest report.
-- Docker Compose config also passed after host tooling was enabled.
-- Current backend domain scaffold exists under `backend/app/domain/`.
-- Current domain models include:
-  - `ContactSnapshot`;
-  - `DealSnapshot`;
-  - `DealContactLink`;
-  - `StageSnapshot`;
-  - `ContactTypeRule`;
-  - `CurrencyRateSnapshot`.
-- Current pure domain logic includes analytical contact selection in `backend/app/domain/contact_selection.py`.
-- `docs/fixtures.md` defines the future synthetic integration fixture requirements.
-- `docs/project-status.md` says the next likely steps are local storage schema, synthetic integration fixture data, and first normalization tests.
-- `SPEC.md` requires local storage of raw and normalized data, but real Bitrix integration is not implemented yet.
-- `SPEC.md` forbids downloading or storing phones, emails, addresses, messengers, requisites, comments, files, activity fields, or arbitrary non-allowlisted Bitrix fields.
-- No real Bitrix field codes, contact type values, priorities, region mapping, pipelines, stages, or real currencies have been confirmed from production data yet.
+- `TASK-2026-06-21-06` added the first DuckDB storage schema scaffold and synthetic fixture dataset.
+- Current storage schema tables are:
+  - `raw_contacts`;
+  - `raw_deals`;
+  - `raw_deal_contact_links`;
+  - `raw_stages`;
+  - `contact_type_rules`;
+  - `currency_rates`.
+- Current fixture is `backend/tests/fixtures/synthetic_dataset.py`.
+- Current fixture contains 10 contacts, 30 deals, won/open/lost statuses, several currencies, multi-contact deal, deal without contact, equal type priorities, old high-value contact scenario, single-won-deal contact, and long-open deal.
+- Current domain logic includes `select_analytical_contact()`.
+- `SPEC.md` requires periods and reports to be calculated from local data, not by querying Bitrix.
+- `SPEC.md` requires one analytical contact per deal for contact analytics.
+- `SPEC.md` requires contact type and region to be driven by configuration/local data, not hardcoded production constants.
+- `SPEC.md` requires deals without contacts to be preserved and shown as `Без контакта` or `Не определено` depending on report context.
+- `SPEC.md` forbids phones, emails, addresses, messengers, requisites, comments, files, activity fields, and arbitrary non-allowlisted Bitrix fields.
+- Real Bitrix integration, real field codes, real stages, real currencies, and real type/region mapping are still unknown.
 
 ## Assumptions
 
-- DuckDB is already a backend dependency and can be used for the first storage schema scaffold.
-- The first schema can be minimal and focused on allowed MVP entities, without final migration tooling.
-- Synthetic fixture values may use invented contact names, deal names, stage IDs, currencies, type raw values, priorities, and regions as long as they are clearly fake and documented as test-only.
-- Raw data tables should represent allowed Bitrix-shaped snapshots, not forbidden personal/contact fields.
-- Normalized and analytics tables can be documented as future work unless a very small placeholder is needed for schema clarity.
+- The synthetic fixture is the source of truth for this milestone.
+- It is acceptable to add normalized DuckDB tables to the current schema because normalization is now in scope.
+- It is acceptable to keep API endpoints minimal and read-only, focused on proving the local pipeline shape.
+- It is acceptable to use direct DuckDB queries or small repository/service functions before designing final production repository abstractions.
+- It is acceptable to implement a manual local fixture load function for tests and development, but it must not pretend to be real Bitrix sync.
+- Currency conversion can remain out of scope except preserving original currency/rate tables and documenting that USD conversion comes later.
 
 ## Unknowns
 
 - Actual Bitrix webhook URL and access method.
 - Actual Bitrix custom field code for contact type.
-- Actual Bitrix contact type values, priorities, and region mapping.
+- Actual contact type values, priorities, and region mapping.
 - Actual pipelines, stages, and currencies in Bitrix.
-- Final production storage layout, migration strategy, and dataset activation mechanics.
-- Whether future Parquet raw snapshots will mirror the DuckDB table names exactly.
+- Final production storage layout, migration strategy, dataset activation mechanics, and Parquet snapshot format.
+- Final frontend response-shape needs beyond the API contract in `SPEC.md`.
 
 ## Scope
 
-1. Add a storage package under `backend/app/storage/`.
+Implement this as a coherent backend milestone. Prefer small modules with clear names over one large file. Follow existing style.
 
-Suggested structure:
+### 1. Extend Storage Schema
 
-```text
-backend/app/storage/
-  __init__.py
-  schema.py
-```
+Extend `backend/app/storage/schema.py` to include normalized/local pipeline tables needed for this milestone.
 
-The package should expose a minimal, explicit API such as:
+At minimum, add tables that can represent:
+
+- normalized contacts with `contact_id`, `contact_name`, `contact_type_raw`, `contact_type_normalized`, `region_normalized`;
+- normalized deals with original deal fields plus `status_group`, `analytical_contact_id`, `analytical_contact_name`, `contact_type_normalized`, `region_normalized`;
+- a small local dataset status table or equivalent storing status information for the current local fixture dataset.
+
+Keep raw tables from `TASK-06` intact. Do not add forbidden personal fields.
+
+### 2. Add Storage Load Helpers
+
+Add a storage module that can load the synthetic fixture into the raw tables and clear/reload current local test data idempotently.
+
+Suggested API shape, adjust if a better local pattern emerges:
 
 ```python
-initialize_schema(connection: duckdb.DuckDBPyConnection) -> None
-list_expected_tables() -> tuple[str, ...]
+load_synthetic_dataset(connection, dataset) -> None
 ```
 
-Use the existing project style and keep the API small.
+Requirements:
 
-2. Implement DuckDB schema creation for allowed MVP data tables.
+- insert contacts, deals, deal-contact links, stages, contact type rules, and currency rates;
+- be deterministic and idempotent for tests;
+- avoid generated files and avoid local DB files in git;
+- avoid broad abstractions that are not needed yet.
 
-At minimum, create tables for:
+### 3. Add Normalization Pipeline
 
-- raw contacts;
-- raw deals;
-- raw deal-contact links;
-- raw stages;
-- contact type rules;
-- currency rates.
+Add a backend normalization module that transforms raw tables into normalized tables.
 
-Use clear table names and column names that match the existing domain models where practical. Include only allowed MVP fields.
+Minimum behavior:
 
-Do not create columns for phones, emails, addresses, messengers, requisites, comments, files, activity fields, or arbitrary non-allowlisted Bitrix fields.
+- normalize contact type and region using active `contact_type_rules`;
+- use `Не определено` for unknown/missing contact type or region;
+- derive/verify deal `status_group` using `raw_stages` with `stage_id` and `category_id` where available;
+- select one `analytical_contact_id` per deal using the existing `select_analytical_contact()` rules;
+- preserve deals without contacts with `analytical_contact_id = NULL`, `analytical_contact_name = 'Без контакта'`, and normalized type/region as `Не определено`;
+- ensure each deal appears exactly once in the normalized deals table;
+- do not calculate currency conversion, ABC, RFM, reactivation, stale-deal thresholds, or concentration yet.
 
-3. Add storage tests.
+### 4. Add Local Pipeline Orchestration
 
-Create focused tests that verify:
+Add a small orchestration function for tests/dev that initializes schema, loads the synthetic dataset, runs normalization, and returns useful status counts.
 
-- schema initialization runs on an in-memory DuckDB connection;
-- all expected tables are created;
-- expected columns exist for each table;
-- forbidden field names are not present in any created table;
-- schema initialization is idempotent when called more than once.
+Suggested API shape, adjust if useful:
 
-4. Add a synthetic integration fixture dataset.
-
-Suggested location:
-
-```text
-backend/tests/fixtures/synthetic_dataset.py
+```python
+run_synthetic_pipeline(connection) -> PipelineStatus
 ```
 
-The fixture should be pure Python test data using existing domain models or simple helper functions returning existing domain models.
+The status should include at least counts for contacts, deals, links, normalized contacts, normalized deals, and a `success`/`error`-like state appropriate for local fixture execution.
 
-It must include at least:
+Do not name this real Bitrix sync. It is a local synthetic pipeline.
 
-- 10 contacts;
-- 30 deals;
-- won, open, and lost deals;
-- several currencies;
-- at least one deal linked to multiple contacts;
-- equal contact type priorities;
-- at least one deal without any contact;
-- one would-be A-segment contact without sales in the last 12 months;
-- one contact with a single won deal;
-- one long-open deal.
+### 5. Add Minimal Read API Endpoints
 
-The dataset must be synthetic and must not contain real Bitrix data or personal contact fields.
+Implement read-only FastAPI endpoints backed by the local synthetic pipeline, with no external calls.
 
-5. Add fixture validation tests.
+Required endpoints for this milestone:
 
-Create tests that verify the synthetic fixture satisfies the minimum shape requirements above and uses only allowed domain fields. These tests should not calculate ABC, RFM, currency conversion, or stale-deal analytics yet.
+- `GET /api/sync/status` — return current local pipeline status. It may report fixture status until real Bitrix sync exists.
+- `POST /api/sync/run` — for now, run the local synthetic pipeline only. The response and docs must clearly indicate it is synthetic/local, not Bitrix.
+- `GET /api/meta/filters` — return available contact types, regions, statuses, and simple period metadata from normalized/local data.
+- `GET /api/reports/contacts` — return paginated normalized contact summary rows with local filters/search where practical.
+- `GET /api/reports/stale-deals` or `GET /api/reports/deal-cycle` may remain unimplemented if doing both would bloat the task; if omitted, return a documented 501-style response only if an endpoint stub already exists. Do not create broad report stubs just for appearance.
 
-6. Keep documentation current.
+API constraints:
 
-Update concise documentation where relevant:
+- endpoints must use local DuckDB data only;
+- no Bitrix calls;
+- no forbidden fields in responses;
+- responses should be Pydantic-typed where practical;
+- keep response shapes simple and documented in code/docs.
 
-- `docs/data-model.md` for the new storage schema scaffold;
-- `docs/fixtures.md` for the now-implemented synthetic fixture location and coverage;
-- `docs/project-status.md` for current stage and next likely steps;
-- `docs/testing.md` for new test coverage;
-- `backend/README.md` for the new storage package map if useful.
+Storage for the API can be in-memory for this milestone if that keeps the implementation reliable. If using a file path, it must be configurable and ignored by git.
 
-7. Update `.ai/report.md` using the `WORKFLOW.md` report format.
+### 6. Add Tests
+
+Add storage-backed tests for the whole milestone.
+
+Minimum coverage:
+
+- synthetic pipeline initializes, loads, normalizes, and returns expected counts;
+- normalized contacts contain expected type/region mappings and `Не определено` fallback;
+- normalized deals contain exactly one row per deal;
+- deal with multiple contacts resolves to the expected analytical contact by type priority / primary / id tie-break rules;
+- deal without contact is preserved as `Без контакта` with `Не определено` type/region;
+- won/open/lost statuses are represented correctly from stages;
+- API status, filters, and contacts endpoints return local data without forbidden fields;
+- existing health, contact selection, storage schema, and fixture tests still pass.
+
+### 7. Documentation
+
+Update documentation concisely:
+
+- `docs/data-model.md` — normalized tables and local synthetic pipeline state;
+- `docs/project-status.md` — current phase and next real milestone;
+- `docs/testing.md` — storage-backed pipeline/API tests;
+- `docs/development.md` or `backend/README.md` — how to run the local synthetic pipeline/API if commands change;
+- `.ai/report.md` — full implementation report.
 
 ## Out Of Scope
 
 - Real Bitrix integration.
-- Bitrix API clients, webhooks, pagination, retries, or field allowlist discovery.
-- NBRB currency API integration.
-- Real currency conversion logic.
+- Bitrix API clients, real webhook calls, pagination, retries, or allowlist discovery.
+- NBRB API integration and real currency conversion.
 - Parquet snapshot writing.
-- Dataset activation/swap mechanics.
-- Normalization implementation beyond table/fixture preparation.
-- ABC, ABC migration, RFM, reactivation, type/region analytics, deal-cycle, stale-deal, or concentration calculations.
-- Report API endpoints.
-- Authentication.
+- Production dataset activation/swap mechanics.
+- ABC, ABC migration, RFM, reactivation, stale-deal thresholds, concentration analytics, and financial reports beyond simple local contact/deal summaries.
 - Frontend implementation.
 - Design system work.
+- Authentication implementation.
 - CI/GitHub Actions setup.
-- Production deployment, HTTPS, or backups.
+- Production deployment, HTTPS, backups.
+- Complex repository/migration framework unless required by the implementation.
 
 ## Constraints
 
 - Follow `AGENTS.md`, `WORKFLOW.md`, and `SPEC.md`.
-- Keep changes focused on storage schema and synthetic fixture scaffold.
-- Do not change `.ai/task.md` during implementation.
-- Do not use `git add .` unless explicitly allowed by the user.
-- Do not invent real Bitrix field codes or present synthetic values as real values.
-- Do not hardcode future production contact type priorities or region rules outside synthetic test data.
-- Do not include forbidden personal fields anywhere in schema, fixtures, docs, tests, logs, or reports.
-- Do not commit real secrets, raw Bitrix data, local databases, Parquet snapshots, CSV exports, dependency folders, virtual environments, caches, or generated artifacts.
-- Prefer explicit table and column definitions over clever dynamic schema generation.
-- Keep documentation concise and operational.
+- Keep all data synthetic and local.
+- Do not query Bitrix or external APIs.
+- Do not invent real Bitrix field codes or present synthetic values as real production config.
+- Do not add forbidden personal fields anywhere in schema, fixtures, API responses, docs, logs, or tests.
+- Do not commit local DuckDB database files, Parquet snapshots, CSV exports, dependency folders, virtual environments, caches, generated artifacts, raw data, or secrets.
+- Do not implement frontend screens before design system approval.
+- Prefer explicit code over broad frameworks.
+- Keep the milestone coherent: raw load -> normalize -> read API -> tests -> docs.
 
 ## Acceptance Criteria
 
-- `backend/app/storage/` exists and exposes a small schema initialization API.
-- DuckDB schema initialization creates all required MVP scaffold tables.
-- Schema initialization is idempotent.
-- Tests verify expected table names and columns.
-- Tests verify forbidden field names are absent from schema columns.
-- A synthetic integration fixture exists and satisfies the minimum dataset shape from `SPEC.md`/`docs/fixtures.md`.
-- Fixture validation tests pass without real Bitrix data or forbidden personal fields.
-- Existing health and contact selection tests still pass.
-- Documentation reflects the new storage schema and fixture scaffold.
-- `.ai/report.md` lists changed files, checks, results, facts, assumptions, unknowns, and next step.
+- Raw fixture data can be loaded into DuckDB idempotently.
+- Normalized contacts and deals are generated from local raw tables.
+- Contact type and region normalization works with active rules and `Не определено` fallback.
+- Analytical contact assignment works and each deal appears once in normalized deals.
+- Deal without contact is preserved as `Без контакта` and `Не определено`.
+- Status groups are represented correctly for won/open/lost synthetic deals.
+- Minimal local read API endpoints work against local DuckDB data and return no forbidden fields.
+- Storage-backed tests cover pipeline and API behavior.
+- Existing tests continue to pass.
+- Documentation and `.ai/report.md` reflect the new milestone.
 - No real secrets, raw data, databases, Parquet snapshots, CSV exports, dependency folders, virtual environments, caches, or generated artifacts are committed.
 - The implementation commit uses the required prefix:
 
 ```text
-codex: TASK-2026-06-21-06 Add storage schema and synthetic fixture scaffold
+codex: TASK-2026-06-21-07 Implement local normalized pipeline and read API milestone
 ```
 
 ## Checks
