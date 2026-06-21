@@ -1,250 +1,236 @@
-# Task: TASK-2026-06-21-08
+# Task: TASK-2026-06-21-09
 
 Status: planned
-Created from commit: 0a479a7431be7fc89237b0671038447652175272
+Created from commit: 1e78985bc728644eb539946f3cfb72903dd90da2
 
 ## Title
 
-Implement local analytics engine and report API milestone
+Implement Bitrix read-only ingestion and allowlist discovery milestone
 
 ## Goal
 
-Build the next backend milestone on top of the local synthetic pipeline from TASK-07: implement local analytics calculations over normalized DuckDB data and expose them through typed read API endpoints.
+Implement the first real Bitrix data boundary for the MVP: a safe read-only Bitrix client, explicit field allowlists, metadata discovery for required CRM fields, and a manual ingestion pipeline that can load allowed Bitrix contacts, deals, deal-contact links, and stage dictionaries into local raw DuckDB tables.
 
-This task should move the project from normalized local data to usable analytical outputs for the MVP, still without real Bitrix integration, without NBRB external calls, without frontend implementation, and without authentication.
+This is a backend/data milestone before frontend work. It must not implement UI, authentication, NBRB integration, Parquet snapshots, production dataset activation, or scheduled sync.
 
 ## Facts
 
-- `TASK-2026-06-21-07` implemented local synthetic raw loading, normalization, pipeline status, and minimal read API endpoints.
-- Current normalized tables are `normalized_contacts` and `normalized_deals`.
-- Current local status table is `local_dataset_status`.
-- Current synthetic dataset includes 10 contacts, 30 deals, won/open/lost statuses, several currencies, multi-contact deal, deal without contact, equal type priorities, old high-value contact scenario, single-won-deal contact, and long-open deal.
-- Current currency rates are synthetic local records in `currency_rates`.
-- `SPEC.md` requires revenue to be counted only from won deals.
-- `SPEC.md` requires estimated profit to always be `revenue_usd * 0.50`.
-- `SPEC.md` requires all financial analytics to be normalized to USD.
-- `SPEC.md` requires periods and reports to be calculated from local data, not by querying Bitrix.
-- `SPEC.md` requires one analytical contact per deal for contact analytics.
-- `SPEC.md` requires ABC, ABC comparison for full period vs last 12 months, RFM, reactivation, type/region analytics, deal cycle, stale open deals, and concentration analytics in MVP.
-- `ui-kits/` now exists and contains the design system for future frontend work. It is not a ready interface and is not in scope for this backend task.
+- TASK-07 added local synthetic raw loading, normalization, status, and minimal read API endpoints.
+- TASK-08 added local analytics over normalized DuckDB data and typed report endpoints.
+- Current real Bitrix access method and webhook URL are unknown.
+- Bitrix must be read-only for this project.
+- The MVP main analytics entity is the contact.
+- The current local schema has raw tables for contacts, deals, deal-contact links, stages, contact type rules, and currency rates.
+- The current normalized and analytics layers run from local tables, not from Bitrix directly.
+- `SPEC.md` and `docs/data-model.md` forbid phones, emails, addresses, messengers, requisites, comments, files, activities, and arbitrary non-allowlisted fields.
+- The contact type field code is unknown and must be discoverable/configurable, not invented.
+- `ui-kits/` exists for future frontend implementation, but it is not in scope for this backend task.
 
 ## Assumptions
 
-- The synthetic fixture remains the source of truth for this milestone.
-- It is acceptable to implement analytics as service/query modules backed by DuckDB before final production repository abstractions exist.
-- It is acceptable to use synthetic local currency rates for USD conversion tests, but not to call NBRB yet.
-- It is acceptable to expose compact API shapes that are useful for future frontend screens and can evolve later.
-- It is acceptable to calculate analytics on demand from normalized local tables rather than persisting all report output tables in this milestone.
-- If an endpoint needs data and the local synthetic pipeline has not run yet, either return an empty typed response or run no implicit sync. Do not silently call Bitrix or external APIs.
+- Bitrix webhook will be provided through environment variables, never committed.
+- Tests must not require live Bitrix access; they should mock the Bitrix API boundary.
+- If live Bitrix environment variables are absent, commands/tests must still pass using mocked or synthetic data.
+- A manual live ingestion command/function may be added, but it must fail safely when credentials are missing.
+- The first real ingestion may store only allowlisted raw fields into DuckDB raw tables; normalization can reuse existing code where possible.
+- Parquet snapshots and production dataset activation are a later milestone unless a tiny interface is needed to keep the ingestion code clean.
 
 ## Unknowns
 
 - Actual Bitrix webhook URL and access method.
 - Actual Bitrix custom field code for contact type.
 - Actual production contact type values, priorities, and region mapping.
-- Actual production pipelines, stages, and currencies in Bitrix.
+- Actual production pipelines, stage IDs, category IDs, currencies, and deal-contact link behavior.
+- Whether Bitrix account permissions allow all required read-only methods.
 - Final production storage layout, migration strategy, dataset activation mechanics, and Parquet snapshot format.
-- Final frontend screen composition and exact response-shape needs.
 
 ## Scope
 
-Implement this as one coherent backend analytics milestone. Keep modules small and explicit. Do not start frontend implementation.
+Build this as one coherent backend/data milestone. Prefer explicit modules and narrow tests over broad abstractions.
 
-### 1. Add Currency Conversion Helpers
+### 1. Add Bitrix Settings
 
-Add local analytics helpers that convert deal amounts to USD using local `currency_rates`.
+Extend backend settings safely.
 
-Minimum behavior:
+Minimum expected settings:
 
-- convert `amount_original` to `amount_usd` using `currency_rates`;
-- use the rate for the deal close date when available, otherwise created date for open deals;
-- use the latest available rate on or before the target date where practical;
-- treat USD as USD via the local rate formula, not via a hardcoded production shortcut unless tests justify it;
-- keep all conversion deterministic on the synthetic dataset;
-- do not call NBRB or any external API.
+- `BITRIX_WEBHOOK_URL` or equivalent secret-backed webhook base URL;
+- optional `BITRIX_CONTACT_TYPE_FIELD` for the configured contact type field code;
+- optional page size/batch size if needed;
+- no secret values in docs, tests, logs, API responses, or committed files.
 
-Expected formula for local rates:
+Settings must allow tests to run without live credentials.
 
-```text
-amount_usd = amount_original * source_rate_byn / usd_rate_byn
-```
+### 2. Add Read-Only Bitrix Client
 
-### 2. Add Contact Analytics
-
-Add an analytics module for contact-level metrics over normalized deals.
-
-Minimum metrics per contact/report row:
-
-- `contact_id` and `contact_name`;
-- normalized contact type and region;
-- total deals count;
-- won/open/lost deals count;
-- won revenue in USD;
-- estimated profit in USD as `revenue_usd * 0.50`;
-- first won date and last won date where available;
-- last activity date based on latest deal created/closed date where practical;
-- `has_sales` or equivalent flag for contacts with won revenue.
-
-Period filters must apply to local data only. Revenue must count only won deals.
-
-### 3. Add ABC Analysis
-
-Implement ABC classification for contacts based on won revenue in USD.
+Add a backend Bitrix client module for read-only REST access.
 
 Minimum behavior:
 
-- classify contacts with no won revenue as `Нет продаж`;
-- sort revenue contributors deterministically;
-- classify cumulative revenue up to 80% as `A`, up to 95% as `B`, remaining revenue as `C`;
-- expose both full-period ABC and last-12-month ABC;
-- expose a comparison/migration output per contact, for example `abc_full`, `abc_12m`, and `abc_change` or equivalent.
+- call Bitrix methods by name through the webhook base URL;
+- support pagination for list methods;
+- support deterministic request construction and response parsing;
+- expose narrow methods for this milestone rather than a generic write-capable API;
+- never implement create/update/delete Bitrix calls;
+- avoid logging full webhook URLs or secrets;
+- raise explicit safe errors for missing credentials, HTTP errors, Bitrix response errors, and unexpected response shapes.
 
-Use the synthetic fixture dates to make last-12-month behavior deterministic. If the calculation needs an anchor date, use either the max local deal date or an explicit parameter, and document the choice.
+Suggested read methods, adjust to actual Bitrix API shape if needed:
 
-### 4. Add RFM And Reactivation Signals
+- CRM contact fields discovery;
+- CRM deal fields discovery;
+- contact list with allowlisted select fields;
+- deal list with allowlisted select fields;
+- deal-contact links for loaded deals;
+- deal category/stage dictionaries or status lists needed to derive `won/open/lost`.
 
-Implement a first local RFM calculation on won deals.
+### 3. Define Field Allowlists
 
-Minimum behavior:
-
-- recency from latest won closed date;
-- frequency from won deal count;
-- monetary from won revenue USD;
-- deterministic 1-5 style scores or clearly documented segment buckets;
-- segment output usable by frontend later;
-- contacts with no won deals handled explicitly.
-
-Add a reactivation signal for contacts whose last won deal is old enough and who have earlier sales history. Use a documented threshold constant if `SPEC.md` does not define the exact threshold in current docs.
-
-### 5. Add Deal Cycle And Stale Open Deals
-
-Implement local deal lifecycle analytics.
+Add a single source of truth for allowed Bitrix fields.
 
 Minimum behavior:
 
-- deal cycle duration for won/lost deals using created and closed timestamps;
-- aggregate cycle metrics by contact type and/or region where practical;
-- stale open deal detection based on open deal age;
-- long-open synthetic deal must be detected by tests;
-- deals without analytical contact remain represented as `Без контакта` / `Не определено` where relevant.
+- contacts allow only ID, display-name pieces, and configured contact type field when explicitly configured;
+- deals allow only ID, title/name, amount, currency, created/closed dates, stage, category/status fields needed by the MVP;
+- links allow only deal ID, contact ID, primary/sort/role fields if Bitrix returns them;
+- stages allow only IDs, category, names/status semantics needed for `won/open/lost` derivation;
+- forbid phones, emails, addresses, messengers, requisites, comments, files, activities, timeline, product rows, arbitrary UF fields outside the configured contact type field;
+- tests must prove forbidden fields are not requested or stored.
 
-### 6. Add Concentration And Type/Region Analytics
+### 4. Add Discovery Output
 
-Implement local aggregate outputs needed by the MVP.
+Add a small discovery function/report for Bitrix metadata.
 
 Minimum behavior:
 
-- revenue concentration: top contacts share of won revenue, including at least top 1 / top 3 / top 5 or a similarly useful compact output;
-- type analytics: revenue, profit, contact count, deal counts by normalized contact type;
-- region analytics: revenue, profit, contact count, deal counts by normalized region;
-- all financial fields in USD;
-- no forbidden personal fields in outputs.
+- discover available contact fields and deal fields through read-only metadata calls;
+- identify whether configured `BITRIX_CONTACT_TYPE_FIELD` exists;
+- report missing/unknown required fields without failing destructively;
+- return a safe structured result that does not include secret values or forbidden field values;
+- document how to use discovery to choose the contact type field.
 
-### 7. Add API Endpoints
+This can be a Python service function and/or a backend endpoint/CLI-style helper. Keep it minimal.
 
-Expose typed read-only FastAPI endpoints for the new analytics.
+### 5. Add Manual Raw Ingestion Pipeline
 
-Suggested endpoints, adjust names only if a cleaner local pattern emerges:
+Add a manual ingestion orchestration function that loads allowed Bitrix data into local raw DuckDB tables.
 
-- `GET /api/reports/contacts/analytics`;
-- `GET /api/reports/abc`;
-- `GET /api/reports/rfm`;
-- `GET /api/reports/stale-deals`;
-- `GET /api/reports/deal-cycle`;
-- `GET /api/reports/concentration`;
-- `GET /api/reports/type-region`.
+Minimum behavior:
 
-Requirements:
+- initialize local schema;
+- fetch allowed contacts;
+- fetch allowed deals;
+- fetch deal-contact links for fetched deals;
+- fetch stage/category dictionaries needed for status grouping;
+- transform Bitrix payloads into existing raw table shapes;
+- clear/reload raw tables idempotently for the current manual dataset;
+- run existing normalization after raw load if safe;
+- store/update a sync status row or equivalent status object with counts, timestamps, state, and safe error message;
+- never store forbidden fields;
+- never commit raw data or local database files.
 
-- endpoints use local DuckDB data only;
-- no Bitrix calls;
-- no NBRB calls;
-- response models are Pydantic typed;
-- period parameters are supported where meaningful;
-- responses do not expose forbidden fields;
-- existing TASK-07 endpoints continue to work.
+If schema changes are needed, keep them minimal and documented. Do not break existing synthetic pipeline tests.
 
-### 8. Tests
+### 6. Add API/Command Surface For Backend Use
 
-Add focused storage-backed tests for the analytics milestone.
+Expose a minimal backend-accessible surface for manual operations.
+
+Options:
+
+- service functions only plus tests; or
+- typed FastAPI endpoints such as `GET /api/bitrix/discovery`, `POST /api/bitrix/sync/run`, `GET /api/bitrix/sync/status`.
+
+If endpoints are added:
+
+- they must be typed with Pydantic models;
+- they must not expose secrets;
+- they must fail safely when `BITRIX_WEBHOOK_URL` is missing;
+- they must not replace the existing local synthetic endpoints unless clearly documented.
+
+### 7. Tests
+
+Add focused tests for the real Bitrix boundary using mocked responses.
 
 Minimum coverage:
 
-- USD conversion works for USD, EUR, and BYN synthetic deals using local rates;
-- revenue counts only won deals;
-- estimated profit equals `revenue_usd * 0.50`;
-- contact analytics returns expected rows/counts and handles no-sales contacts;
-- ABC boundaries at 80% and 95% are covered;
-- `Нет продаж` is assigned for contacts without won revenue;
-- full-period vs last-12-month ABC comparison is deterministic;
-- RFM handles high-value old contact, recent sales, single-won-deal contact, and no-sales contact;
-- stale open deal test detects the long-open synthetic deal;
-- deal cycle metrics calculate durations from local timestamps;
-- concentration output is deterministic;
-- type/region aggregates use normalized values and `Не определено` fallback;
-- API endpoints return typed local data without forbidden fields;
-- existing tests continue to pass.
+- Bitrix client constructs read-only method URLs/requests without exposing secrets;
+- pagination is handled correctly;
+- Bitrix API errors produce safe exceptions/statuses;
+- allowlist select fields do not include forbidden field names;
+- configured contact type field is included only when explicitly configured;
+- discovery reports present/missing contact type field correctly;
+- mocked contact/deal/link/stage payloads load into raw tables correctly;
+- forbidden fields in mocked Bitrix responses are ignored and not stored;
+- manual ingestion is idempotent;
+- normalization still produces normalized contacts/deals from mocked Bitrix raw load where possible;
+- missing credentials do not break the regular test suite;
+- existing synthetic pipeline, analytics, and API tests continue to pass.
 
-### 9. Documentation
+### 8. Documentation
 
 Update documentation concisely:
 
-- `docs/data-model.md` — document analytics calculations and report outputs added in this task;
+- `docs/data-model.md` — document real Bitrix raw ingestion boundary and allowlisted fields;
+- `docs/development.md` or `backend/README.md` — document environment variables and manual discovery/sync commands/endpoints;
 - `docs/project-status.md` — update current phase, done/not done, and next likely milestone;
-- `docs/testing.md` — add analytics test coverage and expected command;
-- `docs/development.md` or `backend/README.md` — document local analytics endpoints;
+- `docs/testing.md` — document mocked Bitrix boundary tests and live-access expectations;
 - `.ai/report.md` — full implementation report with changed files, checks, facts, assumptions, unknowns, and next step.
 
-Also mention that `ui-kits/` is the future frontend design-system source, but do not implement frontend work in this task.
+Do not edit `ui-kits/` in this task.
 
 ## Out Of Scope
 
-- Real Bitrix integration.
-- Bitrix API clients, real webhook calls, pagination, retries, or field allowlist discovery.
-- NBRB API integration or external currency calls.
-- Parquet snapshot writing.
-- Production dataset activation/swap mechanics.
 - Frontend implementation.
-- Copying, changing, or restructuring `ui-kits/`.
-- Authentication implementation.
+- Using `ui-kits/` in production UI.
+- Writing back to Bitrix.
+- Leads, companies, products, activities, comments, calls, emails, files, product rows, Roistat, CSV export.
+- NBRB integration and production currency update logic.
+- Parquet snapshot writing unless strictly necessary as a tiny placeholder interface.
+- Production dataset activation/swap mechanics.
+- Automatic scheduled sync.
+- Authentication and roles.
 - CI/GitHub Actions setup.
 - Production deployment, HTTPS, backups.
-- Complex BI constructor or arbitrary report builder.
-- Machine learning or forecasting.
 
 ## Constraints
 
 - Follow `AGENTS.md`, `WORKFLOW.md`, and `SPEC.md`.
-- Keep all data synthetic and local.
-- Do not query Bitrix or external APIs.
-- Do not invent real Bitrix field codes or present synthetic values as production config.
-- Do not add forbidden personal fields anywhere in schema, fixtures, API responses, docs, logs, or tests.
-- Do not commit local DuckDB database files, Parquet snapshots, CSV exports, dependency folders, virtual environments, caches, generated artifacts, raw data, or secrets.
-- Do not implement frontend screens in this task.
-- Do not modify `ui-kits/` unless a documentation-only reference is absolutely necessary.
-- Prefer explicit analytics code and focused tests over broad abstractions.
+- Bitrix access is strictly read-only.
+- Do not query Bitrix from tests; use mocked responses.
+- Live Bitrix calls may only happen through explicit manual functions/endpoints and only when credentials are present.
+- Do not invent real Bitrix field codes.
+- Do not include secrets, raw Bitrix data, local DB files, Parquet snapshots, CSV files, dependency folders, virtual environments, caches, generated artifacts, or frontend builds in git.
+- Do not include forbidden personal/out-of-scope fields in schema, fixtures, API responses, docs, logs, or tests except as negative test input proving they are ignored.
+- Do not modify `ui-kits/`.
+- Keep implementation explicit and testable.
 
 ## Acceptance Criteria
 
-- Local USD conversion works from synthetic `currency_rates` without external calls.
-- Contact analytics calculates won revenue USD, profit USD, counts, and dates correctly.
-- Revenue and profit include only won deals.
-- ABC full-period and last-12-month classifications are implemented and tested.
-- Contacts without won sales are classified as `Нет продаж` or equivalent documented no-sales state.
-- RFM and reactivation signals are implemented and tested on synthetic edge cases.
-- Deal cycle and stale open deal analytics are implemented and tested.
-- Concentration, type analytics, and region analytics are implemented and tested.
-- New API endpoints return typed local analytics data and no forbidden fields.
-- Existing TASK-07 pipeline/API tests continue to pass.
-- Documentation and `.ai/report.md` reflect the new analytics milestone and note `ui-kits/` as future frontend design-system input.
-- No real secrets, raw data, databases, Parquet snapshots, CSV exports, dependency folders, virtual environments, caches, generated artifacts, or frontend builds are committed.
-- The implementation commit uses the required prefix:
+- Bitrix settings are added safely and tests run without live credentials.
+- Read-only Bitrix client supports the required mocked metadata/list/link/stage flows.
+- Field allowlists are centralized and tested.
+- Forbidden fields are not requested and are ignored if present in mocked responses.
+- Discovery can report configured contact type field presence/missing status safely.
+- Manual mocked ingestion loads contacts, deals, links, and stages into raw DuckDB tables idempotently.
+- Existing normalization can run after mocked Bitrix raw ingestion where possible.
+- Sync/discovery status surfaces expose counts/errors without secrets.
+- Existing synthetic pipeline, analytics, and API tests continue to pass.
+- Documentation and `.ai/report.md` reflect the new real Bitrix boundary milestone.
+- No real secrets, raw Bitrix data, databases, Parquet snapshots, CSV exports, dependency folders, virtual environments, caches, generated artifacts, frontend builds, or `ui-kits/` changes are committed.
+- The implementation commit uses the exact required message:
 
 ```text
-codex: TASK-2026-06-21-08 Implement local analytics engine and report API milestone
+codex: TASK-2026-06-21-09 Implement Bitrix read-only ingestion and allowlist discovery milestone
 ```
 
 ## Checks
+
+Run before implementation:
+
+```bash
+git log --oneline -5
+git status --short
+```
 
 Run from `backend/` in the configured dev environment:
 
@@ -276,19 +262,21 @@ Before committing:
 ```bash
 git status --short
 git diff --stat HEAD
+git diff --name-only --cached
+git diff --check -- ':!AGENTS.md' ':!.ai/task.md'
 ```
 
-If any check cannot be run, document the exact reason in `.ai/report.md`.
+If `docker compose config` or any required check cannot be run, document the exact reason in `.ai/report.md`.
 
-## Notes
+## Hard Workflow Gate
 
-Before starting implementation, Codex must run:
+Codex must not commit until all conditions below are true:
 
-```bash
-git log --oneline -5
-git status --short
-```
+- the latest relevant commit is this planner commit;
+- `.ai/report.md` is updated;
+- every required check is either run and reported, or explicitly documented as not run with reason;
+- staged files are only files intentionally changed for TASK-09 plus `.ai/report.md`;
+- `AGENTS.md`, `.ai/task.md`, and `ui-kits/` are not staged unless the task explicitly required changing them;
+- the final commit message exactly matches the required `codex:` message above.
 
-Codex must stop if the latest relevant commit is not a planner commit for this task.
-
-After implementation, Codex must update `.ai/report.md`, stage only files related to this task and `.ai/report.md`, and avoid `git add .` unless explicitly allowed by the user.
+If any condition is not true, stop and report the blocker instead of committing.
