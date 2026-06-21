@@ -6,6 +6,8 @@
 
 Стабилизировал backend test runtime: health-тест больше не использует `fastapi.testclient.TestClient`, который зависал в текущей WSL temporary-target среде. Вместо этого тест проверяет регистрацию `GET /health` в FastAPI app и напрямую проверяет payload endpoint-функции. Полный backend pytest теперь завершается: 7 тестов passed.
 
+После пользовательской настройки WSL/Docker повторная проверка прошла без временного `/tmp` bootstrap: системные `pip` и `venv` доступны, зависимости устанавливаются в обычный virtualenv, `python -m pytest` проходит, `docker compose config` проходит.
+
 ## Измененные файлы
 
 - `backend/tests/test_health.py`
@@ -21,6 +23,16 @@
 - `python3 -m py_compile backend/app/*.py backend/app/core/*.py backend/app/domain/*.py backend/tests/test_*.py` — passed.
 - `docker compose config` — failed: Docker reports it is not available in this WSL 2 distro and recommends enabling Docker Desktop WSL integration.
 - Generated artifacts (`backend/.pytest_cache`, `__pycache__`, `backend/bitrix_sales_analytics_backend.egg-info`, `/tmp/bitrix-python-deps`) were removed before commit.
+
+Post-setup verification after user enabled host tooling:
+
+- `python3 -m pip --version` — passed: pip 24.0 for Python 3.12.
+- `dpkg -l python3-pip python3-venv python3.12-venv` — passed: all three packages are installed.
+- `python3 -m venv /tmp/bitrix-check-venv` — passed.
+- `/tmp/bitrix-check-venv/bin/python -m pip install -e ".[dev]"` from `backend/` — passed.
+- `/tmp/bitrix-check-venv/bin/python -m pytest` from `backend/` — passed: 7 tests passed in 0.54s.
+- `docker compose config` from repository root — passed.
+- Temporary virtualenv and generated Python artifacts were removed after verification.
 
 ## Критерии приемки
 
@@ -38,8 +50,8 @@
 - Direct `health()` call returns `{"status": "ok", "environment": "local"}`.
 - The FastAPI app contains exactly one registered `GET /health` route.
 - Full backend test suite now contains 7 tests: 5 contact selection tests and 2 health tests.
-- System `pip` is still absent; test execution used the temporary `/tmp` pip bootstrap documented in TASK-04.
-- Docker Compose validation is still blocked by Docker Desktop WSL integration, not by repository code.
+- The original implementation-time test execution used the temporary `/tmp` pip bootstrap documented in TASK-04 because system `pip` was absent at that time.
+- After user setup, system `pip`, `venv`, and Docker Compose validation are available in this WSL distro.
 
 ## Предположения
 
@@ -48,9 +60,8 @@
 
 ## Неизвестное
 
-- Whether `TestClient` would pass in a normal host-created virtual environment with system `python3-pip` and `python3-venv`.
-- Whether Docker Compose config passes after Docker Desktop WSL integration is enabled.
+- Whether `TestClient` would pass in a normal host-created virtual environment with system `python3-pip` and `python3-venv`; it was not reintroduced or retested because the accepted task fix avoids that hanging path.
 
 ## Риски или следующий шаг
 
-Next step: install durable host tooling (`python3-pip`, `python3-venv`) and enable Docker Desktop WSL integration, then run the documented checks without the temporary `/tmp` bootstrap.
+Host tooling blocker is resolved. Next step: ChatGPT acceptance review for `TASK-2026-06-21-05`, including `git show`, `.ai/report.md`, and the documented passing checks.
