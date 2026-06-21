@@ -1,187 +1,155 @@
-# Task: TASK-2026-06-21-01
+# Task: TASK-2026-06-21-02
 
 Status: planned
-Created from commit: 57369822c9362bceba2f2ffaaa4ee8bf203a0ce8
+Created from commit: 028f10bddf3485003b8218389a8a37578be169de
 
 ## Title
 
-Initialize project scaffold and documentation backbone
+Verify scaffold checks and dev setup docs
 
 ## Goal
 
-Create the initial repository scaffold for the Bitrix sales analytics MVP and establish concise operational documentation that helps ChatGPT and Codex quickly understand the current project stage, architecture, commands, and next steps.
+Close the verification gap from `TASK-2026-06-21-01` by documenting the exact development dependency installation flow and running the relevant scaffold checks in an environment that has the required tooling available.
 
-This task starts the technical track while the design system is prepared externally. Do not implement frontend screens in this task.
+This is a narrow follow-up task. Do not add product functionality.
 
 ## Facts
 
-- The repository currently contains `AGENTS.md`, `WORKFLOW.md`, and `SPEC.md`.
-- `SPEC.md` is confirmed as the current approved technical specification.
-- The project is an internal sales analytics system based on Bitrix CRM data.
-- Bitrix must be used only as a read-only data source.
-- The main analytics entity is the contact.
-- Revenue is calculated only from won deals.
-- Estimated profit is always `revenue_usd * 0.50`.
-- All financial analytics must be normalized to USD.
-- The MVP must not download or store phones, emails, addresses, messengers, requisites, comments, files, activity fields, or arbitrary non-allowlisted Bitrix fields.
-- The design system will be prepared separately by the user in Claude Design.
-- Frontend implementation must wait for the approved design system.
-- Simple internal authentication will be implemented later using environment-based credentials/secrets, with no complex roles in MVP.
-- `AGENTS.md` now requires documentation to be kept useful for both ChatGPT planning/acceptance and Codex implementation.
+- `TASK-2026-06-21-01` created the initial scaffold and documentation backbone.
+- The latest implementation commit is `codex: TASK-2026-06-21-01 Initialize project scaffold and documentation backbone`.
+- `.ai/report.md` for `TASK-2026-06-21-01` says `python3 -m py_compile backend/app/main.py backend/app/core/config.py backend/tests/test_health.py` passed.
+- `.ai/report.md` also says `cd backend && pytest` was not run because `pytest`, `fastapi`, and `pip` were unavailable in that environment.
+- `.ai/report.md` says `docker compose config` was not run because Docker was unavailable in that environment.
+- `backend/pyproject.toml` already defines dev dependencies under `[project.optional-dependencies].dev`.
+- Current docs mention `pytest`, but do not clearly document installing dev dependencies first.
+- Frontend implementation is still blocked until the design system is approved.
 
 ## Assumptions
 
-- Use the target backend stack from `SPEC.md`: Python 3.12, FastAPI, Pydantic v2, Polars, DuckDB, Parquet, pytest.
-- Use Docker Compose as the default local runtime entry point.
-- Create only a minimal backend skeleton in this task: enough to verify project wiring, not business analytics yet.
-- Create placeholder documentation for `frontend/` and `design-system/` without implementing UI or Storybook.
-- Use placeholder environment values only; no real secrets or Bitrix webhook values.
+- The intended local backend dev setup is an editable install with dev extras:
+
+```bash
+cd backend
+pip install -e ".[dev]"
+pytest
+```
+
+- Docker Compose should be validated from the repository root with:
+
+```bash
+docker compose config
+```
 
 ## Unknowns
 
-- Actual Bitrix webhook URL and access method.
-- Actual Bitrix custom field code for contact type.
-- Actual contact type values, priorities, and region mapping.
-- Actual Bitrix pipelines, stages, and currencies found in real data.
-- Final design tokens and frontend component decisions from Claude Design.
-- Deployment host details, HTTPS setup, and backup destination.
+- Whether the current Codex runtime has `pip` and network access for package installation.
+- Whether the current Codex runtime has Docker available.
+- Whether the scaffold has hidden dependency/configuration issues that only appear after installing dependencies and running tests.
 
 ## Scope
 
-Create the initial project scaffold with a small, verifiable backend and documentation backbone.
+Make only the smallest documentation and verification changes needed to make the scaffold checkable.
 
-Required repository structure:
+Required work:
 
-```text
-.ai/
-  task.md
-  report.md
-backend/
-  README.md
-  Dockerfile
-  pyproject.toml
-  app/
-    __init__.py
-    main.py
-    core/
-      __init__.py
-      config.py
-  tests/
-    test_health.py
-docs/
-  project-status.md
-  architecture.md
-  development.md
-  data-model.md
-  testing.md
-design-system/
-  README.md
-frontend/
-  README.md
-README.md
-.gitignore
-.env.example
-docker-compose.yml
+1. Update developer-facing documentation to include the dev dependency installation step before running pytest:
+
+```bash
+cd backend
+pip install -e ".[dev]"
+pytest
 ```
 
-Backend requirements:
+2. Update any relevant command sections in:
 
-- Implement a minimal FastAPI application.
-- Add `GET /health` returning a simple status payload.
-- Add a small settings/config module based on environment variables.
-- Include only non-secret defaults and placeholders.
-- Add pytest coverage for the health endpoint.
-- Keep the backend skeleton ready for future Bitrix sync, data normalization, analytics, and report API modules, but do not implement those modules yet unless needed as empty packages for structure.
+- `README.md`
+- `backend/README.md`
+- `docs/development.md`
+- `docs/testing.md`
 
-Documentation requirements:
+3. If the existing code or packaging has a small issue that prevents `pytest` from passing after installing documented dependencies, fix only that issue.
 
-- `README.md` must explain the project purpose, current stage, quick start, key commands, and documentation map.
-- `docs/project-status.md` must state the current phase, what is done in this task, what is intentionally not done, known unknowns, and next likely steps.
-- `docs/architecture.md` must describe the target layers from `SPEC.md`: Bitrix read-only extraction, raw local layer, normalization, analytics tables, backend API, web interface.
-- `docs/development.md` must document local setup, Docker Compose usage, backend test command, environment file policy, and current limitations.
-- `docs/data-model.md` must document the core MVP entities and safety rules at a high level: contacts, deals, deal-contact links, stages, currency rates, normalized contact type/region config, analytics outputs.
-- `docs/testing.md` must document the current test command and the broader required test areas from `SPEC.md`.
-- `backend/README.md` must describe backend structure and commands.
-- `design-system/README.md` must state that the design system is prepared externally and blocks frontend screen implementation.
-- `frontend/README.md` must state that frontend implementation is pending approved design system and should later follow `SPEC.md`.
-- `.ai/report.md` must be updated with the implementation result using the format from `WORKFLOW.md`.
+4. Run the relevant checks:
 
-Repository hygiene requirements:
+```bash
+cd backend
+pip install -e ".[dev]"
+pytest
+```
 
-- Add `.gitignore` entries for Python caches, virtual environments, env files, local databases, raw data, Parquet snapshots, CSV exports, logs, Node dependencies, build outputs, and OS/editor noise.
-- Add `.env.example` with placeholder values only.
-- Do not add real credentials, real Bitrix data, raw exports, local databases, Parquet snapshots, or CSV exports.
+5. From the repository root, run if Docker is available:
+
+```bash
+docker compose config
+```
+
+6. Update `.ai/report.md` for this task using the report format from `WORKFLOW.md`.
 
 ## Out Of Scope
 
-- Real Bitrix integration.
+- New backend endpoints.
+- Bitrix integration.
 - NBRB currency integration.
-- DuckDB schema implementation.
-- Parquet snapshot writing.
-- Contact normalization logic.
-- ABC/RFM/reactivation/deal-cycle/concentration analytics.
-- Report API endpoints beyond `GET /health`.
-- Frontend app implementation.
-- Design tokens, UI components, Storybook, or screen layouts.
-- Authentication implementation.
-- CI configuration.
-- Production deployment, HTTPS, and backup setup.
+- DuckDB schemas.
+- Parquet snapshots.
+- Analytics calculations.
+- Authentication.
+- Frontend implementation.
+- Design-system implementation.
+- CI setup.
+- Production deployment.
+- Broad refactoring.
 
 ## Constraints
 
 - Follow `AGENTS.md`, `WORKFLOW.md`, and `SPEC.md`.
-- Keep changes focused on the initial scaffold and documentation backbone.
-- Do not invent Bitrix field codes, real contact types, real regions, real stages, or real currencies.
-- Do not hardcode future contact type priorities or region rules.
-- Do not implement frontend screens before design-system approval.
-- Use placeholders for secrets and real external values.
-- Keep documentation concise and operational.
-- If a dependency or command choice is made, document it.
+- Keep the diff minimal and focused on documentation/check verification.
+- Do not change `.ai/task.md` during implementation.
+- Do not add real secrets, real Bitrix data, raw exports, local databases, Parquet snapshots, or CSV exports.
+- Do not use `git add .` unless explicitly allowed by the user.
+- If a check cannot be run, explain the exact reason in `.ai/report.md`.
+- If package installation fails due to runtime/network/tooling limits, document the failure and do not invent a successful result.
 
 ## Acceptance Criteria
 
-- The required repository structure exists.
-- `GET /health` exists and has a passing pytest test.
-- The project can be run locally through Docker Compose, or any limitation is clearly documented in `.ai/report.md` and `docs/development.md`.
-- `README.md` and all required docs files exist and match the current project state.
-- Documentation clearly separates facts, assumptions, unknowns, and future work where relevant.
-- `design-system/README.md` and `frontend/README.md` clearly state that frontend implementation is blocked until the design system is approved.
-- `.gitignore` protects secrets, raw Bitrix data, local databases, Parquet snapshots, CSV exports, logs, dependencies, and build outputs.
-- `.env.example` contains placeholders only.
-- `.ai/report.md` is updated with changed files, checks, acceptance criteria status, known unknowns, and next step.
+- Docs clearly tell a developer how to install backend dev dependencies before running pytest.
+- `README.md`, `backend/README.md`, `docs/development.md`, and `docs/testing.md` are consistent about backend test commands.
+- `pytest` is run after installing dev dependencies, or the exact blocker is documented in `.ai/report.md`.
+- `docker compose config` is run if Docker is available, or the exact blocker is documented in `.ai/report.md`.
+- Any code/package fix, if needed, is narrowly scoped to making the existing health endpoint test pass.
+- `.ai/report.md` lists changed files, checks run, acceptance status, remaining unknowns, and next step.
 - The implementation commit uses the required prefix:
 
 ```text
-codex: TASK-2026-06-21-01 Initialize project scaffold and documentation backbone
+codex: TASK-2026-06-21-02 Verify scaffold checks and dev setup docs
 ```
 
 ## Checks
 
-Run the smallest relevant checks for this scaffold:
+Required:
 
 ```bash
 cd backend
+pip install -e ".[dev]"
 pytest
 ```
 
-Also run repository status/diff checks before committing:
+Required if Docker is available:
+
+```bash
+docker compose config
+```
+
+Before committing:
 
 ```bash
 git status --short
 git diff --stat HEAD
 ```
 
-If Docker Compose is implemented, also verify at least configuration validity when feasible:
-
-```bash
-docker compose config
-```
-
-If any check cannot be run, explain the exact reason in `.ai/report.md`.
-
 ## Notes
 
-Before starting implementation, Codex must:
+Before starting implementation, Codex must run:
 
 ```bash
 git log --oneline -5
