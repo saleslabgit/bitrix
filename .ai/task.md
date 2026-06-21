@@ -1,162 +1,209 @@
-# Task: TASK-2026-06-21-05
+# Task: TASK-2026-06-21-06
 
 Status: planned
-Created from commit: 46e3961dd336b6ba7ff072837a89e8faef266e93
+Created from commit: 1400ba4269be6fe7e3b1b64c37eb05ac47404517
 
 ## Title
 
-Stabilize backend test runtime
+Add storage schema and synthetic fixture scaffold
 
 ## Goal
 
-Make the backend test run complete reliably instead of hanging on the health endpoint test. The desired outcome is a passing `python3 -m pytest` run for the current backend scaffold. If the current host environment still prevents a durable full run, prove the exact remaining blocker and make sure checks fail or skip explicitly rather than hanging.
+Add the first local data-layer scaffold for the backend: a minimal DuckDB schema initializer for allowed MVP data tables and a fully synthetic integration fixture dataset that future normalization and analytics tests can reuse.
 
-This task is test/runtime stabilization only. Do not add product analytics, Bitrix integration, storage, frontend, authentication, or deployment features.
+This task should make the project ready for the next step: implementing normalization rules and storage-backed pipeline tests. Do not connect to Bitrix, fetch real data, write Parquet snapshots, or implement analytics calculations in this task.
 
 ## Facts
 
-- `TASK-2026-06-21-04` diagnosed the local verification environment.
-- The current environment is WSL2 Ubuntu 24.04.3.
-- System Python exists: `/usr/bin/python3`, Python 3.12.3.
-- System `pip`, `ensurepip`, and `pytest` are absent.
-- `sudo` requires an interactive password, so Codex cannot install `python3-pip` or `python3-venv` system-wide.
-- Codex was able to temporarily bootstrap `pip` from official Ubuntu `.deb` packages into `/tmp` without root.
-- Codex was able to install backend dev dependencies into a temporary `/tmp` target.
-- `python3 -m pytest` collected 6 tests.
-- `backend/tests/test_contact_selection.py` passed 5 tests.
-- `backend/tests/test_health.py` hung at `fastapi.testclient.TestClient(app).get("/health")`.
-- A `faulthandler` probe confirmed the hang occurs inside Starlette/FastAPI TestClient request handling.
-- A temporary check with FastAPI 0.128.0 and `httpx2` did not fix the hang; no dependency pin was kept.
-- `python3 -m py_compile backend/app/domain/*.py backend/tests/test_*.py` passed.
-- Docker Desktop WSL integration is not enabled for this distro, so `docker compose config` still cannot run in this environment.
-- Current health endpoint code is in `backend/app/main.py`.
-- Current health test is in `backend/tests/test_health.py`.
-- Current backend dependencies are in `backend/pyproject.toml`.
+- `TASK-2026-06-21-05` stabilized backend tests.
+- Backend tests now complete: 7 tests passed in the latest report.
+- Docker Compose config also passed after host tooling was enabled.
+- Current backend domain scaffold exists under `backend/app/domain/`.
+- Current domain models include:
+  - `ContactSnapshot`;
+  - `DealSnapshot`;
+  - `DealContactLink`;
+  - `StageSnapshot`;
+  - `ContactTypeRule`;
+  - `CurrencyRateSnapshot`.
+- Current pure domain logic includes analytical contact selection in `backend/app/domain/contact_selection.py`.
+- `docs/fixtures.md` defines the future synthetic integration fixture requirements.
+- `docs/project-status.md` says the next likely steps are local storage schema, synthetic integration fixture data, and first normalization tests.
+- `SPEC.md` requires local storage of raw and normalized data, but real Bitrix integration is not implemented yet.
+- `SPEC.md` forbids downloading or storing phones, emails, addresses, messengers, requisites, comments, files, activity fields, or arbitrary non-allowlisted Bitrix fields.
+- No real Bitrix field codes, contact type values, priorities, region mapping, pipelines, stages, or real currencies have been confirmed from production data yet.
 
 ## Assumptions
 
-- The health endpoint itself is simple and should be testable without starting a real server.
-- The hang is likely caused by the test runtime, dependency interaction, or WSL/temp-target installation behavior rather than product logic.
-- It is acceptable to change the health test approach if it still verifies the intended API behavior and avoids hanging.
-- It is acceptable to add small test-time safeguards, such as a timeout or explicit skip with a documented reason, if required.
-- It is acceptable to adjust backend dev dependencies only if there is a verified compatibility reason.
+- DuckDB is already a backend dependency and can be used for the first storage schema scaffold.
+- The first schema can be minimal and focused on allowed MVP entities, without final migration tooling.
+- Synthetic fixture values may use invented contact names, deal names, stage IDs, currencies, type raw values, priorities, and regions as long as they are clearly fake and documented as test-only.
+- Raw data tables should represent allowed Bitrix-shaped snapshots, not forbidden personal/contact fields.
+- Normalized and analytics tables can be documented as future work unless a very small placeholder is needed for schema clarity.
 
 ## Unknowns
 
-- Whether the same `TestClient` hang occurs in a normal venv after host/admin installs `python3-pip` and `python3-venv`.
-- Whether the hang is caused by Starlette/FastAPI/httpx compatibility, temporary `/tmp` target installs, WSL filesystem behavior, or another runtime interaction.
-- Whether Docker Compose validation will pass after Docker Desktop WSL integration is enabled.
+- Actual Bitrix webhook URL and access method.
+- Actual Bitrix custom field code for contact type.
+- Actual Bitrix contact type values, priorities, and region mapping.
+- Actual pipelines, stages, and currencies in Bitrix.
+- Final production storage layout, migration strategy, and dataset activation mechanics.
+- Whether future Parquet raw snapshots will mirror the DuckDB table names exactly.
 
 ## Scope
 
-1. Inspect the current backend test/runtime files:
+1. Add a storage package under `backend/app/storage/`.
+
+Suggested structure:
 
 ```text
-backend/app/main.py
-backend/app/core/config.py
-backend/tests/test_health.py
-backend/tests/test_contact_selection.py
-backend/pyproject.toml
-docs/development.md
-.ai/report.md
+backend/app/storage/
+  __init__.py
+  schema.py
 ```
 
-2. Reproduce the current test behavior using the safest available tooling path.
+The package should expose a minimal, explicit API such as:
 
-If system `python3 -m pip` is still unavailable, Codex may reuse the documented temporary `/tmp` bootstrap approach from `TASK-2026-06-21-04`, but must not commit temporary dependency folders, caches, `.egg-info`, virtual environments, or generated files.
+```python
+initialize_schema(connection: duckdb.DuckDBPyConnection) -> None
+list_expected_tables() -> tuple[str, ...]
+```
 
-3. Diagnose why `backend/tests/test_health.py` hangs.
+Use the existing project style and keep the API small.
 
-At minimum, check whether the hang is specific to `fastapi.testclient.TestClient` by trying one or more minimal alternatives, for example:
+2. Implement DuckDB schema creation for allowed MVP data tables.
 
-- direct call of the endpoint function if imported safely;
-- direct inspection of the FastAPI route registration;
-- an alternative ASGI request path if dependencies support it;
-- a small isolated TestClient reproduction outside the project app.
+At minimum, create tables for:
 
-Choose the smallest reliable fix that preserves useful coverage.
+- raw contacts;
+- raw deals;
+- raw deal-contact links;
+- raw stages;
+- contact type rules;
+- currency rates.
 
-4. Update tests and/or minimal backend code so that the backend test suite completes.
+Use clear table names and column names that match the existing domain models where practical. Include only allowed MVP fields.
 
-Preferred outcomes in order:
+Do not create columns for phones, emails, addresses, messengers, requisites, comments, files, activity fields, or arbitrary non-allowlisted Bitrix fields.
 
-- `python3 -m pytest` passes all current tests without hanging;
-- if full pass is impossible due to host tooling, `python3 -m pytest` completes with a clear failure/skip and no hang;
-- if dependency installation itself is impossible, the exact blocker is documented and py_compile still runs.
+3. Add storage tests.
 
-5. Add a guard against future silent hangs if practical and low-risk.
+Create focused tests that verify:
 
-Examples: a pytest timeout dependency, a local test pattern that avoids the hanging path, or a documented test helper. Do not add heavy infrastructure.
+- schema initialization runs on an in-memory DuckDB connection;
+- all expected tables are created;
+- expected columns exist for each table;
+- forbidden field names are not present in any created table;
+- schema initialization is idempotent when called more than once.
 
-6. Update documentation if commands or test strategy change:
+4. Add a synthetic integration fixture dataset.
 
-- `docs/development.md` for local test commands/troubleshooting;
-- `docs/testing.md` if test strategy or health endpoint test approach changes;
-- `backend/README.md` if backend commands change.
+Suggested location:
+
+```text
+backend/tests/fixtures/synthetic_dataset.py
+```
+
+The fixture should be pure Python test data using existing domain models or simple helper functions returning existing domain models.
+
+It must include at least:
+
+- 10 contacts;
+- 30 deals;
+- won, open, and lost deals;
+- several currencies;
+- at least one deal linked to multiple contacts;
+- equal contact type priorities;
+- at least one deal without any contact;
+- one would-be A-segment contact without sales in the last 12 months;
+- one contact with a single won deal;
+- one long-open deal.
+
+The dataset must be synthetic and must not contain real Bitrix data or personal contact fields.
+
+5. Add fixture validation tests.
+
+Create tests that verify the synthetic fixture satisfies the minimum shape requirements above and uses only allowed domain fields. These tests should not calculate ABC, RFM, currency conversion, or stale-deal analytics yet.
+
+6. Keep documentation current.
+
+Update concise documentation where relevant:
+
+- `docs/data-model.md` for the new storage schema scaffold;
+- `docs/fixtures.md` for the now-implemented synthetic fixture location and coverage;
+- `docs/project-status.md` for current stage and next likely steps;
+- `docs/testing.md` for new test coverage;
+- `backend/README.md` for the new storage package map if useful.
 
 7. Update `.ai/report.md` using the `WORKFLOW.md` report format.
 
 ## Out Of Scope
 
-- Bitrix integration.
-- NBRB currency integration.
-- DuckDB schema or Parquet implementation.
-- Analytics calculations.
-- Report API endpoints beyond existing health endpoint behavior.
+- Real Bitrix integration.
+- Bitrix API clients, webhooks, pagination, retries, or field allowlist discovery.
+- NBRB currency API integration.
+- Real currency conversion logic.
+- Parquet snapshot writing.
+- Dataset activation/swap mechanics.
+- Normalization implementation beyond table/fixture preparation.
+- ABC, ABC migration, RFM, reactivation, type/region analytics, deal-cycle, stale-deal, or concentration calculations.
+- Report API endpoints.
+- Authentication.
 - Frontend implementation.
 - Design system work.
-- Authentication implementation.
-- Docker Desktop or host WSL configuration changes.
 - CI/GitHub Actions setup.
-- Broad dependency modernization without a verified need.
-- Committing real secrets, raw Bitrix data, local databases, Parquet snapshots, CSV exports, dependency folders, or virtual environments.
+- Production deployment, HTTPS, or backups.
 
 ## Constraints
 
 - Follow `AGENTS.md`, `WORKFLOW.md`, and `SPEC.md`.
-- Keep changes narrowly focused on making backend tests reliable.
+- Keep changes focused on storage schema and synthetic fixture scaffold.
 - Do not change `.ai/task.md` during implementation.
 - Do not use `git add .` unless explicitly allowed by the user.
-- Do not hide failing checks.
-- Do not claim `pytest` passes unless it actually completes and passes.
-- Do not leave commands that can hang indefinitely as the recommended verification path.
-- Prefer explicit, minimal fixes over broad dependency churn.
-- If changing dependencies, explain the reason in `.ai/report.md` and relevant docs.
-- Do not implement product functionality in this task.
+- Do not invent real Bitrix field codes or present synthetic values as real values.
+- Do not hardcode future production contact type priorities or region rules outside synthetic test data.
+- Do not include forbidden personal fields anywhere in schema, fixtures, docs, tests, logs, or reports.
+- Do not commit real secrets, raw Bitrix data, local databases, Parquet snapshots, CSV exports, dependency folders, virtual environments, caches, or generated artifacts.
+- Prefer explicit table and column definitions over clever dynamic schema generation.
+- Keep documentation concise and operational.
 
 ## Acceptance Criteria
 
-- The health endpoint test no longer hangs silently.
-- `python3 -m pytest` either passes all current tests or completes with a clearly documented blocker that is outside Codex control.
-- Existing contact selection tests remain intact and pass when tests can run.
-- Any dependency or test strategy change is minimal and documented.
-- Docs are updated if the backend verification command or troubleshooting guidance changes.
+- `backend/app/storage/` exists and exposes a small schema initialization API.
+- DuckDB schema initialization creates all required MVP scaffold tables.
+- Schema initialization is idempotent.
+- Tests verify expected table names and columns.
+- Tests verify forbidden field names are absent from schema columns.
+- A synthetic integration fixture exists and satisfies the minimum dataset shape from `SPEC.md`/`docs/fixtures.md`.
+- Fixture validation tests pass without real Bitrix data or forbidden personal fields.
+- Existing health and contact selection tests still pass.
+- Documentation reflects the new storage schema and fixture scaffold.
 - `.ai/report.md` lists changed files, checks, results, facts, assumptions, unknowns, and next step.
-- No real secrets, raw Bitrix data, local databases, Parquet snapshots, CSV exports, dependency folders, virtual environments, caches, or generated artifacts are committed.
+- No real secrets, raw data, databases, Parquet snapshots, CSV exports, dependency folders, virtual environments, caches, or generated artifacts are committed.
 - The implementation commit uses the required prefix:
 
 ```text
-codex: TASK-2026-06-21-05 Stabilize backend test runtime
+codex: TASK-2026-06-21-06 Add storage schema and synthetic fixture scaffold
 ```
 
 ## Checks
 
-Primary desired check from `backend/`:
+Run from `backend/`:
 
 ```bash
 python3 -m pytest
 ```
 
-If dependencies are not installed and system `pip` is unavailable, use the previously documented temporary bootstrap only as needed, then run the equivalent:
+Run syntax/import-level checks if useful:
 
 ```bash
-PYTHONPATH=<temporary dependency paths> python3 -m pytest
+python3 -m py_compile app/**/*.py tests/**/*.py
 ```
 
-Also run syntax/import-level checks when useful:
+Run from repository root:
 
 ```bash
-python3 -m py_compile backend/app/**/*.py backend/tests/test_*.py
+docker compose config
 ```
 
 Before committing:
@@ -166,13 +213,7 @@ git status --short
 git diff --stat HEAD
 ```
 
-If Docker is available after host setup, run from repository root:
-
-```bash
-docker compose config
-```
-
-If Docker remains unavailable because WSL integration is disabled, document that exact blocker; do not block this task on Docker.
+If any check cannot be run, document the exact reason in `.ai/report.md`.
 
 ## Notes
 
