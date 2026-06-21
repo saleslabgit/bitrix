@@ -40,6 +40,17 @@ pip install -e ".[dev]"
 pytest
 ```
 
+## Tooling Troubleshooting
+
+If `python3 -m pip --version` fails on Ubuntu/WSL, install Python package tooling on the host distro before running backend checks:
+
+```bash
+sudo apt update
+sudo apt install python3-pip python3-venv
+```
+
+If Docker commands print a WSL integration error, enable Docker Desktop integration for this WSL distro or install/connect a Docker daemon before running `docker compose config`.
+
 ## Current Limitations
 
 - Only the health endpoint is implemented.
