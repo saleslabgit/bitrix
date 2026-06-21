@@ -1,32 +1,47 @@
-# Task: TASK-2026-06-21-12
+# Task: TASK-2026-06-21-13
 
 Status: planned
-Created from commit: d75899d5835452b3032fd4ece19947873f582c53
+Created from commit: 615fb73e8d3ff49d75b9b8e9fa0f45304e6363c0
 
 ## Title
 
-Validate live Bitrix read-only discovery
+Run first live Bitrix read-only sync
 
 ## Goal
 
-Use the locally configured Bitrix webhook to perform the first live read-only validation of the Bitrix boundary: confirm credentials are loaded correctly, run metadata discovery, identify the configured contact type field candidate, and determine whether a first manual read-only sync is safe to run next.
+Use the user-confirmed Bitrix contact type field to perform the first live read-only manual Bitrix sync into the local persistent dataset, then verify that the active dataset and analytics endpoints can read the synced data.
 
-This is a live validation/reporting milestone. It must not call any Bitrix write method. It must not test write-method rejection on the production webhook.
+This is a live read-only validation and first-export milestone. It must not call any Bitrix write method and must not print, commit, or report raw CRM rows or secrets.
 
-## User Context
+## User Confirmation
 
-- The user has added the Bitrix webhook locally.
-- The webhook must never be committed, printed, logged, or copied into `.ai/report.md`.
-- Tests of forbidden write methods must remain mocked/unit-only.
-- Do not call live methods such as:
-  - `crm.deal.add`
-  - `crm.deal.update`
-  - `crm.deal.delete`
-  - any other create/update/delete/write-capable CRM method.
+The user confirmed that the correct Bitrix contact type field is:
+
+```text
+BITRIX_CONTACT_TYPE_FIELD=UF_CRM_1595304971232
+```
+
+This value may be written only to the local ignored `.env` if it is missing there. Do not commit `.env`.
+
+## Hard Safety Rule
+
+Do not call live write methods. Do not test write-method rejection on the production webhook.
+
+Forbidden live examples include, but are not limited to:
+
+- `crm.deal.add`
+- `crm.deal.update`
+- `crm.deal.delete`
+- `crm.contact.add`
+- `crm.contact.update`
+- `crm.contact.delete`
+- any other create/update/delete/write-capable CRM method.
+
+Mocked/unit tests may continue to prove write methods are rejected without live calls.
 
 ## Allowed Live Bitrix Methods
 
-Before any live call, verify that the code path can call only the current read-only allowlist:
+Only these currently implemented read-only methods may be called live:
 
 - `crm.contact.fields`
 - `crm.deal.fields`
@@ -35,54 +50,60 @@ Before any live call, verify that the code path can call only the current read-o
 - `crm.deal.contact.items.get`
 - `crm.status.list`
 
-For this task, prefer live discovery first. Do not run manual sync until discovery succeeds and the report explains the observed metadata shape.
-
-If you decide a tiny smoke read is needed beyond discovery, it must use only allowlisted read-only list/status methods already implemented by the client and must avoid printing raw rows.
+If any other live Bitrix method seems necessary, stop and report instead of calling it.
 
 ## Scope
 
-### 1. Confirm Secret Handling And Runtime Wiring
+### 1. Local Environment Preparation
 
-- Confirm `.env` is not tracked and remains ignored.
-- Confirm the app can load `BITRIX_WEBHOOK_URL` from the local environment without exposing its value.
-- If Docker Compose currently does not load the user's `.env` into the backend container, make the smallest safe repo change needed to support local `.env` runtime loading without committing secrets.
-- Do not modify `.env.example` with real values.
+- Confirm `.env` is ignored and not staged.
+- Confirm `BITRIX_WEBHOOK_URL` is configured without printing its value.
+- Ensure local `.env` contains `BITRIX_CONTACT_TYPE_FIELD=UF_CRM_1595304971232`.
+- If updating local `.env` is needed, do it without committing it and mention only that the field was set, not any secret.
 
-### 2. Verify Read-Only Guardrails Before Live Calls
+### 2. Guardrails Before Live Sync
 
-- Inspect/confirm the Bitrix client allowlist before making live calls.
-- Run existing mocked/unit tests that prove write methods are rejected without touching the live webhook.
+- Inspect/confirm the read-only method allowlist before live calls.
+- Run mocked guardrail tests for Bitrix client write-method rejection.
 - Do not perform live negative tests against write methods.
-- If tests are missing or insufficient, add/adjust mocked tests only.
+- Confirm the manual sync path still uses only the read-only client methods listed above.
 
-### 3. Run Live Discovery
+### 3. Repeat Live Discovery With Configured Field
 
-Run the minimal live discovery path against the configured webhook:
+Run live discovery again after setting `BITRIX_CONTACT_TYPE_FIELD`.
 
-- `GET /api/bitrix/discovery`, or the equivalent service call if easier in this environment.
-
-Capture only safe metadata in `.ai/report.md`:
+Report only safe metadata:
 
 - discovery state;
 - contact fields count;
 - deal fields count;
-- whether required fields are missing;
-- candidate safe custom contact fields for choosing `BITRIX_CONTACT_TYPE_FIELD`;
-- whether current `BITRIX_CONTACT_TYPE_FIELD` is configured and exists;
-- any permission/API error code or safe message without webhook URL, tokens, raw values, or personal data.
+- `contact_type_field_exists` for `UF_CRM_1595304971232`;
+- missing required fields counts/names if any;
+- safe API/permission errors if discovery fails.
 
-Do not include raw contact/deal rows, webhook URLs, tokens, phones, emails, addresses, comments, files, or arbitrary field values in the report.
+If discovery fails or `contact_type_field_exists` is not `true`, stop before sync and report the blocker.
 
-### 4. Decide Next Step
+### 4. Run First Manual Read-Only Sync
 
-Based on discovery, report one of these outcomes:
+If discovery succeeds and the configured field exists:
 
-- contact type field is identified and can be configured next;
-- discovery succeeded but contact type field remains ambiguous and user decision is needed;
-- discovery failed due to permissions/configuration and the exact safe next action is needed;
-- manual read-only sync appears safe to run next after setting `BITRIX_CONTACT_TYPE_FIELD`.
+- run the existing manual Bitrix sync path;
+- allow only counts/status reporting;
+- do not print or commit raw contacts, raw deals, row values, personal fields, webhook URL, token, local DB, snapshots, or generated files;
+- verify local dataset status and active dataset status after sync;
+- verify at least one existing report/read endpoint can read the active synced dataset without exposing raw rows in `.ai/report.md`.
 
-Do not run the full manual sync in this task unless discovery succeeds, credentials are read-only, no contact type ambiguity blocks the run, and the report can safely summarize counts only. If unsure, stop after discovery and report.
+Safe report facts may include:
+
+- sync state;
+- raw contacts count;
+- raw deals count;
+- raw links count;
+- normalized contacts count;
+- normalized deals count;
+- active dataset kind/name/state;
+- snapshot count and relative snapshot identifiers count only, not file contents;
+- high-level endpoint health such as total rows returned/counts only.
 
 ### 5. Documentation/Report
 
@@ -90,52 +111,58 @@ Update `.ai/report.md` with:
 
 - changed files;
 - checks run;
-- live methods actually called;
+- local env preparation outcome without secrets;
+- all live Bitrix methods actually called;
 - explicit statement that no live write methods were called;
-- safe discovery facts;
-- whether any repo code/config changes were needed;
+- discovery result with configured field;
+- sync counts/status or blocker;
+- generated artifacts status: not staged/committed;
 - recommended next task.
 
-Update docs only if a repo/runtime issue is fixed and docs would otherwise be misleading. Keep docs changes minimal.
+Update docs only if the operator flow changed or existing docs are inaccurate. Keep docs changes minimal.
 
 ## Out Of Scope
 
 - Calling any live write method.
 - Testing write-method rejection against the production webhook.
+- Reporting raw CRM rows or field values from contacts/deals.
 - Committing `.env`, webhook URLs, tokens, raw Bitrix data, DuckDB files, Parquet snapshots, CSV exports, logs, caches, or generated data.
-- Running full sync if discovery is ambiguous or unsafe.
 - NBRB integration.
 - Authentication.
 - Frontend or `ui-kits/` work.
 - Scheduler/automatic sync.
 - Production deployment.
+- Refactoring ingestion architecture unless a small fix is required to complete the safe read-only sync.
 
 ## Constraints
 
 - Follow `AGENTS.md`, `docs/workflow.md`, and current `.ai/task.md`.
-- Bitrix is strictly read-only.
+- Bitrix remains strictly read-only.
 - Live validation must use only allowed read-only methods.
 - Do not print or commit secrets.
 - Do not include raw CRM records or personal fields in `.ai/report.md`.
 - Do not use `git add .`.
 - Do not modify `ui-kits/`.
 - Do not stage `.env` or generated data under `data/`.
-- If the live environment is unavailable or the webhook is not visible to the process, document the exact safe reason and stop without inventing results.
+- If live sync returns a safe error, report it and stop; do not broaden field allowlists or call unapproved methods without a new planner task.
 
 ## Acceptance Criteria
 
-- `.env` remains untracked/ignored and no secret is committed.
-- Live Bitrix validation uses only read-only allowlisted methods.
+- `.env` remains ignored/untracked and no secret is committed.
+- `BITRIX_CONTACT_TYPE_FIELD=UF_CRM_1595304971232` is configured locally or a safe reason is reported if it cannot be configured.
+- Live discovery confirms `contact_type_field_exists=true`, or sync is not run and the blocker is reported.
+- Live Bitrix calls use only read-only allowlisted methods.
 - No live write-method test is performed.
-- Existing mocked write-method rejection tests pass or are strengthened without live calls.
-- Discovery is run, or the exact safe reason it could not be run is reported.
-- `.ai/report.md` contains safe discovery metadata and no webhook/token/raw CRM data.
-- The report clearly recommends the next task: set `BITRIX_CONTACT_TYPE_FIELD`, run first read-only manual sync, fix permissions/config, or ask user to choose among candidates.
-- Any repo changes are minimal and directly related to safe local runtime loading or mocked guardrail tests.
+- First manual read-only sync runs successfully, or a safe blocker/error is reported without raw rows or secrets.
+- Active dataset status reflects the sync if it succeeds.
+- At least one read/report endpoint is verified after a successful sync using counts/status only.
+- `.ai/report.md` contains safe counts/status and no webhook/token/raw CRM data.
+- Generated local data artifacts are not staged or committed.
+- Any repo changes are minimal and directly related to safe first sync validation.
 - The implementation commit uses the exact required message:
 
 ```text
-codex: TASK-2026-06-21-12 Validate live Bitrix read-only discovery
+codex: TASK-2026-06-21-13 Run first live Bitrix read-only sync
 ```
 
 ## Checks
@@ -147,19 +174,19 @@ git log --oneline -5
 git status --short
 ```
 
-Run from `backend/` in the configured dev environment:
+Run targeted guardrail tests from `backend/` in the configured dev environment:
+
+```bash
+python -m pytest tests/test_bitrix_client.py tests/test_bitrix_discovery.py tests/test_api_bitrix.py
+```
+
+Run full backend tests if changes affect code:
 
 ```bash
 python -m pytest
 ```
 
-If dependencies are not installed in the current environment, use the existing backend dev environment and document the exact command.
-
-Run targeted guardrail tests if useful, for example:
-
-```bash
-python -m pytest tests/test_bitrix_client.py tests/test_bitrix_discovery.py tests/test_api_bitrix.py
-```
+Use the existing backend dev environment if system Python lacks pytest, and document the exact command used.
 
 Run from repository root:
 
@@ -176,7 +203,7 @@ git diff --name-only --cached
 git diff --check -- ':!AGENTS.md' ':!.ai/task.md'
 ```
 
-If any required check or live discovery cannot be run, document the exact reason in `.ai/report.md`.
+If any required check or live sync step cannot be run, document the exact safe reason in `.ai/report.md`.
 
 ## Hard Workflow Gate
 
@@ -187,7 +214,8 @@ Codex must not commit until all conditions below are true:
 - every required check is either run and reported, or explicitly documented as not run with reason;
 - all live Bitrix methods actually called are listed in `.ai/report.md`;
 - `.ai/report.md` explicitly states that no live write methods were called;
-- staged files are only files intentionally changed for TASK-12 plus `.ai/report.md`;
+- sync counts/status are reported without raw CRM rows or secrets, or a safe blocker is reported;
+- staged files are only files intentionally changed for TASK-13 plus `.ai/report.md`;
 - `.env`, generated data, DuckDB files, Parquet snapshots, CSV exports, logs, caches, and `ui-kits/` are not staged;
 - `.ai/task.md` is not staged unless the user explicitly requested changing the task;
 - the final commit message exactly matches the required `codex:` message above.
