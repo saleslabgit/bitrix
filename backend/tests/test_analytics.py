@@ -14,6 +14,7 @@ from app.reports.analytics import (
     get_type_region_analytics,
     list_contact_analytics,
     list_currency_conversions,
+    list_deal_analytics,
     list_stale_open_deals,
 )
 from app.storage import initialize_schema
@@ -242,6 +243,110 @@ def test_contact_analytics_rejects_unsupported_sort_field() -> None:
 
         with pytest.raises(ValueError, match="Unsupported contact analytics sort field"):
             list_contact_analytics(
+                connection,
+                sort="raw_payload",  # type: ignore[arg-type]
+            )
+
+
+def test_deal_analytics_returns_rows_with_won_only_profit() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        run_synthetic_pipeline(connection)
+
+        page = list_deal_analytics(connection, limit=40)
+        rows = {row.deal_id: row for row in page.items}
+
+    assert page.total == 30
+    assert rows[1].deal_name == "Synthetic Deal 001"
+    assert rows[1].status_group == "won"
+    assert rows[1].budget_usd == Decimal("120000.00")
+    assert rows[1].estimated_profit_usd == Decimal("60000.00")
+    assert rows[21].status_group == "open"
+    assert rows[21].estimated_profit_usd == Decimal("0.00")
+    assert rows[26].status_group == "lost"
+    assert rows[26].estimated_profit_usd == Decimal("0.00")
+    assert rows[21].closed_date is None
+
+
+def test_deal_analytics_supports_exact_deal_id_filter() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        run_synthetic_pipeline(connection)
+
+        page = list_deal_analytics(connection, limit=10, deal_id=4)
+
+    assert page.total == 1
+    assert page.items[0].deal_id == 4
+
+
+def test_deal_analytics_filters_by_status_type_region_and_created_date() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        run_synthetic_pipeline(connection)
+
+        page = list_deal_analytics(
+            connection,
+            limit=10,
+            status="open",
+            contact_type="Synthetic Partner A",
+            region="Synthetic East",
+            deal_created_from=date(2025, 10, 1),
+            deal_created_to=date(2025, 10, 1),
+        )
+
+    assert page.total == 1
+    assert page.items[0].deal_id == 22
+    assert page.items[0].created_date == date(2025, 10, 1)
+
+
+def test_deal_analytics_sorts_by_budget_profit_and_date_with_tie_breaker() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        run_synthetic_pipeline(connection)
+
+        budget_page = list_deal_analytics(
+            connection,
+            limit=1,
+            sort="budget_usd",
+            order="desc",
+        )
+        profit_page = list_deal_analytics(
+            connection,
+            limit=1,
+            sort="estimated_profit_usd",
+            order="desc",
+        )
+        date_page = list_deal_analytics(
+            connection,
+            limit=3,
+            sort="closed_date",
+            order="desc",
+        )
+
+    assert budget_page.items[0].deal_id == 1
+    assert profit_page.items[0].deal_id == 1
+    assert [row.closed_date for row in date_page.items] == sorted(
+        (row.closed_date for row in date_page.items),
+        reverse=True,
+    )
+
+
+def test_deal_analytics_sort_tie_breaks_by_deal_id() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        _load_equal_revenue_dataset(connection)
+
+        page = list_deal_analytics(
+            connection,
+            limit=10,
+            sort="estimated_profit_usd",
+            order="desc",
+        )
+
+    assert [row.deal_id for row in page.items] == [1, 2, 3]
+
+
+def test_deal_analytics_rejects_unsupported_sort_field() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        run_synthetic_pipeline(connection)
+
+        with pytest.raises(ValueError, match="Unsupported deal analytics sort field"):
+            list_deal_analytics(
                 connection,
                 sort="raw_payload",  # type: ignore[arg-type]
             )

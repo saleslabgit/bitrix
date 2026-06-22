@@ -1,147 +1,156 @@
-# Отчет: TASK-2026-06-22-17
+# Отчет: TASK-2026-06-22-18
 
 Статус: done
 
 ## Кратко
 
-Закрыл оставшийся сценарий, где `Тип` мог стать пустым после успешного, но
-неконсистентного `/api/meta/filters` response.
-
-TASK-16 был недостаточен, потому что защищал UI от failed metadata request, но
-не от HTTP 200 payload с пустым `contact_types`. Такой payload считался свежими
-данными и перезаписывал последние options.
+Добавил локальный Deals report: backend endpoint с deal-level аналитикой,
+frontend экран Deals рядом с Contacts, отдельное состояние фильтров/сортировки,
+документацию и тесты.
 
 ## Измененные файлы
 
+- `backend/app/reports/analytics.py`
+- `backend/app/api/models.py`
 - `backend/app/main.py`
+- `backend/tests/test_analytics.py`
 - `backend/tests/test_api_local.py`
+- `frontend/src/api.ts`
 - `frontend/src/App.tsx`
+- `frontend/src/styles.css`
 - `frontend/README.md`
+- `docs/development.md`
+- `docs/data-model.md`
+- `docs/project-status.md`
+- `README.md`
 - `.ai/report.md`
 
 ## Backend
 
-`GET /api/meta/filters` теперь сравнивает metadata с active dataset state:
+Добавлен `GET /api/reports/deals/analytics`.
 
-- no active dataset: empty metadata still allowed;
-- active dataset with `normalized_contacts_count == 0`: empty `contact_types`
-  still allowed;
-- active successful dataset with `normalized_contacts_count > 0` and empty
-  `contact_types`: endpoint raises safe `503 Service Unavailable`.
+Параметры:
 
-Safe error detail:
+- `limit`, `offset`;
+- exact `deal_id`;
+- `status`;
+- `contact_type`;
+- `region`;
+- inclusive `deal_created_from` / `deal_created_to`;
+- allowlisted `sort` и `order`.
 
-```text
-Filter metadata is temporarily unavailable. Keep previous options and retry.
-```
+Ответ содержит `total`, `limit`, `offset`, `items`, где row включает:
+`deal_id`, `deal_name`, `status_group`, `contact_type_normalized`,
+`region_normalized`, `budget_usd`, `estimated_profit_usd`, `created_date`,
+`closed_date`.
 
-The response does not include stack traces, local paths, row samples,
-contact/deal names, webhook values, or secrets.
+Семантика денег:
 
-The exact timing source of the user's empty snapshot was not reproduced. The
-best-supported diagnosis is a transient successful empty metadata snapshot:
-active dataset status still says contacts exist, while the metadata query
-returns no contact types. That condition is now rejected by backend and ignored
-by frontend.
+- `budget_usd` — USD amount конкретной сделки;
+- `estimated_profit_usd` — won-only: `budget_usd * 0.50` для `won`, иначе
+  `0.00`.
+
+Сортировка стабильная и детерминированная, с final tie-breaker по `deal_id`.
+`NULL` closed dates не ломают сортировку.
+
+Endpoint читает только локальные DuckDB-backed normalized deals через уже
+существующий `_load_deal_facts()`. Новые таблицы, миграции, Bitrix calls, NBRB
+calls или внешние запросы не добавлялись.
 
 ## Frontend
 
-Metadata validation:
+Добавлен экран Deals:
 
-- added `isFilterMetadataValidForDataset()`;
-- if active dataset `normalized_contacts_count > 0`, metadata is valid only
-  when `contact_types.length > 0`;
-- invalid fresh metadata is not used for select options;
-- invalid fresh metadata is not saved as last metadata;
-- selected `contactType`, `region`, and `status` are not cleared by invalid
-  metadata.
+- переключение Contacts / Deals в sidebar;
+- общий dataset status/manual refresh flow;
+- общий защищенный metadata cache `bitrix-sales.filter-metadata.v1`;
+- отдельный storage key для Deals: `bitrix-sales.deals.v1`;
+- фильтры exact deal ID, status, type, region, created date range с draft state
+  и `Применить даты`;
+- sortable table columns: ID/link, deal name, status, type, region, budget,
+  profit, created date, closed date;
+- pagination, loading, error, empty, reset, selected-filter-count states.
 
-Metadata cache:
+Contacts behavior сохранен. Reset Contacts и Reset Deals очищают только state
+соответствующего отчета и не удаляют cached metadata options.
 
-- added browser storage key `bitrix-sales.filter-metadata.v1`;
-- cache stores only safe filter option labels and metadata date range strings;
-- stored cache is validated/coerced before use;
-- valid fresh metadata replaces state and storage;
-- invalid, pending, or failed fresh metadata falls back to the last valid cache;
-- normal Contacts filter reset does not delete metadata cache, so dropdowns do
-  not disappear after resetting table filters.
-
-User-visible diagnostics:
-
-- failed metadata refresh still shows retry;
-- invalid successful metadata shows a warning and retry;
-- if cached metadata exists, selects stay usable and alert says filters are
-  shown from cache;
-- if no valid cache exists, dropdowns remain disabled/empty with the same
-  retry path.
-
-Frontend still calls only local backend endpoints:
+Frontend по-прежнему вызывает только локальные backend endpoints:
 
 ```text
 GET /api/reports/contacts/analytics
+GET /api/reports/deals/analytics
 GET /api/meta/filters
 GET /api/datasets/status
 POST /api/local/refresh-data
 ```
 
+Прямых Bitrix API calls во frontend не добавлено. Ссылки ведут только на
+карточки контактов/сделок в Bitrix UI.
+
 ## Документация
 
-`frontend/README.md` now documents the safe metadata cache key:
+Обновлены:
 
-```text
-bitrix-sales.filter-metadata.v1
-```
+- `frontend/README.md`;
+- `docs/development.md`;
+- `docs/data-model.md`;
+- `docs/project-status.md`;
+- `README.md`.
 
 ## Запущенные проверки
 
-Before implementation:
+Перед реализацией:
 
 - `git log --oneline -5`
 - `git status --short`
 
 Backend:
 
-- `cd backend && python -m pytest` — не запустился, system `python`
-  отсутствует.
-- `cd backend && /tmp/bitrix-backend-venv/bin/pytest tests/test_api_local.py`
-  — passed, `11 passed`.
-- `cd backend && /tmp/bitrix-backend-venv/bin/pytest` — passed, `90 passed`.
+- `cd backend && /tmp/bitrix-backend-venv/bin/python -m compileall app` —
+  passed.
+- `cd backend && /tmp/bitrix-backend-venv/bin/pytest tests/test_analytics.py tests/test_api_local.py`
+  — passed, `36 passed`.
+- `cd backend && /tmp/bitrix-backend-venv/bin/pytest` — passed,
+  `96 passed`.
 
 Frontend:
 
 - `cd frontend && npm run build` — passed.
+- повторно `cd frontend && npm run build` — passed.
 
-Safety:
+Operator/safety:
 
+- `docker compose config` — passed.
 - `rg "crm\.[A-Za-z0-9_.]*(add|update|delete|set)" backend/app backend/tests frontend/src`
   — found only existing negative test `crm.deal.update`; no Bitrix write method
   was added.
 
 ## Факты
 
-- No Bitrix calls were added.
-- No Bitrix write methods were added or called.
-- No frontend Bitrix calls were added.
-- Report and metadata paths still read local DuckDB-backed data only.
-- Extraction, normalization, manual refresh, contact selection, currency
-  conversion, and analytics formulas were not changed.
-- Existing date draft / `Применить даты` behavior was preserved.
+- No Bitrix write methods were added.
+- No backend report endpoint calls Bitrix, NBRB, or external services.
+- No frontend Bitrix API calls were added.
+- Deal analytics are calculated on demand from local normalized deals and local
+  currency rates.
 - `ui-kits/` was not changed.
+- Local/generated build output was not staged.
 
 ## Предположения
 
-- For an active successful dataset with contacts, empty `contact_types` is an
-  invalid transient metadata state, because normalized contacts should always
-  have a normalized type such as `Не определено` or a configured type.
+- Existing `/api/meta/filters` remains the shared metadata source for Contacts
+  and Deals. It provides statuses/date ranges from local deals and type/region
+  options from normalized contacts.
 
 ## Неизвестное
 
-- Browser-level manual verification was not run. The behavior is implemented at
-  React state/cache/query level and TypeScript/Vite build passed.
+- Browser-level manual verification was not run.
+- Full `docker compose up --build -d` flow was not run in this session. The
+  Compose frontend command runs dependency installation inside the container and
+  may require network access; local Compose configuration also reads local
+  environment settings. `docker compose config` was verified instead.
 
 ## Риски или следующий шаг
 
-If this symptom appears again, the next check should inspect backend logs around
-dataset replacement timing to identify why the metadata snapshot becomes empty.
-The UI and endpoint now treat that snapshot as temporary invalid state instead
-of replacing dropdown options.
+Next review should click through both reports against a prepared local dataset:
+switch Contacts/Deals, apply deal ID/status/type/region/date filters, sort
+budget/profit/date columns, and verify pagination plus Bitrix detail links.

@@ -7,7 +7,10 @@ Implemented screen:
 - `Contacts` report table with search, filters, pagination, loading, error, and empty states.
 - The Contacts table uses `/api/reports/contacts/analytics` and displays sortable local analytics rows, exact contact ID filtering, deal creation date filtering, Bitrix contact-card links, USD budget breakdown, won-only USD revenue, USD estimated profit, latest won close date, and latest deal date. It does not use original-currency sums as the primary financial metric.
 - Contacts table state is persisted in browser local storage under `bitrix-sales.contacts.v1`; reset clears the stored state.
-- Last valid Contacts filter metadata is persisted under `bitrix-sales.filter-metadata.v1` so transient empty metadata snapshots do not clear dropdown options.
+- `Deals` report table with exact deal ID, status, type, region, deal creation date filters, pagination, loading, error, empty, reset, Bitrix deal-card links, and sortable local USD budget/profit columns.
+- The Deals table uses `/api/reports/deals/analytics`. `Бюджет` is the single deal amount in local USD, and `Прибыль` is won-only: `budget_usd * 0.50` for `won`, otherwise `0.00`.
+- Deals table state is persisted in browser local storage under `bitrix-sales.deals.v1`; reset clears only Deals table state.
+- Last valid filter metadata is persisted under `bitrix-sales.filter-metadata.v1` so transient empty metadata snapshots do not clear dropdown options.
 
 The app reads only the local backend API. It does not call Bitrix.
 
@@ -27,10 +30,10 @@ http://localhost:5173
 
 Compose only starts services. It does not automatically call Bitrix or refresh
 local data. If an active `data/analytics.duckdb` dataset exists, the Contacts
-table loads normally. If the screen says `Локальная база не подготовлена.`,
+and Deals tables load normally. If the screen says `Локальная база не подготовлена.`,
 click `Обновить из Bitrix`; the backend runs the manual read-only refresh,
 applies approved contact type rules, reruns local normalization, loads NBRB
-rates, and then the screen reloads status, filters, and contacts. Local
+rates, and then the screen reloads status, filters, and report rows. Local
 databases and generated data are intentionally not committed.
 
 The Compose frontend service proxies API calls to `http://backend:8000` inside
@@ -64,15 +67,16 @@ For built/static deployments, set `VITE_API_BASE_URL` if the API is not served f
 
 - Backend health opens at `http://localhost:8000/health`.
 - Frontend opens at `http://localhost:5173`.
-- Contacts table loads when a local active dataset exists.
+- Contacts and Deals tables load when a local active dataset exists.
 - With no active dataset, the manual `Обновить из Bitrix` panel appears.
-- Search, exact contact ID filter, deal creation date range, type/region/status filters, sorting, reset, and pagination work. The working area uses the available screen width with horizontal table scroll where needed.
+- Contacts search, exact contact ID filter, deal creation date range, type/region/status filters, sorting, reset, and pagination work.
+- Deals exact deal ID filter, deal creation date range, type/region/status filters, sorting, reset, and pagination work. The working area uses the available screen width with horizontal table scroll where needed.
 - If the frontend shows an API error, check `http://localhost:8000/api/datasets/status`.
 
 ## Design System
 
 The app imports `../ui-kits/styles.css`, which includes the approved color,
-typography, spacing, and effects tokens. The Contacts screen mirrors the
+typography, spacing, and effects tokens. The Contacts and Deals screens mirror the
 provided SaaS web-app direction: light surface, left navigation, blue primary
 states, Manrope typography, 8px controls, subtle borders, and compact data-table
 density.

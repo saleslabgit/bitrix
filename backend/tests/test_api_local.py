@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal
 
 import duckdb
 import pytest
@@ -14,6 +15,7 @@ from app.main import (
     report_concentration,
     report_contact_analytics,
     report_contacts,
+    report_deal_analytics,
     report_deal_cycle,
     report_rfm,
     report_stale_deals,
@@ -315,6 +317,24 @@ def test_api_analytics_reports_return_local_typed_data() -> None:
     deal_cycle = report_deal_cycle()
     concentration = report_concentration()
     type_region = report_type_region()
+    deals = report_deal_analytics(limit=10, offset=0)
+    deal_by_id = report_deal_analytics(limit=10, offset=0, deal_id=4)
+    open_deals = report_deal_analytics(limit=10, offset=0, status="open")
+    filtered_deals = report_deal_analytics(
+        limit=10,
+        offset=0,
+        status="open",
+        contact_type="Synthetic Partner A",
+        region="Synthetic East",
+        deal_created_from=date(2025, 10, 1),
+        deal_created_to=date(2025, 10, 1),
+    )
+    sorted_deals = report_deal_analytics(
+        limit=3,
+        offset=0,
+        sort="budget_usd",
+        order="desc",
+    )
 
     assert contacts.total == 10
     assert contacts.items[0].revenue_usd > 0
@@ -337,6 +357,17 @@ def test_api_analytics_reports_return_local_typed_data() -> None:
     assert concentration.total_revenue_usd > 0
     assert type_region.type_rows
     assert type_region.region_rows
+    assert deals.total == 30
+    assert deals.items[0].deal_id == 1
+    assert deals.items[0].estimated_profit_usd == deals.items[0].budget_usd * Decimal("0.50")
+    assert deal_by_id.total == 1
+    assert deal_by_id.items[0].deal_id == 4
+    assert open_deals.total >= 1
+    assert all(item.status_group == "open" for item in open_deals.items)
+    assert all(item.estimated_profit_usd == 0 for item in open_deals.items)
+    assert filtered_deals.total == 1
+    assert filtered_deals.items[0].deal_id == 22
+    assert sorted_deals.items[0].deal_id == 1
 
 
 def test_api_responses_do_not_expose_forbidden_fields() -> None:
@@ -348,6 +379,7 @@ def test_api_responses_do_not_expose_forbidden_fields() -> None:
         meta_filters().model_dump(),
         report_contacts(limit=10, offset=0).model_dump(),
         report_contact_analytics(limit=10, offset=0).model_dump(),
+        report_deal_analytics(limit=10, offset=0).model_dump(),
         [row.model_dump() for row in report_abc()],
         [row.model_dump() for row in report_rfm()],
         [row.model_dump() for row in report_stale_deals()],

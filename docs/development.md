@@ -59,13 +59,13 @@ Simple local app flow:
 
 1. Run `docker compose up --build`.
 2. Open `http://localhost:5173`.
-3. If an active local dataset exists, the Contacts table loads normally.
+3. If an active local dataset exists, the Contacts and Deals tables load normally.
 4. If the frontend says `Локальная база не подготовлена.`, click
    `Обновить из Bitrix`.
 5. Wait for the manual read-only refresh to finish; it can take several
    minutes. The backend syncs allowed Bitrix data, applies approved contact
    type rules, reruns local normalization, loads NBRB rates, and then the
-   Contacts screen refetches dataset status, filters, and rows.
+   frontend refetches dataset status, filters, and report rows.
 
 The Compose frontend service runs the Vite dev server on `0.0.0.0:5173` and
 sets `VITE_BACKEND_URL=http://backend:8000`, so frontend `/api` and `/health`
@@ -89,15 +89,15 @@ Full-stack verification checklist:
 
 - `http://localhost:8000/health` returns backend health.
 - `http://localhost:5173` opens the frontend.
-- The Contacts table loads when an active local dataset exists.
-- With no active dataset, the Contacts screen shows the manual refresh panel.
-- Search, filters, and pagination respond.
+- The Contacts and Deals tables load when an active local dataset exists.
+- With no active dataset, the active report screen shows the manual refresh panel.
+- Search, filters, sorting, reset, and pagination respond.
 - If the frontend shows an API error, check `GET http://localhost:8000/api/datasets/status` and confirm an active dataset is available.
 
 ## Frontend
 
-The first frontend milestone lives under `frontend/` and implements only the
-Contacts report screen.
+The frontend milestone lives under `frontend/` and implements Contacts and
+Deals report screens.
 
 Install dependencies:
 
@@ -143,10 +143,11 @@ The app can also call a non-same-origin API in built/static mode by setting:
 VITE_API_BASE_URL=http://localhost:8000
 ```
 
-Frontend endpoints used by the Contacts screen:
+Frontend endpoints used by the report screens:
 
 ```text
 GET /api/reports/contacts/analytics
+GET /api/reports/deals/analytics
 GET /api/meta/filters
 GET /api/datasets/status
 POST /api/local/refresh-data
@@ -168,6 +169,18 @@ still does not call Bitrix directly. Contacts UI state is persisted locally in
 browser storage under `bitrix-sales.contacts.v1`; it stores filter/sort/page
 settings only, not backend rows, secrets, or raw data.
 
+The Deals screen uses `/api/reports/deals/analytics` for local deal-level rows
+with exact `deal_id`, status, type, region, inclusive
+`deal_created_from` / `deal_created_to`, allowlisted `sort`, `order`,
+`limit`, and `offset` parameters. Deal rows expose the deal ID/name, status,
+normalized type/region, USD budget, USD estimated profit, created date, and
+closed date. Deal budget is the single deal amount in USD. Deal estimated
+profit is won-only: `budget_usd * 0.50` when `status_group == "won"`, otherwise
+`0.00`. Deals UI state is persisted separately under
+`bitrix-sales.deals.v1`. Shared filter metadata is cached under
+`bitrix-sales.filter-metadata.v1`; resetting either report does not clear the
+metadata cache.
+
 The frontend must continue to read only local backend endpoints. It must not
 call Bitrix directly or display forbidden personal fields such as phone, email,
 address, messengers, comments, files, requisites, or arbitrary raw Bitrix
@@ -181,6 +194,7 @@ POST http://localhost:8000/api/sync/run
 GET  http://localhost:8000/api/meta/filters
 GET  http://localhost:8000/api/reports/contacts
 GET  http://localhost:8000/api/reports/contacts/analytics
+GET  http://localhost:8000/api/reports/deals/analytics
 GET  http://localhost:8000/api/reports/abc
 GET  http://localhost:8000/api/reports/rfm
 GET  http://localhost:8000/api/reports/stale-deals

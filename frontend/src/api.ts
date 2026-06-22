@@ -25,6 +25,25 @@ export type ContactAnalyticsPage = {
   items: ContactAnalytics[];
 };
 
+export type DealAnalytics = {
+  deal_id: number;
+  deal_name: string;
+  status_group: string;
+  contact_type_normalized: string;
+  region_normalized: string;
+  budget_usd: string;
+  estimated_profit_usd: string;
+  created_date: string;
+  closed_date: string | null;
+};
+
+export type DealAnalyticsPage = {
+  total: number;
+  limit: number;
+  offset: number;
+  items: DealAnalytics[];
+};
+
 export type ContactSort =
   | "contact_id"
   | "contact_name"
@@ -43,6 +62,17 @@ export type ContactSort =
   | "latest_deal_date";
 
 export type SortOrder = "asc" | "desc";
+
+export type DealSort =
+  | "deal_id"
+  | "deal_name"
+  | "status_group"
+  | "contact_type_normalized"
+  | "region_normalized"
+  | "budget_usd"
+  | "estimated_profit_usd"
+  | "created_date"
+  | "closed_date";
 
 export type FilterMetadata = {
   contact_types: string[];
@@ -99,6 +129,19 @@ export type ContactFilters = {
   offset: number;
 };
 
+export type DealFilters = {
+  dealId: string;
+  contactType: string;
+  region: string;
+  status: string;
+  dealCreatedFrom: string;
+  dealCreatedTo: string;
+  sort: DealSort;
+  order: SortOrder;
+  limit: number;
+  offset: number;
+};
+
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
 
 export async function fetchContactAnalytics(
@@ -134,6 +177,36 @@ export async function fetchContactAnalytics(
   params.set("order", filters.order);
 
   return request<ContactAnalyticsPage>(`/api/reports/contacts/analytics?${params.toString()}`);
+}
+
+export async function fetchDealAnalytics(filters: DealFilters): Promise<DealAnalyticsPage> {
+  const params = new URLSearchParams({
+    limit: String(filters.limit),
+    offset: String(filters.offset)
+  });
+
+  if (filters.dealId.trim()) {
+    params.set("deal_id", filters.dealId.trim());
+  }
+  if (filters.contactType) {
+    params.set("contact_type", filters.contactType);
+  }
+  if (filters.region) {
+    params.set("region", filters.region);
+  }
+  if (filters.status) {
+    params.set("status", filters.status);
+  }
+  if (filters.dealCreatedFrom) {
+    params.set("deal_created_from", filters.dealCreatedFrom);
+  }
+  if (filters.dealCreatedTo) {
+    params.set("deal_created_to", filters.dealCreatedTo);
+  }
+  params.set("sort", filters.sort);
+  params.set("order", filters.order);
+
+  return request<DealAnalyticsPage>(`/api/reports/deals/analytics?${params.toString()}`);
 }
 
 export function fetchFilterMetadata(): Promise<FilterMetadata> {

@@ -32,6 +32,17 @@ ContactAnalyticsSortField = Literal[
     "last_won_date",
     "latest_deal_date",
 ]
+DealAnalyticsSortField = Literal[
+    "deal_id",
+    "deal_name",
+    "status_group",
+    "contact_type_normalized",
+    "region_normalized",
+    "budget_usd",
+    "estimated_profit_usd",
+    "created_date",
+    "closed_date",
+]
 SortOrder = Literal["asc", "desc"]
 CONTACT_ANALYTICS_SORT_FIELDS: tuple[str, ...] = (
     "contact_id",
@@ -49,6 +60,17 @@ CONTACT_ANALYTICS_SORT_FIELDS: tuple[str, ...] = (
     "estimated_profit_usd",
     "last_won_date",
     "latest_deal_date",
+)
+DEAL_ANALYTICS_SORT_FIELDS: tuple[str, ...] = (
+    "deal_id",
+    "deal_name",
+    "status_group",
+    "contact_type_normalized",
+    "region_normalized",
+    "budget_usd",
+    "estimated_profit_usd",
+    "created_date",
+    "closed_date",
 )
 
 
@@ -91,6 +113,27 @@ class ContactAnalyticsPage:
     limit: int
     offset: int
     items: tuple[ContactAnalyticsRow, ...]
+
+
+@dataclass(frozen=True)
+class DealAnalyticsRow:
+    deal_id: int
+    deal_name: str
+    status_group: str
+    contact_type_normalized: str
+    region_normalized: str
+    budget_usd: Decimal
+    estimated_profit_usd: Decimal
+    created_date: date
+    closed_date: date | None
+
+
+@dataclass(frozen=True)
+class DealAnalyticsPage:
+    total: int
+    limit: int
+    offset: int
+    items: tuple[DealAnalyticsRow, ...]
 
 
 @dataclass(frozen=True)
@@ -291,6 +334,47 @@ def list_contact_analytics(
         order=order,
     )
     return ContactAnalyticsPage(
+        total=len(rows),
+        limit=limit,
+        offset=offset,
+        items=rows[offset : offset + limit],
+    )
+
+
+def list_deal_analytics(
+    connection: duckdb.DuckDBPyConnection,
+    *,
+    limit: int = 50,
+    offset: int = 0,
+    deal_id: int | None = None,
+    status: str | None = None,
+    contact_type: str | None = None,
+    region: str | None = None,
+    deal_created_from: date | None = None,
+    deal_created_to: date | None = None,
+    sort: DealAnalyticsSortField = "deal_id",
+    order: SortOrder = "asc",
+) -> DealAnalyticsPage:
+    if sort not in DEAL_ANALYTICS_SORT_FIELDS:
+        raise ValueError(f"Unsupported deal analytics sort field: {sort}")
+    if order not in {"asc", "desc"}:
+        raise ValueError(f"Unsupported deal analytics sort order: {order}")
+
+    deals = [
+        deal
+        for deal in _load_deal_facts(connection)
+        if (deal_id is None or deal.deal_id == deal_id)
+        and (status is None or deal.status_group == status)
+        and (contact_type is None or deal.contact_type_normalized == contact_type)
+        and (region is None or deal.region_normalized == region)
+        and _date_in_period(deal.created_at.date(), deal_created_from, deal_created_to)
+    ]
+    rows = _sort_deal_analytics_rows(
+        tuple(_build_deal_analytics_row(deal) for deal in deals),
+        sort=sort,
+        order=order,
+    )
+    return DealAnalyticsPage(
         total=len(rows),
         limit=limit,
         offset=offset,
@@ -790,8 +874,47 @@ def _sort_contact_analytics_rows(
     return tuple(sorted(rows, key=cmp_to_key(compare)))
 
 
+def _sort_deal_analytics_rows(
+    rows: tuple[DealAnalyticsRow, ...],
+    *,
+    sort: str,
+    order: SortOrder,
+) -> tuple[DealAnalyticsRow, ...]:
+    descending = order == "desc"
+
+    def compare(left: DealAnalyticsRow, right: DealAnalyticsRow) -> int:
+        left_value = _deal_analytics_sort_value(left, sort)
+        right_value = _deal_analytics_sort_value(right, sort)
+
+        if left_value is None and right_value is None:
+            return _compare(left.deal_id, right.deal_id)
+        if left_value is None:
+            return 1
+        if right_value is None:
+            return -1
+
+        result = _compare(left_value, right_value)
+        if result and descending:
+            return -result
+        if result:
+            return result
+        return _compare(left.deal_id, right.deal_id)
+
+    return tuple(sorted(rows, key=cmp_to_key(compare)))
+
+
 def _contact_analytics_sort_value(
     row: ContactAnalyticsRow,
+    sort: str,
+) -> int | str | Decimal | date | None:
+    value = getattr(row, sort)
+    if isinstance(value, str):
+        return value.lower()
+    return value
+
+
+def _deal_analytics_sort_value(
+    row: DealAnalyticsRow,
     sort: str,
 ) -> int | str | Decimal | date | None:
     value = getattr(row, sort)
@@ -854,6 +977,21 @@ def _build_contact_analytics_row(
         last_won_date=won_dates[-1] if won_dates else None,
         latest_deal_date=max(deal_dates) if deal_dates else None,
         has_sales=revenue_usd > 0,
+    )
+
+
+def _build_deal_analytics_row(deal: _DealFact) -> DealAnalyticsRow:
+    budget_usd = _money(deal.amount_usd)
+    return DealAnalyticsRow(
+        deal_id=deal.deal_id,
+        deal_name=deal.deal_name,
+        status_group=deal.status_group,
+        contact_type_normalized=deal.contact_type_normalized,
+        region_normalized=deal.region_normalized,
+        budget_usd=budget_usd,
+        estimated_profit_usd=_profit(budget_usd) if deal.status_group == "won" else Decimal("0.00"),
+        created_date=deal.created_at.date(),
+        closed_date=deal.closed_at.date() if deal.closed_at else None,
     )
 
 

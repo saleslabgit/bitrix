@@ -215,6 +215,7 @@ The first local analytics outputs are calculated on demand from `normalized_cont
 Implemented local report outputs:
 
 - contact analytics with deal counts, USD budget breakdown for all/open/lost assigned deals, won revenue USD, estimated profit USD, first/last won dates, latest deal date, and sales flag;
+- deal analytics with one row per normalized deal: deal ID/name, status group, normalized analytical type/region, USD budget, USD estimated profit, created date, and closed date;
 - ABC comparison for full period vs last 12 months, with `Нет продаж` for contacts without won revenue in a period;
 - RFM rows with 1-5 scores, segment, and a reactivation flag;
 - stale open deals based on open age compared with the P75 won-deal cycle for the same contact type, falling back to overall P75;
@@ -223,6 +224,12 @@ Implemented local report outputs:
 - type, region, and type-region aggregate rows.
 
 Contact analytics budget fields use all assigned deals in local USD: `budget_usd` includes all statuses, `budget_in_work_usd` includes open deals, and `lost_budget_usd` includes lost deals. Revenue, ABC, RFM monetary values, concentration, and estimated profit use only won deals. Estimated profit is always `revenue_usd * 0.50`. Deals without an analytical contact remain represented as `Без контакта` / `Не определено` in deal, type, and region outputs and do not create a fake contact.
+
+Deal analytics budget is the single normalized deal amount in USD. Deal
+estimated profit is won-only: `budget_usd * 0.50` when `status_group == "won"`,
+otherwise `0.00` for open or lost deals. Deal analytics supports exact deal ID,
+status, normalized type, normalized region, and inclusive created-date filters,
+with stable allowlisted sorting before pagination.
 
 For deterministic synthetic reports, the default analysis date is the maximum local report date from normalized deals. Last-12-month ABC starts from the same month/day one year before that analysis date.
 

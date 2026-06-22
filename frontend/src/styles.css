@@ -75,11 +75,14 @@ button {
   display: flex;
   align-items: center;
   gap: 10px;
+  width: 100%;
   padding: 10px 12px;
   border-radius: var(--radius-md);
+  background: transparent;
   color: var(--color-neutral-600);
   font-size: 14px;
   text-decoration: none;
+  text-align: left;
   transition:
     background var(--transition-fast),
     color var(--transition-fast);
@@ -203,6 +206,15 @@ h1 {
   align-items: end;
   gap: var(--space-5);
   padding: var(--space-5);
+}
+
+.toolbar-deals {
+  grid-template-columns:
+    minmax(130px, 0.7fr)
+    repeat(3, minmax(150px, 0.85fr))
+    repeat(2, minmax(135px, 0.75fr))
+    auto
+    auto;
 }
 
 .field {
@@ -404,6 +416,16 @@ h1 {
   color: var(--color-neutral-700);
 }
 
+.badge-success {
+  background: var(--color-green-50);
+  color: var(--color-green-700);
+}
+
+.badge-danger {
+  background: var(--color-red-50);
+  color: var(--color-red-700);
+}
+
 .table-scroll {
   overflow-x: auto;
 }
@@ -412,6 +434,10 @@ table {
   width: 100%;
   min-width: 1620px;
   border-collapse: collapse;
+}
+
+.deals-table {
+  min-width: 1180px;
 }
 
 th,
@@ -475,6 +501,10 @@ tbody tr:hover {
 .contact-cell span {
   color: var(--color-text-primary);
   font-weight: var(--font-weight-semibold);
+}
+
+.deal-name-cell {
+  min-width: 240px;
 }
 
 .contact-cell small {

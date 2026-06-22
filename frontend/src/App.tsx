@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
   BarChart3,
+  BriefcaseBusiness,
   ChevronLeft,
   ChevronRight,
   Database,
@@ -13,17 +14,22 @@ import {
 import {
   fetchContactAnalytics,
   fetchDatasetStatus,
+  fetchDealAnalytics,
   fetchFilterMetadata,
   refreshLocalData,
   type ContactAnalytics,
   type ContactFilters,
   type ContactSort,
+  type DealAnalytics,
+  type DealFilters,
+  type DealSort,
   type FilterMetadata,
   type LocalDataRefreshResponse
 } from "./api";
 
 const PAGE_SIZE = 25;
 const CONTACTS_STORAGE_KEY = "bitrix-sales.contacts.v1";
+const DEALS_STORAGE_KEY = "bitrix-sales.deals.v1";
 const FILTER_METADATA_STORAGE_KEY = "bitrix-sales.filter-metadata.v1";
 const CONTACT_SORT_FIELDS: ContactSort[] = [
   "contact_id",
@@ -42,6 +48,17 @@ const CONTACT_SORT_FIELDS: ContactSort[] = [
   "last_won_date",
   "latest_deal_date"
 ];
+const DEAL_SORT_FIELDS: DealSort[] = [
+  "deal_id",
+  "deal_name",
+  "status_group",
+  "contact_type_normalized",
+  "region_normalized",
+  "budget_usd",
+  "estimated_profit_usd",
+  "created_date",
+  "closed_date"
+];
 
 const initialFilters: ContactFilters = {
   search: "",
@@ -57,14 +74,36 @@ const initialFilters: ContactFilters = {
   offset: 0
 };
 
+const initialDealFilters: DealFilters = {
+  dealId: "",
+  contactType: "",
+  region: "",
+  status: "",
+  dealCreatedFrom: "",
+  dealCreatedTo: "",
+  sort: "deal_id",
+  order: "asc",
+  limit: PAGE_SIZE,
+  offset: 0
+};
+
+type ReportView = "contacts" | "deals";
+
 export function App() {
   const queryClient = useQueryClient();
+  const [activeReport, setActiveReport] = useState<ReportView>("contacts");
   const [filters, setFilters] = useState<ContactFilters>(() => loadStoredFilters());
+  const [dealFilters, setDealFilters] = useState<DealFilters>(() => loadStoredDealFilters());
   const [searchDraft, setSearchDraft] = useState(filters.search);
   const [contactIdDraft, setContactIdDraft] = useState(filters.contactId);
+  const [dealIdDraft, setDealIdDraft] = useState(dealFilters.dealId);
   const [dealCreatedDrafts, setDealCreatedDrafts] = useState({
     from: filters.dealCreatedFrom,
     to: filters.dealCreatedTo
+  });
+  const [dealReportCreatedDrafts, setDealReportCreatedDrafts] = useState({
+    from: dealFilters.dealCreatedFrom,
+    to: dealFilters.dealCreatedTo
   });
   const [lastFilterMetadata, setLastFilterMetadata] = useState<FilterMetadata | null>(() =>
     loadStoredFilterMetadata()
@@ -86,6 +125,20 @@ export function App() {
   const areDealCreatedDraftsChanged =
     dealCreatedDrafts.from !== filters.dealCreatedFrom ||
     dealCreatedDrafts.to !== filters.dealCreatedTo;
+  const isDealReportCreatedRangeInvalid =
+    Boolean(dealFilters.dealCreatedFrom) &&
+    Boolean(dealFilters.dealCreatedTo) &&
+    dealFilters.dealCreatedFrom > dealFilters.dealCreatedTo;
+  const areDealReportCreatedDraftsInvalid =
+    Boolean(dealReportCreatedDrafts.from) &&
+    Boolean(dealReportCreatedDrafts.to) &&
+    dealReportCreatedDrafts.from > dealReportCreatedDrafts.to;
+  const areDealReportCreatedDraftsComplete =
+    isEmptyOrCompleteIsoDate(dealReportCreatedDrafts.from) &&
+    isEmptyOrCompleteIsoDate(dealReportCreatedDrafts.to);
+  const areDealReportCreatedDraftsChanged =
+    dealReportCreatedDrafts.from !== dealFilters.dealCreatedFrom ||
+    dealReportCreatedDrafts.to !== dealFilters.dealCreatedTo;
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -102,6 +155,10 @@ export function App() {
   useEffect(() => {
     storeFilters(filters);
   }, [filters]);
+
+  useEffect(() => {
+    storeDealFilters(dealFilters);
+  }, [dealFilters]);
 
   const statusQuery = useQuery({
     queryKey: ["dataset-status"],
@@ -135,7 +192,13 @@ export function App() {
   const contactsQuery = useQuery({
     queryKey: ["contacts", filters],
     queryFn: () => fetchContactAnalytics(filters),
-    enabled: isDatasetReady && !isDealCreatedRangeInvalid
+    enabled: activeReport === "contacts" && isDatasetReady && !isDealCreatedRangeInvalid
+  });
+
+  const dealsQuery = useQuery({
+    queryKey: ["deals", dealFilters],
+    queryFn: () => fetchDealAnalytics(dealFilters),
+    enabled: activeReport === "deals" && isDatasetReady && !isDealReportCreatedRangeInvalid
   });
 
   const refreshMutation = useMutation({
@@ -148,7 +211,8 @@ export function App() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["dataset-status"] }),
         queryClient.invalidateQueries({ queryKey: ["filter-metadata"] }),
-        queryClient.invalidateQueries({ queryKey: ["contacts"] })
+        queryClient.invalidateQueries({ queryKey: ["contacts"] }),
+        queryClient.invalidateQueries({ queryKey: ["deals"] })
       ]);
     },
     onSettled: async () => {
@@ -163,19 +227,29 @@ export function App() {
     }
   }, [filterQuery.data, isFreshFilterMetadataValid]);
 
-  const total = contactsQuery.data?.total ?? 0;
+  const activeQuery = activeReport === "contacts" ? contactsQuery : dealsQuery;
+  const activeFilters = activeReport === "contacts" ? filters : dealFilters;
+  const activeRangeInvalid =
+    activeReport === "contacts" ? isDealCreatedRangeInvalid : isDealReportCreatedRangeInvalid;
+  const activeDraftsInvalid =
+    activeReport === "contacts"
+      ? areDealCreatedDraftsInvalid
+      : areDealReportCreatedDraftsInvalid;
+  const total = activeQuery.data?.total ?? 0;
   const isRefreshing = refreshMutation.isPending;
-  const pageNumber = Math.floor(filters.offset / filters.limit) + 1;
-  const totalPages = Math.max(1, Math.ceil(total / filters.limit));
-  const hasPreviousPage = filters.offset > 0;
-  const hasNextPage = filters.offset + filters.limit < total;
+  const pageNumber = Math.floor(activeFilters.offset / activeFilters.limit) + 1;
+  const totalPages = Math.max(1, Math.ceil(total / activeFilters.limit));
+  const hasPreviousPage = activeFilters.offset > 0;
+  const hasNextPage = activeFilters.offset + activeFilters.limit < total;
   const tableSubtitle = statusQuery.isPending
     ? "Проверка локального dataset"
     : !isDatasetReady
       ? "Локальная база не подготовлена"
-      : contactsQuery.isPending
+      : activeQuery.isPending
         ? "Загрузка данных"
-        : `${total.toLocaleString("ru-RU")} контактов найдено`;
+        : activeReport === "contacts"
+          ? `${total.toLocaleString("ru-RU")} контактов найдено`
+          : `${total.toLocaleString("ru-RU")} сделок найдено`;
 
   const selectedFilterCount = useMemo(
     () =>
@@ -190,6 +264,20 @@ export function App() {
       ].filter(Boolean).length,
     [filters]
   );
+  const selectedDealFilterCount = useMemo(
+    () =>
+      [
+        dealFilters.dealId.trim(),
+        dealFilters.contactType,
+        dealFilters.region,
+        dealFilters.status,
+        dealFilters.dealCreatedFrom,
+        dealFilters.dealCreatedTo
+      ].filter(Boolean).length,
+    [dealFilters]
+  );
+  const activeSelectedFilterCount =
+    activeReport === "contacts" ? selectedFilterCount : selectedDealFilterCount;
 
   function updateFilter(name: keyof ContactFilters, value: string) {
     setFilters((current) => ({
@@ -208,14 +296,45 @@ export function App() {
     void queryClient.invalidateQueries({ queryKey: ["contacts"] });
   }
 
+  function resetDealFilters() {
+    setDealIdDraft("");
+    setDealReportCreatedDrafts({ from: "", to: "" });
+    window.localStorage.removeItem(DEALS_STORAGE_KEY);
+    setDealFilters(initialDealFilters);
+    void queryClient.invalidateQueries({ queryKey: ["deals"] });
+  }
+
   function updateContactIdFilter(value: string) {
     const numericValue = value.replace(/\D/g, "");
     setContactIdDraft(numericValue);
     updateFilter("contactId", numericValue);
   }
 
+  function updateDealFilter(name: keyof DealFilters, value: string) {
+    setDealFilters((current) => ({
+      ...current,
+      [name]: value,
+      offset: 0
+    }));
+  }
+
+  function updateDealIdFilter(value: string) {
+    const numericValue = value.replace(/\D/g, "");
+    setDealIdDraft(numericValue);
+    updateDealFilter("dealId", numericValue);
+  }
+
   function updateSort(sort: ContactSort) {
     setFilters((current) => ({
+      ...current,
+      sort,
+      order: current.sort === sort ? (current.order === "desc" ? "asc" : "desc") : "desc",
+      offset: 0
+    }));
+  }
+
+  function updateDealSort(sort: DealSort) {
+    setDealFilters((current) => ({
       ...current,
       sort,
       order: current.sort === sort ? (current.order === "desc" ? "asc" : "desc") : "desc",
@@ -242,6 +361,45 @@ export function App() {
     }));
   }
 
+  function updateDealReportCreatedDraft(name: "from" | "to", value: string) {
+    setDealReportCreatedDrafts((current) => ({
+      ...current,
+      [name]: value
+    }));
+  }
+
+  function applyDealReportCreatedDrafts() {
+    if (!areDealReportCreatedDraftsComplete || areDealReportCreatedDraftsInvalid) {
+      return;
+    }
+    setDealFilters((current) => ({
+      ...current,
+      dealCreatedFrom: dealReportCreatedDrafts.from,
+      dealCreatedTo: dealReportCreatedDrafts.to,
+      offset: 0
+    }));
+  }
+
+  function changePage(direction: "previous" | "next") {
+    if (activeReport === "contacts") {
+      setFilters((current) => ({
+        ...current,
+        offset:
+          direction === "previous"
+            ? Math.max(0, current.offset - current.limit)
+            : current.offset + current.limit
+      }));
+      return;
+    }
+    setDealFilters((current) => ({
+      ...current,
+      offset:
+        direction === "previous"
+          ? Math.max(0, current.offset - current.limit)
+          : current.offset + current.limit
+    }));
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar" aria-label="Основная навигация">
@@ -250,19 +408,37 @@ export function App() {
           <span>Bitrix Sales</span>
         </div>
         <nav className="nav-list">
-          <a className="nav-item nav-item-active" href="#contacts" aria-current="page">
+          <button
+            className={activeReport === "contacts" ? "nav-item nav-item-active" : "nav-item"}
+            type="button"
+            onClick={() => setActiveReport("contacts")}
+            aria-current={activeReport === "contacts" ? "page" : undefined}
+          >
             <BarChart3 size={18} strokeWidth={1.5} />
             Contacts
-          </a>
+          </button>
+          <button
+            className={activeReport === "deals" ? "nav-item nav-item-active" : "nav-item"}
+            type="button"
+            onClick={() => setActiveReport("deals")}
+            aria-current={activeReport === "deals" ? "page" : undefined}
+          >
+            <BriefcaseBusiness size={18} strokeWidth={1.5} />
+            Deals
+          </button>
         </nav>
       </aside>
 
-      <main className="main-panel" id="contacts">
+      <main className="main-panel" id={activeReport}>
         <header className="page-header">
           <div>
             <p className="eyebrow">Reports</p>
-            <h1>Contacts</h1>
-            <p className="page-subtitle">Таблица контактов с поиском и фильтрами по локальным данным.</p>
+            <h1>{activeReport === "contacts" ? "Contacts" : "Deals"}</h1>
+            <p className="page-subtitle">
+              {activeReport === "contacts"
+                ? "Таблица контактов с поиском и фильтрами по локальным данным."
+                : "Таблица сделок с фильтрами по локальным данным."}
+            </p>
           </div>
           <div className="header-actions">
             <DatasetBadge
@@ -286,7 +462,7 @@ export function App() {
           </div>
         </header>
 
-        {isDatasetReady && (
+        {isDatasetReady && activeReport === "contacts" && (
           <section className="toolbar" aria-label="Фильтры контактов">
             <label className="field search-field">
               <span>Поиск</span>
@@ -383,6 +559,90 @@ export function App() {
           </section>
         )}
 
+        {isDatasetReady && activeReport === "deals" && (
+          <section className="toolbar toolbar-deals" aria-label="Фильтры сделок">
+            <label className="field">
+              <span>ID сделки</span>
+              <div className="input-shell">
+                <Search size={16} strokeWidth={1.5} />
+                <input
+                  value={dealIdDraft}
+                  onChange={(event) => updateDealIdFilter(event.target.value)}
+                  placeholder="1024"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  type="search"
+                />
+              </div>
+            </label>
+
+            <SelectField
+              label="Статус сделки"
+              value={dealFilters.status}
+              onChange={(value) => updateDealFilter("status", value)}
+              options={filterMetadata?.statuses ?? []}
+              disabled={!filterMetadata}
+            />
+            <SelectField
+              label="Тип"
+              value={dealFilters.contactType}
+              onChange={(value) => updateDealFilter("contactType", value)}
+              options={filterMetadata?.contact_types ?? []}
+              disabled={!filterMetadata}
+            />
+            <SelectField
+              label="Регион"
+              value={dealFilters.region}
+              onChange={(value) => updateDealFilter("region", value)}
+              options={filterMetadata?.regions ?? []}
+              disabled={!filterMetadata}
+            />
+
+            <label className="field">
+              <span>Создана с</span>
+              <input
+                className="date-input"
+                value={dealReportCreatedDrafts.from}
+                onChange={(event) => updateDealReportCreatedDraft("from", event.target.value)}
+                min={dateOnly(filterMetadata?.min_created_at)}
+                max={dateOnly(filterMetadata?.max_created_at)}
+                type="date"
+              />
+            </label>
+
+            <label className="field">
+              <span>Создана по</span>
+              <input
+                className="date-input"
+                value={dealReportCreatedDrafts.to}
+                onChange={(event) => updateDealReportCreatedDraft("to", event.target.value)}
+                min={dateOnly(filterMetadata?.min_created_at)}
+                max={dateOnly(filterMetadata?.max_created_at)}
+                type="date"
+              />
+            </label>
+
+            <button
+              className="button button-secondary date-apply-button"
+              type="button"
+              disabled={
+                !areDealReportCreatedDraftsChanged ||
+                !areDealReportCreatedDraftsComplete ||
+                areDealReportCreatedDraftsInvalid
+              }
+              onClick={applyDealReportCreatedDrafts}
+            >
+              <Filter size={16} strokeWidth={1.5} />
+              Применить даты
+            </button>
+
+            <button className="button button-secondary" type="button" onClick={resetDealFilters}>
+              <Filter size={16} strokeWidth={1.5} />
+              Сбросить
+            </button>
+          </section>
+        )}
+
         {isDatasetReady && (filterQuery.isError || isFreshFilterMetadataInvalid) && (
           <InlineAlert
             title={
@@ -411,27 +671,31 @@ export function App() {
           <InlineSuccess message={formatRefreshSuccess(lastRefreshResult)} />
         )}
 
-        {isDatasetReady && isDealCreatedRangeInvalid && (
+        {isDatasetReady && activeRangeInvalid && (
           <InlineValidation message="Дата «Создана с» должна быть не позже даты «Создана по»." />
         )}
 
-        {isDatasetReady && areDealCreatedDraftsInvalid && (
+        {isDatasetReady && activeDraftsInvalid && (
           <InlineValidation message="В черновике дат значение «Создана с» должно быть не позже «Создана по»." />
         )}
 
-        <section className="table-card" aria-label="Контакты">
+        <section className="table-card" aria-label={activeReport === "contacts" ? "Контакты" : "Сделки"}>
           <div className="table-header">
             <div>
-              <h2>Список контактов</h2>
+              <h2>{activeReport === "contacts" ? "Список контактов" : "Список сделок"}</h2>
               <p>{tableSubtitle}</p>
             </div>
-            {selectedFilterCount > 0 && (
-              <span className="badge badge-primary">{selectedFilterCount} активных фильтра</span>
+            {activeSelectedFilterCount > 0 && (
+              <span className="badge badge-primary">{activeSelectedFilterCount} активных фильтра</span>
             )}
           </div>
 
           {statusQuery.isError ? (
-            <TableError message={statusQuery.error.message} onRetry={() => void statusQuery.refetch()} />
+            <TableError
+              entityLabel={activeReport === "contacts" ? "контакты" : "сделки"}
+              message={statusQuery.error.message}
+              onRetry={() => void statusQuery.refetch()}
+            />
           ) : statusQuery.isPending ? (
             <ContactsSkeleton />
           ) : isRefreshing ? (
@@ -442,20 +706,36 @@ export function App() {
               isRefreshing={isRefreshing}
               onRefresh={() => refreshMutation.mutate()}
             />
-          ) : contactsQuery.isError ? (
-            <TableError message={contactsQuery.error.message} onRetry={() => void contactsQuery.refetch()} />
-          ) : isDealCreatedRangeInvalid ? (
-            <EmptyState onReset={resetFilters} />
-          ) : contactsQuery.isPending ? (
+          ) : activeQuery.isError ? (
+            <TableError
+              entityLabel={activeReport === "contacts" ? "контакты" : "сделки"}
+              message={activeQuery.error.message}
+              onRetry={() => void activeQuery.refetch()}
+            />
+          ) : activeRangeInvalid ? (
+            <EmptyState
+              entityLabel={activeReport === "contacts" ? "Контакты" : "Сделки"}
+              onReset={activeReport === "contacts" ? resetFilters : resetDealFilters}
+            />
+          ) : activeQuery.isPending ? (
             <ContactsSkeleton />
-          ) : contactsQuery.data.items.length === 0 ? (
-            <EmptyState onReset={resetFilters} />
-          ) : (
+          ) : activeReport === "contacts" && (contactsQuery.data?.items.length ?? 0) === 0 ? (
+            <EmptyState entityLabel="Контакты" onReset={resetFilters} />
+          ) : activeReport === "deals" && (dealsQuery.data?.items.length ?? 0) === 0 ? (
+            <EmptyState entityLabel="Сделки" onReset={resetDealFilters} />
+          ) : activeReport === "contacts" ? (
             <ContactsTable
-              contacts={contactsQuery.data.items}
+              contacts={contactsQuery.data?.items ?? []}
               sort={filters.sort}
               order={filters.order}
               onSort={updateSort}
+            />
+          ) : (
+            <DealsTable
+              deals={dealsQuery.data?.items ?? []}
+              sort={dealFilters.sort}
+              order={dealFilters.order}
+              onSort={updateDealSort}
             />
           )}
 
@@ -469,12 +749,7 @@ export function App() {
                   className="icon-button"
                   type="button"
                   disabled={!hasPreviousPage}
-                  onClick={() =>
-                    setFilters((current) => ({
-                      ...current,
-                      offset: Math.max(0, current.offset - current.limit)
-                    }))
-                  }
+                  onClick={() => changePage("previous")}
                   aria-label="Предыдущая страница"
                 >
                   <ChevronLeft size={16} strokeWidth={1.5} />
@@ -483,12 +758,7 @@ export function App() {
                   className="icon-button"
                   type="button"
                   disabled={!hasNextPage}
-                  onClick={() =>
-                    setFilters((current) => ({
-                      ...current,
-                      offset: current.offset + current.limit
-                    }))
-                  }
+                  onClick={() => changePage("next")}
                   aria-label="Следующая страница"
                 >
                   <ChevronRight size={16} strokeWidth={1.5} />
@@ -611,11 +881,19 @@ function InlineValidation({ message }: { message: string }) {
   );
 }
 
-function TableError({ message, onRetry }: { message: string; onRetry: () => void }) {
+function TableError({
+  entityLabel,
+  message,
+  onRetry
+}: {
+  entityLabel: string;
+  message: string;
+  onRetry: () => void;
+}) {
   return (
     <div className="state-panel" role="alert">
       <AlertCircle size={24} strokeWidth={1.5} />
-      <h3>Не удалось загрузить контакты</h3>
+      <h3>Не удалось загрузить {entityLabel}</h3>
       <p>{message}</p>
       <button className="button button-primary" type="button" onClick={onRetry}>
         <RefreshCcw size={16} strokeWidth={1.5} />
@@ -625,11 +903,11 @@ function TableError({ message, onRetry }: { message: string; onRetry: () => void
   );
 }
 
-function EmptyState({ onReset }: { onReset: () => void }) {
+function EmptyState({ entityLabel, onReset }: { entityLabel: string; onReset: () => void }) {
   return (
     <div className="state-panel">
       <Search size={24} strokeWidth={1.5} />
-      <h3>Контакты не найдены</h3>
+      <h3>{entityLabel} не найдены</h3>
       <p>Измените поисковый запрос или сбросьте фильтры.</p>
       <button className="button button-secondary" type="button" onClick={onReset}>
         Сбросить фильтры
@@ -696,6 +974,8 @@ function ContactsSkeleton() {
     </div>
   );
 }
+
+type SortField = ContactSort | DealSort;
 
 function ContactsTable({
   contacts,
@@ -868,7 +1148,125 @@ function ContactsTable({
   );
 }
 
-function SortableHeader({
+function DealsTable({
+  deals,
+  sort,
+  order,
+  onSort
+}: {
+  deals: DealAnalytics[];
+  sort: DealSort;
+  order: "asc" | "desc";
+  onSort: (sort: DealSort) => void;
+}) {
+  return (
+    <div className="table-scroll">
+      <table className="deals-table">
+        <thead>
+          <tr>
+            <SortableHeader label="ID" field="deal_id" sort={sort} order={order} onSort={onSort} />
+            <SortableHeader
+              label="Название сделки"
+              field="deal_name"
+              sort={sort}
+              order={order}
+              onSort={onSort}
+            />
+            <SortableHeader
+              label="Статус сделки"
+              field="status_group"
+              sort={sort}
+              order={order}
+              onSort={onSort}
+            />
+            <SortableHeader
+              label="Тип"
+              field="contact_type_normalized"
+              sort={sort}
+              order={order}
+              onSort={onSort}
+            />
+            <SortableHeader
+              label="Регион"
+              field="region_normalized"
+              sort={sort}
+              order={order}
+              onSort={onSort}
+            />
+            <SortableHeader
+              label="Бюджет"
+              field="budget_usd"
+              sort={sort}
+              order={order}
+              onSort={onSort}
+              align="right"
+            />
+            <SortableHeader
+              label="Прибыль"
+              field="estimated_profit_usd"
+              sort={sort}
+              order={order}
+              onSort={onSort}
+              align="right"
+            />
+            <SortableHeader
+              label="Дата создания"
+              field="created_date"
+              sort={sort}
+              order={order}
+              onSort={onSort}
+            />
+            <SortableHeader
+              label="Дата закрытия"
+              field="closed_date"
+              sort={sort}
+              order={order}
+              onSort={onSort}
+            />
+          </tr>
+        </thead>
+        <tbody>
+          {deals.map((deal) => (
+            <tr key={deal.deal_id}>
+              <td>
+                <div className="id-cell">
+                  <span>{deal.deal_id}</span>
+                  <a
+                    href={`https://dialar.bitrix24.by/crm/deal/details/${deal.deal_id}/`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Посмотреть
+                  </a>
+                </div>
+              </td>
+              <td>
+                <div className="contact-cell deal-name-cell">
+                  <span>{deal.deal_name}</span>
+                </div>
+              </td>
+              <td>
+                <span className={`badge ${statusBadgeClass(deal.status_group)}`}>
+                  {formatDealStatus(deal.status_group)}
+                </span>
+              </td>
+              <td>
+                <span className="badge badge-neutral">{deal.contact_type_normalized}</span>
+              </td>
+              <td>{deal.region_normalized}</td>
+              <td className="number-cell money-cell">{formatUsd(deal.budget_usd)}</td>
+              <td className="number-cell money-cell">{formatUsd(deal.estimated_profit_usd)}</td>
+              <td>{formatDate(deal.created_date)}</td>
+              <td>{formatDate(deal.closed_date)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function SortableHeader<TSort extends SortField>({
   label,
   field,
   sort,
@@ -877,10 +1275,10 @@ function SortableHeader({
   align = "left"
 }: {
   label: string;
-  field: ContactSort;
-  sort: ContactSort;
+  field: TSort;
+  sort: TSort;
   order: "asc" | "desc";
-  onSort: (sort: ContactSort) => void;
+  onSort: (sort: TSort) => void;
   align?: "left" | "right";
 }) {
   const active = sort === field;
@@ -894,6 +1292,29 @@ function SortableHeader({
       </button>
     </th>
   );
+}
+
+function formatDealStatus(status: string) {
+  if (status === "won") {
+    return "Успешная";
+  }
+  if (status === "open") {
+    return "Открытая";
+  }
+  if (status === "lost") {
+    return "Проигранная";
+  }
+  return status;
+}
+
+function statusBadgeClass(status: string) {
+  if (status === "won") {
+    return "badge-success";
+  }
+  if (status === "lost") {
+    return "badge-danger";
+  }
+  return "badge-neutral";
 }
 
 function formatUsd(value: string) {
@@ -965,6 +1386,30 @@ function loadStoredFilters(): ContactFilters {
   }
 }
 
+function loadStoredDealFilters(): DealFilters {
+  try {
+    const stored = window.localStorage.getItem(DEALS_STORAGE_KEY);
+    if (!stored) {
+      return initialDealFilters;
+    }
+    const parsed = JSON.parse(stored) as Partial<Record<keyof DealFilters, unknown>>;
+    return {
+      dealId: stringValue(parsed.dealId).replace(/\D/g, ""),
+      contactType: stringValue(parsed.contactType),
+      region: stringValue(parsed.region),
+      status: stringValue(parsed.status),
+      dealCreatedFrom: dateValue(parsed.dealCreatedFrom),
+      dealCreatedTo: dateValue(parsed.dealCreatedTo),
+      sort: dealSortValue(parsed.sort),
+      order: parsed.order === "desc" ? "desc" : "asc",
+      limit: positiveNumberValue(parsed.limit, PAGE_SIZE),
+      offset: nonNegativeNumberValue(parsed.offset)
+    };
+  } catch {
+    return initialDealFilters;
+  }
+}
+
 function loadStoredFilterMetadata(): FilterMetadata | null {
   try {
     const stored = window.localStorage.getItem(FILTER_METADATA_STORAGE_KEY);
@@ -994,12 +1439,24 @@ function storeFilters(filters: ContactFilters) {
   window.localStorage.setItem(CONTACTS_STORAGE_KEY, JSON.stringify(filters));
 }
 
+function storeDealFilters(filters: DealFilters) {
+  if (areDefaultDealFilters(filters)) {
+    window.localStorage.removeItem(DEALS_STORAGE_KEY);
+    return;
+  }
+  window.localStorage.setItem(DEALS_STORAGE_KEY, JSON.stringify(filters));
+}
+
 function storeFilterMetadata(metadata: FilterMetadata) {
   window.localStorage.setItem(FILTER_METADATA_STORAGE_KEY, JSON.stringify(metadata));
 }
 
 function areDefaultFilters(filters: ContactFilters) {
   return JSON.stringify(filters) === JSON.stringify(initialFilters);
+}
+
+function areDefaultDealFilters(filters: DealFilters) {
+  return JSON.stringify(filters) === JSON.stringify(initialDealFilters);
 }
 
 function stringValue(value: unknown) {
@@ -1052,6 +1509,12 @@ function sortValue(value: unknown): ContactSort {
   return typeof value === "string" && CONTACT_SORT_FIELDS.includes(value as ContactSort)
     ? (value as ContactSort)
     : initialFilters.sort;
+}
+
+function dealSortValue(value: unknown): DealSort {
+  return typeof value === "string" && DEAL_SORT_FIELDS.includes(value as DealSort)
+    ? (value as DealSort)
+    : initialDealFilters.sort;
 }
 
 function positiveNumberValue(value: unknown, fallback: number) {

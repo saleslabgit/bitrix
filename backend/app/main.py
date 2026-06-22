@@ -14,6 +14,7 @@ from app.api.models import (
     ContactSummaryPageResponse,
     DatasetStorageStatusResponse,
     DatasetProfileResponse,
+    DealAnalyticsPageResponse,
     DealCycleReportResponse,
     ExplicitContactDealDiagnosticResponse,
     ExplicitContactDealReconciliationResponse,
@@ -45,6 +46,7 @@ from app.reports.analytics import (
     get_rfm_report,
     get_type_region_analytics,
     list_contact_analytics,
+    list_deal_analytics,
     list_stale_open_deals,
 )
 from app.reports.contact_deal_diagnostics import (
@@ -80,6 +82,17 @@ ContactAnalyticsSortQuery = Literal[
     "estimated_profit_usd",
     "last_won_date",
     "latest_deal_date",
+]
+DealAnalyticsSortQuery = Literal[
+    "deal_id",
+    "deal_name",
+    "status_group",
+    "contact_type_normalized",
+    "region_normalized",
+    "budget_usd",
+    "estimated_profit_usd",
+    "created_date",
+    "closed_date",
 ]
 SortOrderQuery = Literal["asc", "desc"]
 
@@ -408,6 +421,38 @@ def report_contact_analytics(
         order=order,
     )
     return ContactAnalyticsPageResponse.model_validate(page)
+
+
+@app.get(
+    "/api/reports/deals/analytics",
+    response_model=DealAnalyticsPageResponse,
+)
+def report_deal_analytics(
+    limit: int = Query(default=50, gt=0, le=100),
+    offset: int = Query(default=0, ge=0),
+    deal_id: Annotated[int | None, Query(gt=0)] = None,
+    status: str | None = None,
+    contact_type: str | None = None,
+    region: str | None = None,
+    deal_created_from: date | None = None,
+    deal_created_to: date | None = None,
+    sort: DealAnalyticsSortQuery = "deal_id",
+    order: SortOrderQuery = "asc",
+) -> DealAnalyticsPageResponse:
+    page = list_deal_analytics(
+        get_connection(),
+        limit=limit,
+        offset=offset,
+        deal_id=deal_id,
+        status=status,
+        contact_type=contact_type,
+        region=region,
+        deal_created_from=deal_created_from,
+        deal_created_to=deal_created_to,
+        sort=sort,
+        order=order,
+    )
+    return DealAnalyticsPageResponse.model_validate(page)
 
 
 @app.get("/api/reports/abc", response_model=tuple[AbcResponse, ...])

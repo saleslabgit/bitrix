@@ -293,6 +293,25 @@ class ContactAnalyticsPageResponse(ApiModel):
     items: tuple[ContactAnalyticsResponse, ...]
 
 
+class DealAnalyticsResponse(ApiModel):
+    deal_id: int
+    deal_name: str
+    status_group: str
+    contact_type_normalized: str
+    region_normalized: str
+    budget_usd: Decimal
+    estimated_profit_usd: Decimal
+    created_date: date
+    closed_date: date | None
+
+
+class DealAnalyticsPageResponse(ApiModel):
+    total: int
+    limit: int = Field(gt=0, le=100)
+    offset: int = Field(ge=0)
+    items: tuple[DealAnalyticsResponse, ...]
+
+
 class AbcResponse(ApiModel):
     contact_id: int
     contact_name: str

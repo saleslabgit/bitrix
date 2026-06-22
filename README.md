@@ -4,9 +4,14 @@ Internal sales analytics system based on Bitrix CRM data.
 
 ## Current Stage
 
-The backend has local DuckDB storage, synthetic and mocked Bitrix ingestion, local analytics endpoints, active dataset metadata, and allowlisted raw Parquet snapshots. Live Bitrix validation, NBRB integration, authentication, deployment hardening, and frontend screens are not implemented yet.
+The backend has local DuckDB storage, synthetic and mocked Bitrix ingestion,
+manual read-only Bitrix refresh, NBRB-backed local USD normalization, local
+analytics endpoints, active dataset metadata, and allowlisted raw Parquet
+snapshots.
 
-Frontend implementation is blocked until the external design system is approved.
+The frontend has React/Vite Contacts and Deals report screens that read only
+local backend endpoints. Authentication, deployment hardening, and additional
+report screens are not implemented yet.
 
 ## Quick Start
 
@@ -16,17 +21,17 @@ Copy the placeholder environment file if local overrides are needed:
 cp .env.example .env
 ```
 
-Run the backend through Docker Compose:
+Run the app through Docker Compose:
 
 ```bash
-docker compose up --build backend
+docker compose up --build
 ```
 
-The backend serves:
+Local URLs:
 
 ```text
-GET http://localhost:8000/health
-GET http://localhost:8000/api/datasets/status
+Backend:  http://localhost:8000
+Frontend: http://localhost:5173
 ```
 
 Run backend tests locally:
@@ -41,7 +46,7 @@ pytest
 
 ```bash
 docker compose config
-docker compose up --build backend
+docker compose up --build
 cd backend
 pip install -e ".[dev]"
 pytest
