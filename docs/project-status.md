@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-Backend/data milestone for the Bitrix sales analytics MVP: local analytics, read-only Bitrix ingestion boundary, and persistent local DuckDB storage with active dataset metadata.
+First frontend milestone for the Bitrix sales analytics MVP: local analytics backend plus a React/Vite Contacts report screen reading local backend endpoints.
 
 ## Done In This Task
 
@@ -57,6 +57,10 @@ Backend/data milestone for the Bitrix sales analytics MVP: local analytics, read
 - Added a metadata-only contact type enum label extraction helper and local aggregate mapping helper.
 - Applied the approved live contact type option-ID mapping locally and reran normalization from persisted raw tables.
 - Added read-only NBRB currency-rate loading for local USD analytics and loaded rates for the active live dataset.
+- Added `frontend/` React/TypeScript/Vite app.
+- Implemented the Contacts report screen with search, type/region/status filters, `limit`/`offset` pagination, loading, error, empty states, and a compact dataset status badge.
+- Wired the frontend to local backend endpoints only: `/api/reports/contacts`, `/api/meta/filters`, and `/api/datasets/status`.
+- Applied the approved `ui-kits/` design tokens and web-app direction to the first frontend screen.
 
 ## Intentionally Not Done
 
@@ -65,7 +69,8 @@ Backend/data milestone for the Bitrix sales analytics MVP: local analytics, read
 - Full staging-table swap mechanics beyond the current transaction-backed single active table set.
 - Production migration tooling.
 - Authentication.
-- Frontend screens, UI components, design tokens, or Storybook.
+- Frontend screens beyond Contacts.
+- Storybook.
 - CI and production deployment.
 
 ## Facts
@@ -75,7 +80,7 @@ Backend/data milestone for the Bitrix sales analytics MVP: local analytics, read
 - Revenue is calculated only from won deals.
 - Estimated profit is always `revenue_usd * 0.50`.
 - All financial analytics are normalized to USD.
-- Frontend implementation waits for the approved design system.
+- First frontend implementation uses `ui-kits/` as the approved design-system source.
 
 ## Assumptions
 
@@ -89,8 +94,8 @@ Backend/data milestone for the Bitrix sales analytics MVP: local analytics, read
 - Final design-system tokens and component decisions.
 - Deployment host, HTTPS setup, and backup destination.
 - Final production storage layout, migration strategy, and whether a full staging-table swap will be required.
-- Final frontend response-shape needs beyond the current compact local report API.
+- Final frontend response-shape needs beyond the current Contacts screen.
 
 ## Next Likely Steps
 
-Review backend live-readiness aggregates in `.ai/report.md`, then plan the frontend milestone against the approved design system.
+Review the first Contacts frontend milestone, then plan the next report screen or shared frontend shell only after acceptance.

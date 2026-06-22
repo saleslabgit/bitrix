@@ -1,42 +1,105 @@
-# Отчет: TASK-2026-06-22-03
+# Отчет: TASK-2026-06-22-04
 
 Статус: done
 
 ## Кратко
 
-Выполнен backend/data-readiness milestone для активного live dataset без нового Bitrix sync:
+Реализован первый frontend milestone: `frontend/` теперь содержит React/TypeScript/Vite приложение с одним экраном `Contacts`.
 
-- user-approved contact type mapping implemented as source-controlled data;
-- normalization now resolves Bitrix enum option IDs inside raw combinations like `[61, 59, 65]`;
-- missing/empty type normalizes to `Конечный клиент / Без региона / priority 4`;
-- inactive/unknown options do not win active normalization or analytical-contact selection;
-- local raw tables were not overwritten;
-- local normalization was rerun from persisted DuckDB raw tables;
-- NBRB read-only rates were loaded into local `currency_rates`;
-- live local analytics report paths were smoke-tested.
+Экран работает с существующим локальным backend API и поддерживает:
 
-No Bitrix sync, Bitrix row-listing methods, or Bitrix write methods were called.
+- таблицу контактов;
+- поиск по названию контакта;
+- фильтры по нормализованному типу, региону и статусу сделки;
+- пагинацию через `limit`/`offset`;
+- loading, error и empty states;
+- компактный индикатор статуса активного dataset.
+
+Backend не менялся.
 
 ## Измененные файлы
 
-- `backend/app/domain/contact_type_resolution.py` — option-ID parsing and active rule resolution.
-- `backend/app/domain/contact_selection.py` — analytical contact selection now uses only active resolved rules.
-- `backend/app/domain/__init__.py` — exports contact type resolution helpers.
-- `backend/app/pipeline/normalization.py` — contact normalization now uses option-ID rule resolution.
-- `backend/app/pipeline/approved_contact_type_rules.py` — source-controlled approved live mapping, including `__MISSING__`.
-- `backend/app/pipeline/local_refresh.py` — local-only helper to replace rules and rerun normalization.
-- `backend/app/pipeline/currency_rates.py` — NBRB read-only currency-rate loader with historical currency metadata periods.
-- `backend/app/reports/contact_type_mapping.py` — reuses shared option-ID parser.
-- `backend/app/reports/profile.py` — profile rule coverage now understands option-ID rules.
-- `backend/tests/test_contact_selection.py` — updated selection semantics.
-- `backend/tests/test_live_data_readiness.py` — tests approved mapping, missing type rule, inactive/unknown behavior, and mocked NBRB loading.
-- `backend/tests/test_dataset_profile.py` — updated expected analytical-contact gap count under inactive/missing eligibility rules.
-- `docs/data-model.md` — documented option-ID rules, missing rule, selection tie-breakers, and NBRB rates.
-- `docs/development.md` — documented local readiness helpers.
-- `docs/project-status.md` — updated current backend readiness state.
+- `frontend/package.json` — npm scripts, React/Vite/TypeScript/TanStack Query/Lucide dependencies.
+- `frontend/package-lock.json` — lockfile после `npm install`.
+- `frontend/index.html` — Vite HTML entry.
+- `frontend/tsconfig.json` — strict TypeScript config.
+- `frontend/vite.config.ts` — React plugin and dev proxy `/api`/`/health` to local backend.
+- `frontend/src/main.tsx` — React entry and `QueryClientProvider`.
+- `frontend/src/api.ts` — typed client for existing backend endpoints.
+- `frontend/src/App.tsx` — Contacts screen, filters, table, pagination, states, dataset badge.
+- `frontend/src/styles.css` — app styles based on `ui-kits` tokens.
+- `frontend/src/vite-env.d.ts` — Vite env typing.
+- `frontend/README.md` — frontend commands, backend URL, design-system note.
+- `.gitignore` — ignores TypeScript build info cache (`*.tsbuildinfo`).
+- `docs/development.md` — frontend install/run/build and API config.
+- `docs/project-status.md` — current frontend milestone status.
 - `.ai/report.md` — this report.
 
-`.ai/task.md` was a pre-existing unstaged planner change and was not staged by Codex. `.env`, generated data, DuckDB files, Parquet snapshots, CSV exports, logs, caches, frontend, and `ui-kits/` were not staged.
+`.ai/task.md` remains a pre-existing unstaged planner change and was not modified by Codex. `ui-kits/`, generated data, DuckDB files, Parquet snapshots, CSV exports, `.env`, logs, caches, and `node_modules` were not staged.
+
+## Endpoints Used
+
+```text
+GET /api/reports/contacts
+GET /api/meta/filters
+GET /api/datasets/status
+```
+
+No new backend report endpoint was created.
+
+## Response Shape Notes
+
+The Contacts table follows the actual `ContactSummaryResponse` shape from `backend/app/api/models.py`.
+
+Displayed fields:
+
+- `contact_name`;
+- `contact_id`;
+- `contact_type_raw`;
+- `contact_type_normalized`;
+- `region_normalized`;
+- `total_deals_count`;
+- `won_deals_count`;
+- `open_deals_count`;
+- `lost_deals_count`;
+- `total_amount_original`.
+
+No forbidden personal fields are displayed. The endpoint response does not include phone, email, address, messenger, comments, files, requisites, or arbitrary non-allowlisted Bitrix fields.
+
+## Design System Files Inspected
+
+Inspected and used:
+
+- `ui-kits/readme.md` — product direction, Manrope typography, SaaS web-app layout, color/radius/spacing rules, icon guidance.
+- `ui-kits/SKILL.md` — instruction to use README and available files for production code.
+- `ui-kits/styles.css` — global import entry.
+- `ui-kits/tokens/colors.css` — primary blue, neutral palette, semantic surface/text/border aliases.
+- `ui-kits/tokens/typography.css` — Manrope and type tokens.
+- `ui-kits/tokens/spacing.css` — 2px/8px spacing scale and desktop max-width.
+- `ui-kits/tokens/effects.css` — 8px/12px radii, shadows, focus rings, transitions.
+- `ui-kits/components/core/Button.jsx` — button sizes, variants, hover/active behavior.
+- `ui-kits/components/core/Input.jsx` — label-above-input pattern and focus ring behavior.
+- `ui-kits/components/core/Badge.jsx` — badge variants and compact sizing.
+- `ui-kits/components/core/Card.jsx` — surface, border, radius, shadow pattern.
+- `ui-kits/components/feedback/Alert.jsx` — alert styling and semantic colors.
+- `ui-kits/components/navigation/Sidebar.jsx` — left navigation shell and active item styling.
+- `ui-kits/ui_kits/webapp/README.md` — web-app prototype composition.
+- `ui-kits/ui_kits/webapp/index.html` — dashboard shell reference.
+
+Applied design-system direction:
+
+- imported `../../ui-kits/styles.css` from the frontend CSS;
+- used Manrope, primary blue `#3040CC`, blue-grey neutrals, white cards, subtle borders, `8px` controls, `12px` cards, and compact data-table density;
+- used Lucide icons as the documented substitute for Untitled UI icons.
+
+`ui-kits/` files were not modified.
+
+## Architecture Notes
+
+- TanStack Query is used for server state because the screen has three independent backend reads, cacheable filters/status data, and explicit loading/error refetch states.
+- The table is plain React for this milestone. TanStack Table was not added because the required table behavior is limited to rendering, filtering via backend query parameters, and simple pagination.
+- Backend CORS was not changed. Vite dev proxy handles local frontend-to-backend calls during development.
+- `VITE_BACKEND_URL` controls the dev proxy target. `VITE_API_BASE_URL` can be used for built/static deployments when the API is not same-origin.
 
 ## Bitrix Calls
 
@@ -46,197 +109,53 @@ Bitrix methods called in this task:
 none
 ```
 
-Forbidden Bitrix methods not called:
-
-```text
-crm.contact.list: 0
-crm.deal.list: 0
-crm.deal.contact.items.get: 0
-*.add: 0
-*.update: 0
-*.delete: 0
-```
-
 No Bitrix sync was run. No Bitrix row-listing methods were called. No Bitrix write methods were called.
-
-## Local Rules Applied
-
-- rules stored in `contact_type_rules`: `20`
-- active rules: `13`
-- missing type source rule: `__MISSING__ -> Конечный клиент / Без региона / priority 4 / active`
-- option tie-breaker inside one raw combination: lowest priority number wins; if equal priority, smallest Bitrix option ID wins
-- analytical contact tie-breaker after resolved priority: Bitrix primary flag, then smallest contact ID
-
-## Active Dataset Status
-
-- active dataset name: `bitrix-manual`
-- active dataset kind: `bitrix_manual`
-- active state: `success`
-- raw contacts: `14216`
-- raw deals: `9142`
-- raw links: `8830`
-- normalized contacts: `14216`
-- normalized deals: `9142`
-
-## Normalization Verification
-
-Normalized contacts by type:
-
-```text
-Дизайнер: 1922
-Дилер: 212
-Конечный клиент: 11514
-Не определено: 230
-Подрядчик: 292
-Проектировщик: 46
-```
-
-Normalized contacts by region:
-
-```text
-Без региона: 11514
-Беларусь: 2086
-Не определено: 230
-Россия: 386
-```
-
-Normalized deals by type:
-
-```text
-Дизайнер: 1118
-Дилер: 149
-Конечный клиент: 7132
-Не определено: 487
-Подрядчик: 237
-Проектировщик: 19
-```
-
-Normalized deals by region:
-
-```text
-Без региона: 7132
-Беларусь: 1349
-Не определено: 487
-Россия: 174
-```
-
-Undefined state:
-
-- contacts with undefined type: `230`
-- contacts with undefined region: `230`
-- deals with undefined type: `487`
-- deals with undefined region: `487`
-- contacts mostly undefined: `false`
-- deals mostly undefined: `false`
-
-Deal/link integrity after local renormalization:
-
-- deals without analytical contact: `487`
-- deals without any local link: `312`
-- links whose contact is missing from raw contacts: `0`
-- links whose deal is missing from raw deals: `0`
-
-## Currency Rates
-
-Rates were loaded from the official NBRB read-only API into local `currency_rates`.
-
-NBRB endpoint classes used:
-
-```text
-exrates/currencies
-exrates/rates/dynamics/{Cur_ID}
-```
-
-Loaded local rate rows:
-
-```text
-BYN: 2020-07-28 -> 2026-06-22, rows 2155, source NBRB
-EUR: 2020-07-28 -> 2026-06-22, rows 2155, source NBRB
-RUB: 2020-07-28 -> 2026-06-22, rows 2155, source NBRB
-USD: 2020-07-28 -> 2026-06-22, rows 2155, source NBRB
-```
-
-Total loaded rows: `8620`.
-
-Current limitation: the active raw deals include dates after `2026-06-22`. For those future dates, analytics use the latest loaded local rate on or before the deal date. This matches current report selection behavior and should be refreshed when newer NBRB rates are available.
-
-## Analytics Endpoint Smoke
-
-FastAPI endpoint functions were invoked directly against the configured live local DuckDB connection. Only aggregate counts were inspected.
-
-```text
-contacts analytics total: 14216
-contacts analytics returned with limit=5: 5
-ABC rows: 14216
-RFM rows: 14216
-stale open deals rows: 3655
-deal-cycle overall closed deals: 5314
-concentration entries: 3
-type report rows: 6
-region report rows: 4
-type-region matrix rows: 9
-```
-
-The concentration report returned positive total revenue. No row-level report items, contact/deal IDs, contact/deal names, personal fields, secrets, local absolute paths, or generated file contents are included here.
 
 ## Запущенные проверки
 
 Before implementation:
 
-- `git log --oneline -5` — passed. Latest relevant commit before implementation was `157777c planner: TASK-2026-06-22-03 Apply live data rules and rates`.
-- `git status --short --branch` — passed. Showed only pre-existing modified `.ai/task.md`.
+- `git log --oneline -5` — passed. Latest relevant commit was `17035a9 planner: TASK-2026-06-22-04 Build contacts frontend`.
+- `git status --short` — passed. Showed only pre-existing modified `.ai/task.md`.
 
-Implementation checks:
+Documentation/library checks:
 
-- targeted backend tests with temporary backend venv Python:
-  `-m pytest tests/test_contact_selection.py tests/test_live_data_readiness.py tests/test_pipeline.py tests/test_dataset_profile.py tests/test_analytics.py` — passed: 25 tests passed.
-- full backend tests with temporary backend venv Python: `-m pytest` — passed: 56 tests passed.
-- `python3 -m py_compile app/*.py app/**/*.py tests/*.py tests/**/*.py` from `backend/` — passed.
-- `docker compose config` from repository root — not run successfully: Docker CLI is not available in this WSL distro.
+- Context7 docs queried for Vite, React, and TanStack Query.
 
-Live/local operations:
+Frontend checks from `frontend/`:
 
-- `apply_approved_rules_and_renormalize(get_connection())` — passed.
-- `load_currency_rates_for_raw_deals(get_connection())` — passed after adding historical NBRB metadata period support.
-- aggregate profile verification from local DuckDB — passed.
-- analytics endpoint smoke through `app.main` report functions — passed.
+- `npm install` — passed. Created `package-lock.json`. npm reported 1 low severity vulnerability.
+- `npm run build` — initially failed because `vite.config.ts` needed Node typings.
+- `npm install --save-dev @types/node` — passed.
+- `npm run build` — passed:
+  - `tsc -b`;
+  - `vite build`;
+  - output under ignored `frontend/dist/`.
 
-Pre-staging git checks:
+Repository/root checks:
 
-- `git status --short --branch` — passed. Showed TASK-2026-06-22-03 files modified/untracked plus pre-existing unstaged `.ai/task.md`.
-- `git diff --stat HEAD` — passed. Included tracked TASK-2026-06-22-03 changes plus pre-existing `.ai/task.md`; untracked new files are not shown by this command before staging.
+- `docker compose config` — not run successfully: Docker CLI is not available in this WSL distro (`The command 'docker' could not be found in this WSL 2 distro.`).
+
+Pre-staging checks:
+
+- `git status --short --branch` — passed. Showed TASK-2026-06-22-04 files plus pre-existing unstaged `.ai/task.md`.
+- `git diff --stat HEAD` — passed. Included tracked task docs/report changes plus pre-existing `.ai/task.md`; untracked frontend files are not included by this command before staging.
 - `git diff --name-only --cached` — passed with no output.
 - `git diff --check -- ':!AGENTS.md' ':!.ai/task.md'` — passed with no output.
-- `git status --short --ignored data backend/data` — passed. Showed ignored generated `backend/data/`; generated data was not staged.
+- `git status --short --ignored frontend backend/data data ui-kits` — passed. Showed ignored `frontend/node_modules/`, `frontend/dist/`, `frontend/tsconfig.tsbuildinfo`, and `backend/data/`.
 
-Final git checks after staging:
+Final staged checks:
 
-- `git status --short --branch` — passed. Showed only TASK-2026-06-22-03 files staged and pre-existing `.ai/task.md` unstaged.
-- `git diff --stat HEAD` — passed. Included staged TASK-2026-06-22-03 changes plus pre-existing unstaged `.ai/task.md`.
-- `git diff --name-only --cached` — passed. Listed only `.ai/report.md`, backend domain/pipeline/report/test files, and updated docs.
+- `git status --short --branch` — passed. `.ai/task.md` remained unstaged.
+- `git diff --stat HEAD` — passed. Included staged TASK-2026-06-22-04 files plus pre-existing unstaged `.ai/task.md`.
+- `git diff --name-only --cached` — passed. Listed only `.ai/report.md`, `.gitignore`, docs, and `frontend/` task files.
 - `git diff --check -- ':!AGENTS.md' ':!.ai/task.md'` — passed with no output.
-- `git log --oneline -1` — passed. Latest relevant commit remained `157777c planner: TASK-2026-06-22-03 Apply live data rules and rates`.
+- `git status --short --ignored frontend backend/data data ui-kits` — passed. `ui-kits/`, generated data, `node_modules`, `dist`, and `tsbuildinfo` were not staged.
+- `git log --oneline -1` — passed. Latest relevant commit remained `17035a9 planner: TASK-2026-06-22-04 Build contacts frontend`.
 
-## Факты
+## Known Limitations
 
-- Approved mapping was implemented exactly as source-controlled `ContactTypeRule` rows.
-- Local normalization now parses option IDs from combination strings.
-- Missing/empty contact type now normalizes to `Конечный клиент / Без региона`.
-- Non-empty raw values with only inactive/unknown options remain `Не определено`.
-- Active normalized type/region outputs are no longer mostly undefined.
-- Local NBRB rates exist for `BYN`, `EUR`, `RUB`, and `USD` across the active local deal date range through `2026-06-22`.
-- No Bitrix sync, row-listing, or write method was called.
-
-## Предположения
-
-- NBRB `exrates/rates/dynamics/{Cur_ID}` official rates are BYN rates for the configured `Cur_Scale`; the loader stores BYN-per-one-currency-unit values.
-- The source-controlled `__MISSING__` rule is the canonical representation for missing Bitrix contact type values in local rules.
-
-## Неизвестное
-
-- Whether future production should persist a separate rule label/source column beyond the existing `raw_value` field.
-- Whether automatic/scheduled NBRB refresh should be added before deployment.
-
-## Риски или следующий шаг
-
-The backend local dataset is ready for frontend/report integration work. Before production use, add an operator-facing or scheduled refresh path for NBRB rates and decide whether local rule application should become an authenticated API/admin operation.
+- Only the Contacts screen is implemented.
+- No dashboard, ABC, RFM, stale deals, concentration, type/region analytics, authentication, production deployment, or CI was added.
+- The frontend assumes the backend is running separately at `http://localhost:8000` for local development unless `VITE_BACKEND_URL` is set.
+- `npm install` reported 1 low severity vulnerability; no automatic `npm audit fix` was run to avoid unplanned dependency changes.

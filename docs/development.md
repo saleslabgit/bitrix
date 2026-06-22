@@ -3,6 +3,7 @@
 ## Requirements
 
 - Python 3.12.
+- Node.js 20+ and npm for frontend development.
 - Docker with Docker Compose.
 
 ## Environment Policy
@@ -47,6 +48,62 @@ Backend health endpoint:
 ```text
 GET http://localhost:8000/health
 ```
+
+## Frontend
+
+The first frontend milestone lives under `frontend/` and implements only the
+Contacts report screen.
+
+Install dependencies:
+
+```bash
+cd frontend
+npm install
+```
+
+Run the Vite dev server:
+
+```bash
+npm run dev
+```
+
+Build the frontend:
+
+```bash
+npm run build
+```
+
+The dev server proxies `/api` and `/health` to the local backend. Default
+backend URL:
+
+```text
+http://localhost:8000
+```
+
+Override the dev proxy target when needed:
+
+```bash
+VITE_BACKEND_URL=http://localhost:8000 npm run dev
+```
+
+The app can also call a non-same-origin API in built/static mode by setting:
+
+```text
+VITE_API_BASE_URL=http://localhost:8000
+```
+
+Frontend endpoints used by the Contacts screen:
+
+```text
+GET /api/reports/contacts
+GET /api/meta/filters
+GET /api/datasets/status
+```
+
+The frontend must continue to read only local backend endpoints. It must not
+call Bitrix directly or display forbidden personal fields such as phone, email,
+address, messengers, comments, files, requisites, or arbitrary raw Bitrix
+fields.
 
 Local synthetic API endpoints:
 
@@ -163,6 +220,6 @@ If Docker commands print a WSL integration error, enable Docker Desktop integrat
 - The API uses a configured local DuckDB connection. Default runtime storage is persistent under `APP_DATA_DIR`; tests can still use in-memory or temporary connections.
 - Dataset activation is transaction-backed for the current single-table-set storage model, not a full staging-table swap system.
 - NBRB rate loading is implemented for local backend readiness, but no scheduler or automatic refresh exists.
-- No persisted analytics tables, authentication, scheduler, or frontend is implemented.
-- Future frontend implementation should use `ui-kits/` as the design-system source; no frontend screens are implemented in this backend milestone.
+- No persisted analytics tables, authentication, scheduler, or production frontend deployment is implemented.
+- Frontend is intentionally limited to the Contacts report screen.
 - Docker Compose currently runs only the backend service.
