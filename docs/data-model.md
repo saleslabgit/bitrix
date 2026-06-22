@@ -224,6 +224,9 @@ The first local analytics outputs are calculated on demand from `normalized_cont
 Implemented local report outputs:
 
 - contact analytics with deal counts, USD budget breakdown for all/open/lost assigned deals, won revenue USD, estimated profit USD, first/last won dates, latest deal date, and sales flag;
+- contact won revenue series with one row per close date for one analytical
+  contact, aggregating closed `won` deals in USD and exposing only totals,
+  counts, and close dates for charting;
 - deal analytics with one row per normalized deal: deal ID/name, status group, normalized analytical type/region, USD budget, USD estimated profit, created date, and closed date;
 - ABC comparison for full period vs last 12 months, with `Нет продаж` for contacts without won revenue in a period;
 - paginated ABC analytics with filters, sorting, source/base `Было`
@@ -248,6 +251,14 @@ stable allowlisted sorting before pagination. Deal analytics page totals
 `filtered_estimated_profit_usd` are calculated across all filtered rows before
 pagination. `filtered_revenue_usd` is won-only and sums deal budget only for
 filtered rows where `status_group == "won"`.
+
+`GET /api/reports/contacts/{contact_id}/won-revenue-series` calculates a
+customer chart series on demand from local normalized data. It includes only
+deals whose `analytical_contact_id` matches the requested contact,
+`status_group == "won"`, and `closed_at` is not null. Optional `date_from` /
+`date_to` filters apply inclusively to `closed_at.date()`. Multiple won deals
+closed on the same date are summed into one point. The output does not include
+deal names, raw rows, private Bitrix fields, local paths, or secrets.
 
 USD deal conversion does not require a stored `currency_rates` row because the
 amount is already denominated in the target currency. Non-USD reports still

@@ -146,6 +146,24 @@ class ContactAnalyticsPage:
 
 
 @dataclass(frozen=True)
+class ContactWonRevenuePoint:
+    closed_date: date
+    revenue_usd: Decimal
+    won_deals_count: int
+
+
+@dataclass(frozen=True)
+class ContactWonRevenueSeries:
+    contact_id: int
+    contact_name: str
+    date_from: date | None
+    date_to: date | None
+    total_revenue_usd: Decimal
+    won_deals_count: int
+    points: tuple[ContactWonRevenuePoint, ...]
+
+
+@dataclass(frozen=True)
 class DealAnalyticsRow:
     deal_id: int
     deal_name: str
@@ -211,6 +229,10 @@ class AbcAnalyticsPage:
 
 
 class AnalyticsDataUnavailableError(ValueError):
+    pass
+
+
+class ContactNotFoundError(ValueError):
     pass
 
 
@@ -416,6 +438,58 @@ def list_contact_analytics(
         limit=limit,
         offset=offset,
         items=rows[offset : offset + limit],
+    )
+
+
+def get_contact_won_revenue_series(
+    connection: duckdb.DuckDBPyConnection,
+    *,
+    contact_id: int,
+    date_from: date | None = None,
+    date_to: date | None = None,
+) -> ContactWonRevenueSeries:
+    contact = next(
+        (row for row in _load_contacts(connection) if row.contact_id == contact_id),
+        None,
+    )
+    if contact is None:
+        raise ContactNotFoundError(f"Contact {contact_id} was not found in local data.")
+
+    revenue_by_date: dict[date, Decimal] = {}
+    deals_count_by_date: dict[date, int] = {}
+    for deal in _load_deal_facts(connection):
+        if (
+            deal.analytical_contact_id != contact_id
+            or deal.status_group != "won"
+            or deal.closed_at is None
+            or not _date_in_period(deal.closed_at.date(), date_from, date_to)
+        ):
+            continue
+        closed_date = deal.closed_at.date()
+        revenue_by_date[closed_date] = _money(
+            revenue_by_date.get(closed_date, Decimal("0")) + deal.amount_usd
+        )
+        deals_count_by_date[closed_date] = deals_count_by_date.get(closed_date, 0) + 1
+
+    points = tuple(
+        ContactWonRevenuePoint(
+            closed_date=closed_date,
+            revenue_usd=_money(revenue_by_date[closed_date]),
+            won_deals_count=deals_count_by_date[closed_date],
+        )
+        for closed_date in sorted(revenue_by_date)
+    )
+    total_revenue_usd = _money(
+        sum((point.revenue_usd for point in points), Decimal("0"))
+    )
+    return ContactWonRevenueSeries(
+        contact_id=contact.contact_id,
+        contact_name=contact.contact_name,
+        date_from=date_from,
+        date_to=date_to,
+        total_revenue_usd=total_revenue_usd,
+        won_deals_count=sum(point.won_deals_count for point in points),
+        points=points,
     )
 
 

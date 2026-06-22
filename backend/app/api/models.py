@@ -293,6 +293,22 @@ class ContactAnalyticsPageResponse(ApiModel):
     items: tuple[ContactAnalyticsResponse, ...]
 
 
+class ContactWonRevenuePointResponse(ApiModel):
+    closed_date: date
+    revenue_usd: Decimal
+    won_deals_count: int
+
+
+class ContactWonRevenueSeriesResponse(ApiModel):
+    contact_id: int
+    contact_name: str
+    date_from: date | None
+    date_to: date | None
+    total_revenue_usd: Decimal
+    won_deals_count: int
+    points: tuple[ContactWonRevenuePointResponse, ...]
+
+
 class DealAnalyticsResponse(ApiModel):
     deal_id: int
     deal_name: str

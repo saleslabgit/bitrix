@@ -10,11 +10,22 @@ import {
   Filter,
   PieChart,
   RefreshCcw,
-  Search
+  Search,
+  X
 } from "lucide-react";
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis
+} from "recharts";
 import {
   fetchAbcAnalytics,
   fetchContactAnalytics,
+  fetchContactWonRevenueSeries,
   fetchDatasetStatus,
   fetchDealAnalytics,
   fetchFilterMetadata,
@@ -26,6 +37,7 @@ import {
   type ContactAnalytics,
   type ContactFilters,
   type ContactSort,
+  type ContactWonRevenueSeries,
   type DealAnalytics,
   type DealAnalyticsPage,
   type DealFilters,
@@ -171,6 +183,7 @@ export function App() {
   const [lastRefreshResult, setLastRefreshResult] = useState<LocalDataRefreshResponse | null>(
     null
   );
+  const [revenueChartContact, setRevenueChartContact] = useState<ContactAnalytics | null>(null);
   const isDealCreatedRangeInvalid =
     Boolean(filters.dealCreatedFrom) &&
     Boolean(filters.dealCreatedTo) &&
@@ -332,6 +345,22 @@ export function App() {
       !isAbcCompareRangeInvalid
   });
 
+  const revenueSeriesQuery = useQuery({
+    queryKey: [
+      "contact-won-revenue-series",
+      revenueChartContact?.contact_id,
+      filters.dealCreatedFrom,
+      filters.dealCreatedTo
+    ],
+    queryFn: () =>
+      fetchContactWonRevenueSeries({
+        contactId: revenueChartContact?.contact_id ?? 0,
+        dateFrom: filters.dealCreatedFrom,
+        dateTo: filters.dealCreatedTo
+      }),
+    enabled: Boolean(revenueChartContact) && isDatasetReady
+  });
+
   const refreshMutation = useMutation({
     mutationFn: refreshLocalData,
     onMutate: () => {
@@ -358,6 +387,21 @@ export function App() {
       storeFilterMetadata(filterQuery.data);
     }
   }, [filterQuery.data, isFreshFilterMetadataValid]);
+
+  useEffect(() => {
+    if (!revenueChartContact) {
+      return;
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setRevenueChartContact(null);
+      }
+    }
+
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [revenueChartContact]);
 
   const activeQuery =
     activeReport === "contacts" ? contactsQuery : activeReport === "deals" ? dealsQuery : abcQuery;
@@ -1157,6 +1201,7 @@ export function App() {
               order={filters.order}
               onSort={updateSort}
               onOpenDeals={openDealsForContact}
+              onOpenRevenueChart={setRevenueChartContact}
             />
           ) : activeReport === "deals" ? (
             <>
@@ -1216,6 +1261,18 @@ export function App() {
           )}
         </section>
       </main>
+      {revenueChartContact && (
+        <ContactRevenueModal
+          contact={revenueChartContact}
+          periodFrom={filters.dealCreatedFrom}
+          periodTo={filters.dealCreatedTo}
+          series={revenueSeriesQuery.data ?? null}
+          isLoading={revenueSeriesQuery.isPending}
+          errorMessage={revenueSeriesQuery.isError ? revenueSeriesQuery.error.message : null}
+          onRetry={() => void revenueSeriesQuery.refetch()}
+          onClose={() => setRevenueChartContact(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1430,13 +1487,15 @@ function ContactsTable({
   sort,
   order,
   onSort,
-  onOpenDeals
+  onOpenDeals,
+  onOpenRevenueChart
 }: {
   contacts: ContactAnalytics[];
   sort: ContactSort;
   order: "asc" | "desc";
   onSort: (sort: ContactSort) => void;
   onOpenDeals: (contact: ContactAnalytics, status?: string) => void;
+  onOpenRevenueChart: (contact: ContactAnalytics) => void;
 }) {
   return (
     <div className="table-scroll">
@@ -1563,7 +1622,14 @@ function ContactsTable({
               </td>
               <td>
                 <div className="contact-cell">
-                  <span>{contact.contact_name}</span>
+                  <button
+                    className="contact-name-button"
+                    type="button"
+                    onClick={() => onOpenRevenueChart(contact)}
+                    aria-label={`Показать график выручки клиента ${contact.contact_name}`}
+                  >
+                    {contact.contact_name}
+                  </button>
                 </div>
               </td>
               <td>
@@ -1902,6 +1968,134 @@ function AbcTable({
   );
 }
 
+type RevenueChartPoint = {
+  closedDate: string;
+  revenueUsd: number;
+  wonDealsCount: number;
+};
+
+function ContactRevenueModal({
+  contact,
+  periodFrom,
+  periodTo,
+  series,
+  isLoading,
+  errorMessage,
+  onRetry,
+  onClose
+}: {
+  contact: ContactAnalytics;
+  periodFrom: string;
+  periodTo: string;
+  series: ContactWonRevenueSeries | null;
+  isLoading: boolean;
+  errorMessage: string | null;
+  onRetry: () => void;
+  onClose: () => void;
+}) {
+  const chartData: RevenueChartPoint[] =
+    series?.points.map((point) => ({
+      closedDate: point.closed_date,
+      revenueUsd: Number(point.revenue_usd),
+      wonDealsCount: point.won_deals_count
+    })) ?? [];
+  const periodLabel = formatChartPeriod(periodFrom, periodTo);
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <section
+        className="modal-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="contact-revenue-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="modal-header">
+          <div>
+            <p className="eyebrow">Won revenue</p>
+            <h2 id="contact-revenue-title">{contact.contact_name}</h2>
+            <p className="modal-subtitle">
+              ID {contact.contact_id} · закрытые успешные сделки · период: {periodLabel}
+            </p>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Закрыть">
+            <X size={16} strokeWidth={1.5} />
+          </button>
+        </header>
+
+        {isLoading ? (
+          <div className="modal-state">
+            <RefreshCcw className="spin-icon" size={22} strokeWidth={1.5} />
+            <p>Загружаем выручку клиента...</p>
+          </div>
+        ) : errorMessage ? (
+          <div className="modal-state">
+            <AlertCircle size={24} strokeWidth={1.5} />
+            <h3>Не удалось загрузить график</h3>
+            <p>{errorMessage}</p>
+            <button className="button button-secondary" type="button" onClick={onRetry}>
+              Повторить
+            </button>
+          </div>
+        ) : !series || chartData.length === 0 ? (
+          <div className="modal-state">
+            <BarChart3 size={24} strokeWidth={1.5} />
+            <h3>Нет закрытых успешных сделок</h3>
+            <p>В выбранном периоде у клиента нет won revenue по датам закрытия.</p>
+          </div>
+        ) : (
+          <>
+            <div className="chart-summary">
+              <div>
+                <span>Выручка</span>
+                <strong>{formatUsd(series.total_revenue_usd)}</strong>
+              </div>
+              <div>
+                <span>Успешные сделки</span>
+                <strong>{series.won_deals_count.toLocaleString("ru-RU")}</strong>
+              </div>
+            </div>
+            <div className="revenue-chart" aria-label="График won revenue по датам закрытия">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData} margin={{ top: 10, right: 16, left: 8, bottom: 8 }}>
+                  <CartesianGrid stroke="#e5e7eb" strokeDasharray="4 4" />
+                  <XAxis dataKey="closedDate" tickFormatter={formatShortDateTick} minTickGap={20} />
+                  <YAxis
+                    tickFormatter={formatCompactUsd}
+                    width={76}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <Tooltip
+                    labelFormatter={(label: unknown) =>
+                      typeof label === "string" ? formatDate(label) : ""
+                    }
+                    formatter={(value: unknown, name: unknown) => {
+                      if (name === "revenueUsd") {
+                        return [formatUsd(String(value)), "Выручка"];
+                      }
+                      return [String(value), String(name)];
+                    }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="revenueUsd"
+                    name="Выручка"
+                    stroke="#2563eb"
+                    strokeWidth={2.5}
+                    dot={{ r: 3 }}
+                    activeDot={{ r: 5 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </>
+        )}
+      </section>
+    </div>
+  );
+}
+
 function DealCountButton({
   count,
   label,
@@ -2124,6 +2318,36 @@ function formatUsd(value: string) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   }).format(numeric);
+}
+
+function formatCompactUsd(value: number) {
+  if (!Number.isFinite(value)) {
+    return "";
+  }
+  return new Intl.NumberFormat("ru-RU", {
+    notation: "compact",
+    maximumFractionDigits: 1
+  }).format(value);
+}
+
+function formatShortDateTick(value: string) {
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit"
+  }).format(new Date(value));
+}
+
+function formatChartPeriod(dateFrom: string, dateTo: string) {
+  if (dateFrom && dateTo) {
+    return `${formatDate(dateFrom)} - ${formatDate(dateTo)}`;
+  }
+  if (dateFrom) {
+    return `с ${formatDate(dateFrom)}`;
+  }
+  if (dateTo) {
+    return `по ${formatDate(dateTo)}`;
+  }
+  return "все даты закрытия";
 }
 
 function formatPercent(value: string) {

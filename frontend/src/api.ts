@@ -25,6 +25,22 @@ export type ContactAnalyticsPage = {
   items: ContactAnalytics[];
 };
 
+export type ContactWonRevenuePoint = {
+  closed_date: string;
+  revenue_usd: string;
+  won_deals_count: number;
+};
+
+export type ContactWonRevenueSeries = {
+  contact_id: number;
+  contact_name: string;
+  date_from: string | null;
+  date_to: string | null;
+  total_revenue_usd: string;
+  won_deals_count: number;
+  points: ContactWonRevenuePoint[];
+};
+
 export type DealAnalytics = {
   deal_id: number;
   deal_name: string;
@@ -236,6 +252,28 @@ export async function fetchContactAnalytics(
   params.set("order", filters.order);
 
   return request<ContactAnalyticsPage>(`/api/reports/contacts/analytics?${params.toString()}`);
+}
+
+export async function fetchContactWonRevenueSeries({
+  contactId,
+  dateFrom,
+  dateTo
+}: {
+  contactId: number;
+  dateFrom?: string;
+  dateTo?: string;
+}): Promise<ContactWonRevenueSeries> {
+  const params = new URLSearchParams();
+  if (dateFrom) {
+    params.set("date_from", dateFrom);
+  }
+  if (dateTo) {
+    params.set("date_to", dateTo);
+  }
+  const query = params.toString();
+  return request<ContactWonRevenueSeries>(
+    `/api/reports/contacts/${contactId}/won-revenue-series${query ? `?${query}` : ""}`
+  );
 }
 
 export async function fetchDealAnalytics(filters: DealFilters): Promise<DealAnalyticsPage> {

@@ -1,7 +1,7 @@
 from datetime import date
 from typing import Annotated, Literal
 
-from fastapi import FastAPI, HTTPException, Query, status as http_status
+from fastapi import FastAPI, HTTPException, Path, Query, status as http_status
 
 from app.api.models import (
     AbcAnalyticsPageResponse,
@@ -13,6 +13,7 @@ from app.api.models import (
     ContactDealDiagnosticResponse,
     ContactAnalyticsPageResponse,
     ContactSummaryPageResponse,
+    ContactWonRevenueSeriesResponse,
     DatasetStorageStatusResponse,
     DatasetProfileResponse,
     DealAnalyticsPageResponse,
@@ -42,7 +43,9 @@ from app.pipeline.manual_refresh import run_full_bitrix_manual_refresh
 from app.pipeline.synthetic import get_latest_pipeline_status, run_synthetic_pipeline
 from app.reports.analytics import (
     AnalyticsDataUnavailableError,
+    ContactNotFoundError,
     get_abc_report,
+    get_contact_won_revenue_series,
     get_concentration_report,
     get_deal_cycle_report,
     get_rfm_report,
@@ -448,6 +451,36 @@ def report_contact_analytics(
             detail=str(exc),
         ) from exc
     return ContactAnalyticsPageResponse.model_validate(page)
+
+
+@app.get(
+    "/api/reports/contacts/{contact_id}/won-revenue-series",
+    response_model=ContactWonRevenueSeriesResponse,
+)
+def report_contact_won_revenue_series(
+    contact_id: Annotated[int, Path(gt=0)],
+    date_from: date | None = None,
+    date_to: date | None = None,
+) -> ContactWonRevenueSeriesResponse:
+    try:
+        with connection_scope() as connection:
+            series = get_contact_won_revenue_series(
+                connection,
+                contact_id=contact_id,
+                date_from=date_from,
+                date_to=date_to,
+            )
+    except ContactNotFoundError as exc:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except AnalyticsDataUnavailableError as exc:
+        raise HTTPException(
+            status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+    return ContactWonRevenueSeriesResponse.model_validate(series)
 
 
 @app.get(

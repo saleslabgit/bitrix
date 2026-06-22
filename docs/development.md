@@ -147,6 +147,7 @@ Frontend endpoints used by the report screens:
 
 ```text
 GET /api/reports/contacts/analytics
+GET /api/reports/contacts/{contact_id}/won-revenue-series
 GET /api/reports/deals/analytics
 GET /api/reports/abc/analytics
 GET /api/meta/filters
@@ -177,6 +178,16 @@ fields for the full-width verification table and still does not call Bitrix
 directly. Contacts UI state is persisted locally in browser storage under
 `bitrix-sales.contacts.v1`; it stores filter/sort/page settings only, not
 backend rows, secrets, or raw data.
+
+Clicking a contact name opens a local modal chart backed by
+`GET /api/reports/contacts/{contact_id}/won-revenue-series`. The endpoint
+returns only aggregated won USD revenue by `normalized_deals.closed_at` date for
+the selected analytical contact, plus total revenue and won deal count. It
+accepts inclusive `date_from` / `date_to` closed-date filters and returns `404`
+when the contact is absent from local normalized data. Until the Contacts UI has
+separate close-date filters, the modal maps the current Contacts date filter
+fields (`Создана с` / `Создана по`) to this chart period and labels the period
+inside the modal.
 
 The Deals screen uses `/api/reports/deals/analytics` for local deal-level rows
 with exact `deal_id`, exact local analytical `client_id`, local analytical
@@ -211,6 +222,11 @@ Region filters and region columns are temporarily hidden in the frontend while
 region detection is unfinished. The frontend does not send region query
 parameters from Contacts, Deals, or ABC screens, but backend region fields and
 query support remain in place for later use.
+
+Contacts, Deals, and ABC report cards are viewport-bounded. Table rows scroll
+inside the card with sticky column headers; pagination remains outside the row
+scroll area at the bottom. Deals and ABC totals remain visible outside the row
+scroll area above and below their tables.
 
 Local Vite serves `/favicon.ico` from `frontend/public/favicon.ico`, so browser
 favicon probing should not produce a 404 during development.

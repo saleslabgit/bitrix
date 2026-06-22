@@ -16,6 +16,7 @@ from app.main import (
     report_abc_analytics,
     report_concentration,
     report_contact_analytics,
+    report_contact_won_revenue_series,
     report_contacts,
     report_deal_analytics,
     report_deal_cycle,
@@ -430,6 +431,59 @@ def test_api_analytics_reports_return_local_typed_data() -> None:
     assert client_id_deals.filtered_estimated_profit_usd == Decimal("73227.28")
 
 
+def test_contact_won_revenue_series_aggregates_won_deals_by_close_date() -> None:
+    run_local_synthetic_sync()
+    get_connection().execute(
+        """
+        UPDATE normalized_deals
+        SET closed_at = TIMESTAMP '2023-02-10 00:00:00'
+        WHERE deal_id = 2
+        """
+    )
+
+    series = report_contact_won_revenue_series(
+        contact_id=1,
+        date_from=date(2023, 2, 10),
+        date_to=date(2023, 2, 10),
+    )
+
+    assert series.contact_id == 1
+    assert series.contact_name == "Synthetic Contact 1"
+    assert series.date_from == date(2023, 2, 10)
+    assert series.date_to == date(2023, 2, 10)
+    assert series.total_revenue_usd == Decimal("240000.00")
+    assert series.won_deals_count == 2
+    assert len(series.points) == 1
+    assert series.points[0].closed_date == date(2023, 2, 10)
+    assert series.points[0].revenue_usd == Decimal("240000.00")
+    assert series.points[0].won_deals_count == 2
+
+
+def test_contact_won_revenue_series_returns_empty_points_for_existing_contact() -> None:
+    run_local_synthetic_sync()
+
+    series = report_contact_won_revenue_series(
+        contact_id=1,
+        date_from=date(2022, 1, 1),
+        date_to=date(2022, 12, 31),
+    )
+
+    assert series.contact_id == 1
+    assert series.points == ()
+    assert series.total_revenue_usd == Decimal("0.00")
+    assert series.won_deals_count == 0
+
+
+def test_contact_won_revenue_series_returns_404_for_missing_contact() -> None:
+    run_local_synthetic_sync()
+
+    with pytest.raises(HTTPException) as exc_info:
+        report_contact_won_revenue_series(contact_id=999999)
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "Contact 999999 was not found in local data."
+
+
 def test_reported_contact_analytics_query_handles_usd_deals_without_rate_rows() -> None:
     _load_api_usd_deal_without_rates_dataset()
 
@@ -473,6 +527,7 @@ def test_api_responses_do_not_expose_forbidden_fields() -> None:
         meta_filters().model_dump(),
         report_contacts(limit=10, offset=0).model_dump(),
         report_contact_analytics(limit=10, offset=0).model_dump(),
+        report_contact_won_revenue_series(contact_id=1).model_dump(),
         report_deal_analytics(limit=10, offset=0).model_dump(),
         report_abc_analytics(limit=10, offset=0).model_dump(),
         [row.model_dump() for row in report_abc()],
