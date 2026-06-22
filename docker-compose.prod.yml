@@ -1,0 +1,22 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    env_file:
+      - path: .env.example
+        required: true
+      - path: .env
+        required: false
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    depends_on:
+      - backend
+    ports:
+      - "127.0.0.1:8080:80"
+    restart: unless-stopped

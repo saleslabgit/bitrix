@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-Frontend reporting milestone for the Bitrix sales analytics MVP: local analytics backend plus React/Vite Contacts, Deals, and ABC report screens reading local backend endpoints. The local app has a manual UI-triggered data refresh flow for local testing after `docker compose up --build`; Contacts, Deals, and ABC financial columns use local USD analytics metrics instead of original-currency totals.
+Frontend reporting milestone for the Bitrix sales analytics MVP: local analytics backend plus React/Vite Contacts, Deals, and ABC report screens reading local backend endpoints. The local app has a manual UI-triggered data refresh flow for local testing after `docker compose up --build`; Contacts, Deals, and ABC financial columns use local USD analytics metrics instead of original-currency totals. A separate FASTVPS-oriented Docker production setup now exists for running the built frontend behind a hosting panel HTTPS reverse proxy.
 
 ## Done In This Task
 
@@ -81,6 +81,7 @@ Frontend reporting milestone for the Bitrix sales analytics MVP: local analytics
 - Corrected ABC transition direction to always mean `ABC было -> ABC стало`, so loss cases such as `A -> Нет продаж` are not treated as growth priorities.
 - Added a compact full-height report workspace: Contacts, Deals, and ABC filters open in a right-side drawer, table cards fill the available viewport height with sticky headers and visible bottom controls, and Contacts names open a local won-revenue chart modal.
 - Added a simple single-user auth gate controlled by environment variables. When enabled, `/api/auth/session`, `/api/auth/login`, and `/api/auth/logout` manage an HttpOnly SameSite=Lax signed session cookie, while all other `/api/*` routes require a valid session. Local development remains open by default with `APP_AUTH_ENABLED=false`.
+- Added FASTVPS/Docker deployment preparation: separate `docker-compose.prod.yml`, production frontend nginx image, safe production env template, and deployment documentation for a panel-managed HTTPS reverse proxy to `127.0.0.1:8080`.
 
 ## Intentionally Not Done
 
@@ -91,7 +92,9 @@ Frontend reporting milestone for the Bitrix sales analytics MVP: local analytics
 - Frontend screens beyond Contacts, Deals, and ABC.
 - Background refresh queues, schedulers, and automatic refresh on Docker startup.
 - Storybook.
-- CI and production deployment.
+- CI.
+- Actual server deployment, final domain setup, FASTVPS panel configuration, and backup destination selection.
+- No-Docker weak VPS deployment path; Docker with the FASTVPS panel is the current primary deployment path.
 
 ## Facts
 
@@ -112,10 +115,10 @@ Frontend reporting milestone for the Bitrix sales analytics MVP: local analytics
 - Real Bitrix webhook URL remains local secret and is not documented.
 - Actual pipelines, stages, and currencies in Bitrix.
 - Final design-system tokens and component decisions.
-- Deployment host, HTTPS setup, and backup destination.
+- Final production domain, FASTVPS panel proxy field names, and backup destination.
 - Final production storage layout, migration strategy, and whether a full staging-table swap will be required.
 - Final frontend response-shape needs beyond the current Contacts screen.
 
 ## Next Likely Steps
 
-Review the Contacts, Deals, and ABC frontend reports, then plan the next report screen or shared frontend refinement only after acceptance.
+Deploy manually on the FASTVPS server when the final domain and panel settings are known, or review the Contacts, Deals, and ABC frontend reports before planning the next product screen.

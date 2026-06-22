@@ -46,6 +46,16 @@ HTTPS.
 
 ## Docker Compose
 
+Local development and production deployment use separate Compose files. Local
+development remains:
+
+```bash
+docker compose up --build
+```
+
+FASTVPS production deployment uses `docker-compose.prod.yml`; see
+[`docs/deployment.md`](deployment.md).
+
 Validate Compose configuration:
 
 ```bash

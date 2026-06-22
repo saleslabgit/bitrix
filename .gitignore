@@ -18,6 +18,7 @@ env/
 .env
 .env.*
 !.env.example
+!deploy/fastvps/.env.production.example
 
 # Local data and databases
 data/
