@@ -1,207 +1,195 @@
-# Task: TASK-2026-06-22-13
+# Task: TASK-2026-06-22-14
 
 Status: planned
-Created from: current `main` after `.ai/report.md` for `TASK-2026-06-22-12` reports `done`
+Created from: current `main` after `3708a6b codex: TASK-2026-06-22-13 Improve Contacts verification UI`
 
 ## Title
 
-Improve Contacts verification UI
+Add contact budget breakdown columns
 
 ## Goal
 
-Improve the existing Contacts screen so the product owner can verify refreshed local Bitrix data faster from the UI.
+Refine the existing Contacts analytics table so financial columns match the product owner's verification logic:
 
-Add sortable Contacts analytics rows, contact ID search, a reliable filter reset, a closed-date column, a USD budget column, and a Bitrix contact-card link next to the contact ID.
+- `Бюджет` — sum of all deals assigned to the contact;
+- `Бюджет в работе` — sum of open deals assigned to the contact;
+- `Бюджет проигранных` — sum of lost deals assigned to the contact;
+- `Выручка` — sum of won deals assigned to the contact;
+- `Прибыль` — the current estimated profit field, renamed in the UI.
 
-Keep this as a focused improvement to the current Contacts screen and its local backend analytics API. Do not add a new Deals screen in this task.
+Also rename deal-count columns, make first sort click descending, and expand the working area to use the available screen width with small side padding.
 
 ## Facts
 
-- The user confirmed the manual refresh completed and the data mostly matches.
-- The user requested UI features to verify data:
-  - sorting;
-  - search by ID in filters;
-  - fix `Сбросить фильтр` not updating the table;
-  - add `дата закрытия` column;
-  - add `бюджет` column showing the deal amount in USD;
-  - show a `Посмотреть` link next to the ID using:
-
-```text
-https://dialar.bitrix24.by/crm/contact/details/{{id}}/
-```
-
-- Current frontend is a single `Contacts` screen in `frontend/src/App.tsx`.
-- Current frontend uses local backend endpoints only:
-  - `GET /api/reports/contacts/analytics`;
-  - `GET /api/meta/filters`;
-  - `GET /api/datasets/status`;
-  - `POST /api/local/refresh-data`.
-- `frontend/src/api.ts` `ContactFilters` currently has `search`, `contactType`, `region`, `status`, `limit`, and `offset`; it has no contact ID filter and no sort/order params.
-- Backend endpoint `GET /api/reports/contacts/analytics` currently accepts `limit`, `offset`, `date_from`, `date_to`, `search`, `contact_type`, `region`, and `status`; it has no contact ID filter and no sort/order params.
-- `ContactAnalyticsRow` / `ContactAnalyticsResponse` already include:
-  - `contact_id`;
-  - `contact_name`;
-  - `total_deals_count`, `won_deals_count`, `open_deals_count`, `lost_deals_count`;
-  - `revenue_usd`;
-  - `estimated_profit_usd`;
-  - `first_won_date`;
-  - `last_won_date`;
-  - `latest_deal_date`.
-- Current Contacts table displays `revenue_usd`, `estimated_profit_usd`, and `latest_deal_date`, but does not show `last_won_date` as a closed-date column.
-- This screen is contact-analytics aggregate data, not a per-deal table.
-- The provided Bitrix URL is a contact details URL, so the `Посмотреть` link must use `contact_id` unless current implementation discovers a stronger repository-backed reason to do otherwise.
-- Bitrix remains read-only. Report API and frontend table interactions must use local backend data only and must not call Bitrix.
+- The user tested TASK-13 and said everything works.
+- The user clarified that the current `Бюджет USD` logic is not correct for their verification needs because it currently displays `revenue_usd`, i.e. won-only revenue.
+- Current Contacts analytics response includes `revenue_usd` and `estimated_profit_usd`, but does not include separate all/open/lost deal budget sums.
+- Current `revenue_usd` must remain won-only revenue.
+- Current estimated profit rule remains unchanged: `estimated_profit_usd = revenue_usd * 0.50`.
+- All financial analytics must be in USD.
+- The Contacts screen remains an aggregate contact-level table, not a per-deal table.
+- Current visible count columns are labeled `Won`, `Open`, `Lost`.
+- Current sorting toggles to ascending on the first click for a new column because `updateSort()` sets `asc` when the clicked field is not already active.
+- Current layout uses `max-width: var(--grid-desktop-max)` for the page header, toolbar, alerts, and table card. The user wants large tables to use the full available screen width with only small side padding.
+- Bitrix remains read-only. This task must not change extraction, refresh, normalization, contact selection, or Bitrix calls.
 
 ## Assumptions
 
-- In the current Contacts aggregate table, `дата закрытия` means the latest closed won deal date for the contact, represented by existing `last_won_date`. Show `—` when there is no closed won deal.
-- In the current Contacts aggregate table, `бюджет` should use the existing USD financial value for the contact, `revenue_usd`, because the screen aggregates a contact's won deals. Label it clearly as USD, for example `Бюджет USD`, so it is not confused with original-currency totals.
-- Sorting should be consistent across pagination, so it should be applied before slicing/pagination in the backend, not only to the current frontend page.
-- Exact contact ID filtering is enough for verification. If the user enters `661`, the table should return contact `661` when it exists and matches the other active filters.
+- `Бюджет` means `sum(amount_usd)` for all deals whose `analytical_contact_id` is the contact, across statuses `won`, `open`, and `lost` within the active local report period.
+- `Бюджет в работе` means `sum(amount_usd)` for open deals assigned to the contact.
+- `Бюджет проигранных` means `sum(amount_usd)` for lost deals assigned to the contact.
+- `Выручка` means the existing won-only `revenue_usd`.
+- `Прибыль` means the existing `estimated_profit_usd`, no formula change.
+- UI column labels should be the exact Russian business labels above. The values should still be formatted as USD currency; do not display original-currency totals.
+- For a first click on any sortable column, `order` should become `desc`. Subsequent clicks on the same column should toggle `desc` / `asc`.
+- Expanding the working area means the content area inside the existing app shell/sidebar should use full available width; do not add or remove screens/navigation.
 
 ## Unknowns
 
-- Whether the current reset bug is caused only by debounced search state, by object identity/query key behavior, or by a combination of search, offset, and query invalidation.
-- Whether all desired columns will fit comfortably at current desktop density without minor CSS table-width adjustments.
+- Whether the user wants these new budget sums to be affected by the existing `status` filter. Keep the current report behavior consistent: filters apply first, then the displayed aggregates reflect the filtered local report rows. If implementation discovers existing semantics differ, document the exact behavior in `.ai/report.md`.
+- Whether every date-period edge case is already covered by existing tests. Add focused tests for the new financial aggregates using the current period/reporting-date semantics.
 
 ## Scope
 
-### 1. Backend contact analytics filtering and sorting
+### 1. Backend contact analytics budget aggregates
 
-Extend the local `GET /api/reports/contacts/analytics` path to support:
+Extend `ContactAnalyticsRow` and `ContactAnalyticsResponse` with explicit USD fields for the new budget breakdown.
 
-- optional `contact_id` query param for exact contact ID filtering;
-- optional `sort` query param;
-- optional `order` query param with `asc` / `desc`.
-
-Apply filtering and sorting in the report function before pagination.
-
-Use an explicit allowlist of sortable fields. Suggested sortable fields:
+Preferred field names:
 
 ```text
-contact_id
-contact_name
-contact_type_normalized
-region_normalized
-total_deals_count
-won_deals_count
-open_deals_count
-lost_deals_count
-revenue_usd
-estimated_profit_usd
-last_won_date
-latest_deal_date
+budget_usd                 # all deal statuses
+budget_in_work_usd          # open deals
+lost_budget_usd             # lost deals
 ```
 
-Choose a stable default sort that preserves current useful behavior. If the current effective order is contact ID ascending, keep that unless a stronger repository-backed reason exists.
-
-Tie-break with `contact_id` for deterministic output.
-
-Do not build SQL strings from untrusted sort input. This report currently loads local facts into Python and can sort Python rows directly; if SQL is introduced, use an allowlist mapping only.
-
-If an invalid sort/order value is supplied, return a safe FastAPI validation/client error or fall back deterministically. Prefer explicit validation for clarity.
-
-### 2. Frontend filters
-
-Update `frontend/src/api.ts` and `frontend/src/App.tsx` filters to include:
-
-- `contactId` / `contact_id` exact ID search;
-- `sort`;
-- `order`.
-
-Add a compact `ID контакта` filter input near the text search. Keep it numeric/user-friendly, but do not make the UI fragile: empty value should remove the filter.
-
-When any filter changes, reset `offset` to `0`.
-
-Fix `Сбросить` / empty-state reset so it reliably:
-
-- clears text search draft;
-- clears contact ID draft/filter;
-- clears type/region/status filters;
-- resets pagination offset to `0`;
-- triggers the contacts table to refetch/update.
-
-### 3. Frontend sortable table
-
-Make table headers sortable for the useful columns above.
-
-Requirements:
-
-- clicking a sortable header changes `sort` / `order` and resets `offset` to `0`;
-- current sort state is visible in the header with a simple text/icon indicator;
-- keyboard/button semantics are accessible enough for a data table;
-- sorting works with active filters and pagination;
-- no local Bitrix calls are added.
-
-Prefer existing dependencies and patterns. Do not add TanStack Table or another dependency unless it is clearly justified by repository style and scope.
-
-### 4. New/renamed visible table fields
-
-Update the current Contacts table columns:
-
-- Show contact ID with a nearby `Посмотреть` link:
+Keep existing fields:
 
 ```text
-https://dialar.bitrix24.by/crm/contact/details/{contact_id}/
+revenue_usd                 # won only
+estimated_profit_usd        # revenue_usd * 0.50
 ```
 
-  Open it in a new tab/window and use safe rel attributes. This is a contact details link, not a deal details link.
+Calculation rules:
 
-- Add `Дата закрытия` using `last_won_date` from the analytics response.
-- Add `Бюджет USD` using `revenue_usd` from the analytics response.
-- Keep or rename the existing financial column as needed to avoid duplicate/confusing labels. It is acceptable for `Бюджет USD` to replace the current `Выручка USD` label if it still displays `revenue_usd`.
-- Keep `Расчетная прибыль USD` and existing deal counts.
-- Keep `Последняя сделка` if it remains useful and the table still fits; otherwise document the chosen compact layout in `.ai/report.md`.
+- Use `_DealFact.amount_usd`, already converted locally to USD.
+- Include only deals assigned to the contact via `analytical_contact_id`.
+- Preserve the existing period filtering behavior of `list_contact_analytics()`.
+- Do not change ABC/RFM/concentration formulas; they remain won-revenue based.
+- Do not use original currency totals as primary financial columns.
 
-### 5. Documentation
+### 2. Backend sorting allowlist
 
-Update relevant docs if API params or frontend verification flow changed. At minimum consider:
+Add the new budget fields to the contact analytics sort allowlist and FastAPI sort literal:
+
+```text
+budget_usd
+budget_in_work_usd
+lost_budget_usd
+```
+
+Keep sorting deterministic with `contact_id` tie-break.
+
+### 3. Frontend API types
+
+Update `frontend/src/api.ts`:
+
+- add the new response fields to `ContactAnalytics`;
+- add the new sort fields to `ContactSort`;
+- keep existing local backend endpoints only.
+
+### 4. Frontend table columns and labels
+
+Update the Contacts table columns to show the requested financial columns:
+
+| Label | Source |
+|---|---|
+| `Бюджет` | `budget_usd` |
+| `Бюджет в работе` | `budget_in_work_usd` |
+| `Бюджет проигранных` | `lost_budget_usd` |
+| `Выручка` | `revenue_usd` |
+| `Прибыль` | `estimated_profit_usd` |
+
+Rename count labels:
+
+| Current | New |
+|---|---|
+| `Won` | `Успешные` |
+| `Open` | `Открытые` |
+| `Lost` | `Проигранные` |
+
+Keep existing useful columns unless layout requires minor reordering. Do not remove contact ID, contact name, type, region, deal counts, dates, or the `Посмотреть` link unless impossible; if a compact ordering is chosen, document it in `.ai/report.md`.
+
+### 5. Sort interaction
+
+Update `updateSort()` behavior:
+
+- if the user clicks a different column, set `sort` to that column and `order` to `desc`;
+- if the user clicks the currently active column, toggle `desc` / `asc`;
+- reset `offset` to `0` after sort changes.
+
+Make sure the visual sort indicator still matches the actual query params.
+
+### 6. Full-width working area
+
+Adjust frontend layout CSS so large tables use the available screen width:
+
+- remove or override `max-width: var(--grid-desktop-max)` from the working area elements that constrain the Contacts screen (`page-header`, `toolbar`, `table-card`, alerts as needed);
+- keep small, consistent side padding on `.main-panel`;
+- keep horizontal table scroll for narrow screens;
+- avoid overlap/clipping/layout shift;
+- do not modify `ui-kits/`.
+
+### 7. Documentation
+
+Update relevant documentation to describe the new Contacts financial fields and layout behavior if needed. At minimum consider:
 
 - `frontend/README.md`;
-- `docs/development.md`.
+- `docs/development.md`;
+- `docs/data-model.md` if API/output semantics change enough to document.
 
-Do not update `ui-kits/`.
+### 8. Tests
 
-### 6. Tests
+Add focused backend tests for:
 
-Add focused backend coverage for:
-
-- contact ID filtering on `/api/reports/contacts/analytics` report logic or API path;
-- sorting by at least `revenue_usd` and a date field before pagination;
-- invalid/unsupported sort handling, if explicit validation is implemented;
-- deterministic tie-break by `contact_id`.
+- `budget_usd` equals all assigned deal amounts in USD;
+- `budget_in_work_usd` equals open assigned deal amounts in USD;
+- `lost_budget_usd` equals lost assigned deal amounts in USD;
+- `revenue_usd` remains won-only;
+- `estimated_profit_usd` remains `revenue_usd * 0.50`;
+- sorting by at least one new budget field works before pagination;
+- API response includes the new fields.
 
 Frontend has no current test framework beyond TypeScript build. Keep changes type-safe and run the build.
 
-### 7. Report
+### 9. Report
 
 Update `.ai/report.md` with:
 
-- exact behavior implemented;
-- changed backend params;
-- visible UI changes;
-- how reset filters was fixed;
+- exact field names added;
+- exact formulas implemented;
+- UI labels changed;
+- sort first-click behavior changed;
+- layout change summary;
 - tests/checks run;
-- confirmation that no Bitrix write methods were added and frontend still calls only local backend endpoints.
+- confirmation that no Bitrix write methods were added/called and frontend still calls only local backend endpoints.
 
 ## Out Of Scope
 
-- New frontend screens.
-- A per-deal table or Deals screen.
-- Changing contact/deal matching, Bitrix extraction, normalization, priorities, currency conversion, revenue/profit formulas, ABC/RFM logic, or manual refresh pipeline.
-- Calling Bitrix from the frontend.
-- Adding mass `crm.deal.contact.items.get` scans.
+- New screens.
+- Per-deal table.
+- Changing Bitrix extraction, refresh, relation completeness, normalization, contact priority rules, currency loading, ABC/RFM/concentration formulas, or manual refresh pipeline.
+- Calling Bitrix from frontend.
 - Any Bitrix write operation.
 - Exporting CSV/raw data.
-- Showing phones, email, addresses, messengers, comments, files, requisites, activities, arbitrary custom fields, webhook values, or raw payloads.
+- Showing phones, emails, addresses, messengers, comments, files, requisites, activities, arbitrary custom fields, webhook values, or raw payloads.
 - Changing `ui-kits/`.
 
 ## Constraints
 
 - Work only from current repository files.
 - Keep Bitrix read-only.
-- The Contacts screen must continue to use `/api/reports/contacts/analytics` for financial metrics.
-- All sorting/filtering/reporting must use local backend data only.
+- All financial values shown in Contacts table must be USD values from local backend analytics.
 - Do not add or call methods matching:
 
 ```text
@@ -212,18 +200,21 @@ crm.*.set
 ```
 
 - Do not commit `.env`, DuckDB files, Parquet snapshots, raw exports, generated data, logs, caches, `node_modules`, `frontend/dist`, or `ui-kits/` changes.
-- Keep the UI compact and operational; no marketing/landing page changes.
+- Keep the UI dense and operational.
 
 ## Acceptance Criteria
 
-- Contacts table can be sorted by useful visible columns, and sorting is stable across pagination.
-- Filter area includes exact search by contact ID.
-- Reset filters clears all filters/searches and visibly refreshes/updates the table.
-- Table shows `Дата закрытия` from the latest closed won deal date (`last_won_date`) for the contact.
-- Table shows `Бюджет USD` from `revenue_usd`; original-currency totals are not used as the primary financial metric.
-- Contact ID area includes a `Посмотреть` link to `https://dialar.bitrix24.by/crm/contact/details/{contact_id}/`.
-- Existing refresh UX remains intact.
-- Existing Contacts empty/loading/error states remain intact.
+- Contacts analytics API returns `budget_usd`, `budget_in_work_usd`, and `lost_budget_usd` for each contact.
+- `budget_usd` is all assigned deals in USD.
+- `budget_in_work_usd` is open assigned deals in USD.
+- `lost_budget_usd` is lost assigned deals in USD.
+- `revenue_usd` remains won-only and is displayed as `Выручка`.
+- `estimated_profit_usd` remains `revenue_usd * 0.50` and is displayed as `Прибыль`.
+- Count labels are `Успешные`, `Открытые`, `Проигранные`.
+- First click on a sortable column sorts descending; second click toggles ascending.
+- New budget columns are sortable server-side before pagination.
+- Contacts working area uses full available screen width with small side padding and horizontal table scroll where needed.
+- Existing refresh UX, filters, ID search, reset, dates, and Bitrix `Посмотреть` links remain working.
 - No frontend Bitrix calls are added.
 - No Bitrix write methods are added or called.
 - Backend tests pass.
@@ -232,7 +223,7 @@ crm.*.set
 - Commit message exactly:
 
 ```text
-codex: TASK-2026-06-22-13 Improve Contacts verification UI
+codex: TASK-2026-06-22-14 Add contact budget breakdown columns
 ```
 
 ## Checks
@@ -263,7 +254,7 @@ npm run build
 Run safety search before committing:
 
 ```bash
-rg "crm\.[A-Za-z0-9_.]*(add|update|delete|set)" backend/app backend/tests
+rg "crm\.[A-Za-z0-9_.]*(add|update|delete|set)" backend/app backend/tests frontend/src
 ```
 
 Before committing:
@@ -280,9 +271,10 @@ git diff --check -- ':!AGENTS.md' ':!.ai/task.md'
 Codex must not commit until all conditions below are true:
 
 - latest relevant commit is this planner commit;
-- backend contact analytics supports the new filter/sort contract safely;
-- frontend sends the new params and renders the requested verification UI;
-- reset filters has been fixed and verified;
+- new backend budget fields are implemented and covered by tests;
+- frontend uses new fields and labels, not old won-only value as `Бюджет`;
+- first-click sort behavior is descending;
+- full-width working area is implemented without changing `ui-kits/`;
 - required backend tests and frontend build are run, or any inability is explicitly documented with reason;
 - `.ai/report.md` states that no Bitrix write methods were added or called;
 - frontend still calls only local backend endpoints, not Bitrix;
