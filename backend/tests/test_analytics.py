@@ -527,17 +527,17 @@ def test_abc_analytics_single_period_rows_shares_totals_and_boundaries() -> None
         rows = {row.contact_id: row for row in page.items}
 
     assert page.total == 3
-    assert page.current_total_revenue_usd == Decimal("100.00")
-    assert page.compare_total_revenue_usd == Decimal("0.00")
-    assert page.current_segment_counts == {"A": 1, "B": 1, "C": 1}
-    assert rows[1].current_revenue_usd == Decimal("80.00")
-    assert rows[1].current_revenue_share_percent == Decimal("80.0")
-    assert rows[1].current_cumulative_share_percent == Decimal("80.0")
-    assert rows[1].current_segment == "A"
-    assert rows[1].current_won_deals_count == 1
-    assert rows[1].current_last_won_date == date(2025, 1, 2)
-    assert rows[2].current_segment == "B"
-    assert rows[3].current_segment == "C"
+    assert page.base_total_revenue_usd == Decimal("100.00")
+    assert page.target_total_revenue_usd == Decimal("0.00")
+    assert page.base_segment_counts == {"A": 1, "B": 1, "C": 1}
+    assert rows[1].base_revenue_usd == Decimal("80.00")
+    assert rows[1].base_revenue_share_percent == Decimal("80.0")
+    assert rows[1].base_cumulative_share_percent == Decimal("80.0")
+    assert rows[1].base_segment == "A"
+    assert rows[1].base_won_deals_count == 1
+    assert rows[1].base_last_won_date == date(2025, 1, 2)
+    assert rows[2].base_segment == "B"
+    assert rows[3].base_segment == "C"
     assert 4 not in rows
 
 
@@ -548,12 +548,12 @@ def test_abc_analytics_largest_contact_is_a_and_ties_use_contact_id() -> None:
         page = list_abc_analytics(
             connection,
             limit=10,
-            sort="current_revenue_usd",
+            sort="base_revenue_usd",
             order="desc",
         )
 
     assert [row.contact_id for row in page.items] == [1, 2, 3]
-    assert page.items[0].current_segment == "A"
+    assert page.items[0].base_segment == "A"
 
 
 def test_abc_analytics_uses_won_closed_at_period_only() -> None:
@@ -568,7 +568,7 @@ def test_abc_analytics_uses_won_closed_at_period_only() -> None:
         )
 
     assert page.total == 3
-    assert page.current_total_revenue_usd == Decimal("100.00")
+    assert page.base_total_revenue_usd == Decimal("100.00")
     assert {row.contact_id for row in page.items} == {1, 2, 3}
 
 
@@ -579,23 +579,48 @@ def test_abc_analytics_comparison_includes_both_periods_and_transitions() -> Non
         page = list_abc_analytics(
             connection,
             limit=10,
-            date_from=date(2025, 1, 1),
-            date_to=date(2025, 12, 31),
-            compare_date_from=date(2024, 1, 1),
-            compare_date_to=date(2024, 12, 31),
+            date_from=date(2024, 1, 1),
+            date_to=date(2024, 12, 31),
+            compare_date_from=date(2025, 1, 1),
+            compare_date_to=date(2025, 12, 31),
         )
         rows = {row.contact_id: row for row in page.items}
 
-    assert page.total == 4
-    assert page.compare_total_revenue_usd == Decimal("100.00")
+    assert page.total == 6
+    assert page.target_total_revenue_usd == Decimal("100.00")
     assert rows[4].segment_change == "A -> Нет продаж"
     assert rows[4].migration_priority == "срочно"
     assert rows[4].segment_changed is True
+    assert rows[5].segment_change == "B -> Нет продаж"
+    assert rows[5].migration_priority == "важно"
+    assert rows[6].segment_change == "C -> Нет продаж"
+    assert rows[6].migration_priority == "наблюдать"
     assert rows[1].segment_change == "Нет продаж -> A"
     assert rows[1].migration_priority == "закрепить"
-    assert rows[2].segment_change == "Без изменений"
-    assert rows[2].segment_changed is False
-    assert rows[2].migration_priority == "без изменений"
+    assert rows[2].segment_change == "Нет продаж -> B"
+    assert rows[2].migration_priority == "изменение"
+
+
+def test_abc_analytics_growth_to_a_uses_develop_priority() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        _load_abc_growth_dataset(connection)
+
+        page = list_abc_analytics(
+            connection,
+            limit=10,
+            date_from=date(2024, 1, 1),
+            date_to=date(2024, 12, 31),
+            compare_date_from=date(2025, 1, 1),
+            compare_date_to=date(2025, 12, 31),
+        )
+        rows = {row.contact_id: row for row in page.items}
+
+    assert rows[2].segment_change == "B -> A"
+    assert rows[2].migration_priority == "развивать"
+    assert rows[3].segment_change == "C -> A"
+    assert rows[3].migration_priority == "развивать"
+    assert rows[1].segment_change == "Без изменений"
+    assert rows[1].migration_priority == "без изменений"
 
 
 def test_abc_analytics_filters_sorting_and_pagination_after_filtering() -> None:
@@ -606,28 +631,28 @@ def test_abc_analytics_filters_sorting_and_pagination_after_filtering() -> None:
             connection,
             limit=10,
             changed_only=True,
-            date_from=date(2025, 1, 1),
-            date_to=date(2025, 12, 31),
-            compare_date_from=date(2024, 1, 1),
-            compare_date_to=date(2024, 12, 31),
+            date_from=date(2024, 1, 1),
+            date_to=date(2024, 12, 31),
+            compare_date_from=date(2025, 1, 1),
+            compare_date_to=date(2025, 12, 31),
         )
         segment_page = list_abc_analytics(
             connection,
             limit=10,
             segment="A",
-            date_from=date(2025, 1, 1),
-            date_to=date(2025, 12, 31),
-            compare_date_from=date(2024, 1, 1),
-            compare_date_to=date(2024, 12, 31),
+            date_from=date(2024, 1, 1),
+            date_to=date(2024, 12, 31),
+            compare_date_from=date(2025, 1, 1),
+            compare_date_to=date(2025, 12, 31),
         )
         priority_page = list_abc_analytics(
             connection,
             limit=10,
             migration_priority="срочно",
-            date_from=date(2025, 1, 1),
-            date_to=date(2025, 12, 31),
-            compare_date_from=date(2024, 1, 1),
-            compare_date_to=date(2024, 12, 31),
+            date_from=date(2024, 1, 1),
+            date_to=date(2024, 12, 31),
+            compare_date_from=date(2025, 1, 1),
+            compare_date_to=date(2025, 12, 31),
         )
         id_page = list_abc_analytics(
             connection,
@@ -650,12 +675,12 @@ def test_abc_analytics_filters_sorting_and_pagination_after_filtering() -> None:
             contact_type="Synthetic Type",
             date_from=date(2025, 1, 1),
             date_to=date(2025, 12, 31),
-            sort="current_revenue_usd",
+            sort="base_revenue_usd",
             order="desc",
         )
 
-    assert {row.contact_id for row in changed_page.items} == {1, 4}
-    assert {row.contact_id for row in segment_page.items} == {1}
+    assert {row.contact_id for row in changed_page.items} == {1, 2, 3, 4, 5, 6}
+    assert {row.contact_id for row in segment_page.items} == {4}
     assert {row.contact_id for row in priority_page.items} == {4}
     assert id_page.total == 1
     assert id_page.items[0].contact_id == 2
@@ -847,6 +872,8 @@ def _load_abc_analytics_dataset(connection: duckdb.DuckDBPyConnection) -> None:
             (2, "ABC Customer 2", "Synthetic Type"),
             (3, "ABC Customer 3", "Synthetic Type"),
             (4, "ABC Customer 4", "Synthetic Other"),
+            (5, "ABC Customer 5", "Synthetic Other"),
+            (6, "ABC Customer 6", "Synthetic Other"),
         ],
     )
     connection.execute(
@@ -932,28 +959,28 @@ def _load_abc_analytics_dataset(connection: duckdb.DuckDBPyConnection) -> None:
                 "Synthetic Other",
             ),
             (
-                5,
-                "Previous B",
+                9,
+                "Previous B Lost",
                 Decimal("15.00"),
                 datetime(2024, 1, 1, tzinfo=timezone.utc),
-                datetime(2024, 1, 3, tzinfo=timezone.utc),
+                datetime(2024, 1, 5, tzinfo=timezone.utc),
                 "SYN:WON",
                 "won",
-                2,
-                "ABC Customer 2",
-                "Synthetic Type",
+                5,
+                "ABC Customer 5",
+                "Synthetic Other",
             ),
             (
-                6,
-                "Previous C",
+                10,
+                "Previous C Lost",
                 Decimal("5.00"),
                 datetime(2024, 1, 1, tzinfo=timezone.utc),
-                datetime(2024, 1, 4, tzinfo=timezone.utc),
+                datetime(2024, 1, 6, tzinfo=timezone.utc),
                 "SYN:WON",
                 "won",
-                3,
-                "ABC Customer 3",
-                "Synthetic Type",
+                6,
+                "ABC Customer 6",
+                "Synthetic Other",
             ),
             (
                 7,
@@ -978,6 +1005,117 @@ def _load_abc_analytics_dataset(connection: duckdb.DuckDBPyConnection) -> None:
                 1,
                 "ABC Customer 1",
                 "Synthetic Type",
+            ),
+        ],
+    )
+
+
+def _load_abc_growth_dataset(connection: duckdb.DuckDBPyConnection) -> None:
+    initialize_schema(connection)
+    connection.executemany(
+        """
+        INSERT INTO normalized_contacts (
+            contact_id,
+            contact_name,
+            contact_type_raw,
+            contact_type_normalized,
+            region_normalized
+        )
+        VALUES (?, ?, NULL, 'Synthetic Type', 'Synthetic Region')
+        """,
+        [
+            (1, "Growth Customer 1"),
+            (2, "Growth Customer 2"),
+            (3, "Growth Customer 3"),
+        ],
+    )
+    connection.execute(
+        """
+        INSERT INTO currency_rates (
+            currency,
+            rate_date,
+            source_rate_byn,
+            usd_rate_byn,
+            rate_source,
+            rate_fetched_at
+        )
+        VALUES ('USD', DATE '2024-01-01', 3.30000000, 3.30000000, 'NBRB', ?)
+        """,
+        [datetime(2025, 1, 2, tzinfo=timezone.utc)],
+    )
+    connection.executemany(
+        """
+        INSERT INTO normalized_deals (
+            deal_id,
+            deal_name,
+            amount_original,
+            currency_original,
+            created_at,
+            closed_at,
+            stage_id,
+            category_id,
+            status_group,
+            analytical_contact_id,
+            analytical_contact_name,
+            contact_type_normalized,
+            region_normalized
+        )
+        VALUES (?, ?, ?, 'USD', ?, ?, 'SYN:WON', 1, 'won', ?, ?, 'Synthetic Type', 'Synthetic Region')
+        """,
+        [
+            (
+                1,
+                "Base A",
+                Decimal("80.00"),
+                datetime(2024, 1, 1, tzinfo=timezone.utc),
+                datetime(2024, 1, 2, tzinfo=timezone.utc),
+                1,
+                "Growth Customer 1",
+            ),
+            (
+                2,
+                "Base B",
+                Decimal("15.00"),
+                datetime(2024, 1, 1, tzinfo=timezone.utc),
+                datetime(2024, 1, 3, tzinfo=timezone.utc),
+                2,
+                "Growth Customer 2",
+            ),
+            (
+                3,
+                "Base C",
+                Decimal("5.00"),
+                datetime(2024, 1, 1, tzinfo=timezone.utc),
+                datetime(2024, 1, 4, tzinfo=timezone.utc),
+                3,
+                "Growth Customer 3",
+            ),
+            (
+                4,
+                "Target A 1",
+                Decimal("80.00"),
+                datetime(2025, 1, 1, tzinfo=timezone.utc),
+                datetime(2025, 1, 2, tzinfo=timezone.utc),
+                1,
+                "Growth Customer 1",
+            ),
+            (
+                5,
+                "Target A 2",
+                Decimal("70.00"),
+                datetime(2025, 1, 1, tzinfo=timezone.utc),
+                datetime(2025, 1, 3, tzinfo=timezone.utc),
+                2,
+                "Growth Customer 2",
+            ),
+            (
+                6,
+                "Target A 3",
+                Decimal("60.00"),
+                datetime(2025, 1, 1, tzinfo=timezone.utc),
+                datetime(2025, 1, 4, tzinfo=timezone.utc),
+                3,
+                "Growth Customer 3",
             ),
         ],
     )

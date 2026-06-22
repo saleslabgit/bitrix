@@ -1,11 +1,18 @@
-# Отчет: TASK-2026-06-22-23
+# Отчет: TASK-2026-06-22-24
 
 Статус: done
 
 ## Кратко
 
-Добавил customer ABC report как локальный backend endpoint и новый frontend
-экран `ABC`.
+Исправил направление ABC transition для нового ABC analytics report:
+
+```text
+ABC было -> ABC стало
+```
+
+Root cause: предыдущая реализация считала переход как
+`comparison segment -> current segment`, из-за чего потеря клиента могла
+выглядеть как рост.
 
 ## Измененные файлы
 
@@ -16,57 +23,61 @@
 - `backend/tests/test_api_local.py`
 - `frontend/src/api.ts`
 - `frontend/src/App.tsx`
-- `frontend/src/styles.css`
-- `frontend/README.md`
 - `docs/development.md`
 - `docs/data-model.md`
 - `docs/project-status.md`
+- `frontend/README.md`
 - `.ai/report.md`
 
 ## Backend
 
-Добавлен `GET /api/reports/abc/analytics`.
+`GET /api/reports/abc/analytics` теперь использует явные роли периодов:
+
+- `date_from` / `date_to` — source/base period, `Было`;
+- `compare_date_from` / `compare_date_to` — target/result period, `Стало`.
+
+Response shape переименован с ambiguous `current_*` / `compare_*` на:
+
+- `base_*`;
+- `target_*`.
 
 Семантика:
 
-- источник данных только локальные `normalized_contacts`, `normalized_deals`
-  и `currency_rates`;
-- Bitrix, NBRB и внешние сервисы не вызываются на report page load;
-- ABC основан только на won USD revenue;
-- период фильтруется по `closed_at`;
-- классификация сортирует клиентов по выручке по убыванию, затем
-  `contact_id` по возрастанию;
-- сегменты считаются по cumulative share before current row:
-  `A` до 80%, `B` от 80% до 95%, `C` от 95%;
-- крупнейший revenue customer всегда попадает в `A`;
-- без comparison в ответ попадают клиенты с выручкой текущего периода;
-- с comparison в ответ попадают клиенты с выручкой в текущем или comparison
-  периоде;
-- переход считается как `ABC сравнения -> ABC текущего периода`;
-- `Нет продаж` используется для периода без won revenue;
-- totals/counts считаются по отфильтрованному набору до pagination;
-- sorting allowlisted и stable.
+- `segment_change = base_segment -> target_segment`;
+- `migration_priority = priority(base_segment, target_segment)`;
+- `segment_changed = base_segment != target_segment`;
+- без `Стало` отчет остается single-period ABC по `Было`;
+- с `Стало` включаются клиенты с won revenue в любом из двух периодов.
 
-Старый `GET /api/reports/abc` сохранен.
+Добавлен mapping:
+
+```text
+C -> Нет продаж = наблюдать
+```
+
+Loss transitions больше не могут стать `развивать` или `закрепить`.
+
+Legacy `GET /api/reports/abc` не менялся.
 
 ## Frontend
 
-Добавлен navigation item `ABC`.
+ABC UI labels теперь явно показывают направление:
 
-Экран:
+- `Было с`;
+- `Было по`;
+- `Стало с`;
+- `Стало по`;
+- `Выручка было`;
+- `ABC было`;
+- `Выручка стало`;
+- `ABC стало`.
 
-- вызывает только `/api/reports/abc/analytics`;
-- содержит фильтры ID клиента, поиск клиента, тип, ABC сегмент, приоритет
-  перехода, `Только изменения`, текущий период и optional comparison период;
-- date inputs работают через draft/apply pattern;
-- incomplete comparison range блокирует запрос до заполнения обеих дат или
-  очистки обеих дат;
-- comparison колонки отображаются в той же таблице только когда comparison
-  включен;
-- измененные строки визуально отмечены подсветкой и badge;
-- state хранится отдельно под `bitrix-sales.abc.v1`;
-- reset очищает только ABC state;
-- region filters/columns не добавлялись.
+Состояние `bitrix-sales.abc.v1` сохранено. Старые persisted sort fields,
+например `current_revenue_usd`, больше не входят в allowlist и безопасно
+fallback-ятся к default `base_revenue_usd`.
+
+Contacts и Deals не изменялись по поведению. Region filters/columns в ABC не
+добавлялись.
 
 ## Документация
 
@@ -82,17 +93,17 @@
 Before implementation:
 
 - `git log --oneline -5`
-- `git status --short`
+- `git status --short --branch`
 
 Backend focused:
 
 - `cd backend && /tmp/bitrix-backend-venv/bin/pytest tests/test_analytics.py tests/test_api_local.py`
-  — passed, `50 passed`.
+  — passed, `51 passed`.
 
 Backend full:
 
 - `cd backend && /tmp/bitrix-backend-venv/bin/pytest` — passed,
-  `110 passed`.
+  `111 passed`.
 
 Frontend:
 
@@ -107,17 +118,17 @@ Operator/safety:
 
 ## Факты
 
-- Frontend report screens still call only local backend endpoints.
-- Backend ABC analytics endpoint reads local DuckDB-backed data only.
+- Backend ABC analytics endpoint still reads local DuckDB-backed data only.
+- Frontend ABC screen still calls only `/api/reports/abc/analytics`.
 - No Bitrix calls were added to report page load paths.
 - No Bitrix write methods were added.
-- No forbidden personal fields were added to ABC response models or UI.
+- No forbidden personal fields were added to response models or UI.
 - `ui-kits/` was not changed.
 
 ## Предположения
 
-- Customer and contact are the same analytical entity for ABC.
-- Transition direction is comparison period to current period.
+- Existing query parameter names remain acceptable for compatibility as long as
+  UI and response semantics clearly describe `Было` / `Стало`.
 
 ## Неизвестное
 
@@ -128,6 +139,5 @@ Operator/safety:
 
 ## Риски или следующий шаг
 
-Review should verify in browser that ABC comparison updates the same table and
-that `A -> Нет продаж` / `Нет продаж -> A` transitions are visible when the
-selected periods contain those cases.
+Review should verify in browser that a customer with old `A` and no target
+revenue is shown as `A -> Нет продаж` with priority `срочно`.

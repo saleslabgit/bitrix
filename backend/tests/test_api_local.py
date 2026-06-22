@@ -317,11 +317,11 @@ def test_api_analytics_reports_return_local_typed_data() -> None:
     abc_compare_page = report_abc_analytics(
         limit=10,
         offset=0,
-        date_from=date(2025, 1, 1),
-        date_to=date(2025, 12, 31),
-        compare_date_from=date(2024, 1, 1),
-        compare_date_to=date(2024, 12, 31),
-        sort="current_revenue_usd",
+        date_from=date(2024, 1, 1),
+        date_to=date(2024, 12, 31),
+        compare_date_from=date(2025, 1, 1),
+        compare_date_to=date(2025, 12, 31),
+        sort="base_revenue_usd",
         order="desc",
     )
     rfm = report_rfm()
@@ -377,11 +377,11 @@ def test_api_analytics_reports_return_local_typed_data() -> None:
     assert len(abc) == 10
     assert any(row.abc_12m == "Нет продаж" for row in abc)
     assert abc_page.total >= 1
-    assert abc_page.current_total_revenue_usd > 0
-    assert abc_page.items[0].current_revenue_usd > 0
+    assert abc_page.base_total_revenue_usd > 0
+    assert abc_page.items[0].base_revenue_usd > 0
     assert "region_normalized" not in abc_page.items[0].model_dump()
-    assert abc_compare_page.compare_total_revenue_usd > 0
-    assert abc_compare_page.current_segment_counts
+    assert abc_compare_page.target_total_revenue_usd > 0
+    assert abc_compare_page.base_segment_counts
     assert abc_compare_page.migration_priority_counts
     assert len(rfm) == 10
     assert any(row.needs_reactivation for row in rfm)

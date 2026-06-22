@@ -217,8 +217,9 @@ Implemented local report outputs:
 - contact analytics with deal counts, USD budget breakdown for all/open/lost assigned deals, won revenue USD, estimated profit USD, first/last won dates, latest deal date, and sales flag;
 - deal analytics with one row per normalized deal: deal ID/name, status group, normalized analytical type/region, USD budget, USD estimated profit, created date, and closed date;
 - ABC comparison for full period vs last 12 months, with `Нет продаж` for contacts without won revenue in a period;
-- paginated ABC analytics with filters, sorting, current-period classification,
-  and optional comparison-period segment transitions in the same row set;
+- paginated ABC analytics with filters, sorting, source/base `Было`
+  classification, and optional target/result `Стало` segment transitions in
+  the same row set;
 - RFM rows with 1-5 scores, segment, and a reactivation flag;
 - stale open deals based on open age compared with the P75 won-deal cycle for the same contact type, falling back to overall P75;
 - deal-cycle metrics overall, by normalized contact type, and by normalized region;
@@ -256,12 +257,15 @@ segment that started before the threshold, so the largest customer is always
 `A`. Customers with no won revenue in a period have segment `Нет продаж` for
 that period.
 
-Without comparison dates, the ABC page includes customers with current-period
-won revenue. With comparison dates, it includes customers with won revenue in
-either the current or comparison period, so lost and reappeared customers remain
-visible. The transition direction is `comparison segment -> current segment`.
-Filtered totals and counts are calculated after filters and before pagination.
-ABC output is not persisted as an analytics table.
+For ABC analytics, `date_from` / `date_to` are the source/base period
+(`Было`), and `compare_date_from` / `compare_date_to` are the target/result
+period (`Стало`). Without target dates, the ABC page includes customers with
+base-period won revenue and behaves as a single-period ABC report. With target
+dates, it includes customers with won revenue in either period, so lost and
+reappeared customers remain visible. The transition direction is always
+`base segment -> target segment` (`ABC было -> ABC стало`). Filtered totals and
+counts are calculated after filters and before pagination. ABC output is not
+persisted as an analytics table.
 
 For deterministic synthetic reports, the default analysis date is the maximum local report date from normalized deals. Last-12-month ABC starts from the same month/day one year before that analysis date.
 

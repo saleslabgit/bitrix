@@ -47,14 +47,14 @@ AbcAnalyticsSortField = Literal[
     "contact_id",
     "contact_name",
     "contact_type_normalized",
-    "current_revenue_usd",
-    "current_revenue_share_percent",
-    "current_cumulative_share_percent",
-    "current_segment",
-    "current_won_deals_count",
-    "current_last_won_date",
-    "compare_revenue_usd",
-    "compare_segment",
+    "base_revenue_usd",
+    "base_revenue_share_percent",
+    "base_cumulative_share_percent",
+    "base_segment",
+    "base_won_deals_count",
+    "base_last_won_date",
+    "target_revenue_usd",
+    "target_segment",
     "segment_change",
     "migration_priority",
 ]
@@ -91,14 +91,14 @@ ABC_ANALYTICS_SORT_FIELDS: tuple[str, ...] = (
     "contact_id",
     "contact_name",
     "contact_type_normalized",
-    "current_revenue_usd",
-    "current_revenue_share_percent",
-    "current_cumulative_share_percent",
-    "current_segment",
-    "current_won_deals_count",
-    "current_last_won_date",
-    "compare_revenue_usd",
-    "compare_segment",
+    "base_revenue_usd",
+    "base_revenue_share_percent",
+    "base_cumulative_share_percent",
+    "base_segment",
+    "base_won_deals_count",
+    "base_last_won_date",
+    "target_revenue_usd",
+    "target_segment",
     "segment_change",
     "migration_priority",
 )
@@ -184,14 +184,14 @@ class AbcAnalyticsRow:
     contact_id: int
     contact_name: str
     contact_type_normalized: str
-    current_revenue_usd: Decimal
-    current_revenue_share_percent: Decimal
-    current_cumulative_share_percent: Decimal
-    current_segment: str
-    current_won_deals_count: int
-    current_last_won_date: date | None
-    compare_revenue_usd: Decimal
-    compare_segment: str
+    base_revenue_usd: Decimal
+    base_revenue_share_percent: Decimal
+    base_cumulative_share_percent: Decimal
+    base_segment: str
+    base_won_deals_count: int
+    base_last_won_date: date | None
+    target_revenue_usd: Decimal
+    target_segment: str
     segment_change: str
     migration_priority: str
     segment_changed: bool
@@ -202,10 +202,10 @@ class AbcAnalyticsPage:
     total: int
     limit: int
     offset: int
-    current_total_revenue_usd: Decimal
-    compare_total_revenue_usd: Decimal
-    current_segment_counts: dict[str, int]
-    compare_segment_counts: dict[str, int]
+    base_total_revenue_usd: Decimal
+    target_total_revenue_usd: Decimal
+    base_segment_counts: dict[str, int]
+    target_segment_counts: dict[str, int]
     migration_priority_counts: dict[str, int]
     items: tuple[AbcAnalyticsRow, ...]
 
@@ -545,7 +545,7 @@ def list_abc_analytics(
     segment: str | None = None,
     migration_priority: str | None = None,
     changed_only: bool = False,
-    sort: AbcAnalyticsSortField = "current_revenue_usd",
+    sort: AbcAnalyticsSortField = "base_revenue_usd",
     order: SortOrder = "desc",
 ) -> AbcAnalyticsPage:
     if sort not in ABC_ANALYTICS_SORT_FIELDS:
@@ -553,32 +553,32 @@ def list_abc_analytics(
     if order not in {"asc", "desc"}:
         raise ValueError(f"Unsupported ABC analytics sort order: {order}")
 
-    compare_enabled = compare_date_from is not None or compare_date_to is not None
+    target_enabled = compare_date_from is not None or compare_date_to is not None
     contacts = {contact.contact_id: contact for contact in _load_contacts(connection)}
     deals = _load_deal_facts(connection)
-    current_metrics = _abc_period_metrics(
+    base_metrics = _abc_period_metrics(
         deals,
         date_from=date_from,
         date_to=date_to,
     )
-    compare_metrics = (
+    target_metrics = (
         _abc_period_metrics(
             deals,
             date_from=compare_date_from,
             date_to=compare_date_to,
         )
-        if compare_enabled
+        if target_enabled
         else {}
     )
     contact_ids = {
         contact_id
-        for contact_id, metric in current_metrics.items()
+        for contact_id, metric in base_metrics.items()
         if metric.revenue_usd > 0
     }
-    if compare_enabled:
+    if target_enabled:
         contact_ids.update(
             contact_id
-            for contact_id, metric in compare_metrics.items()
+            for contact_id, metric in target_metrics.items()
             if metric.revenue_usd > 0
         )
 
@@ -587,30 +587,30 @@ def list_abc_analytics(
         contact = contacts.get(row_contact_id)
         if contact is None:
             continue
-        current_metric = current_metrics.get(
+        base_metric = base_metrics.get(
             row_contact_id,
             _empty_abc_period_metric(),
         )
-        compare_metric = compare_metrics.get(
+        target_metric = target_metrics.get(
             row_contact_id,
             _empty_abc_period_metric(),
         )
-        previous_segment = compare_metric.segment if compare_enabled else current_metric.segment
-        segment_change = _abc_change(previous_segment, current_metric.segment)
-        row_migration_priority = _migration_priority(previous_segment, current_metric.segment)
+        target_segment = target_metric.segment if target_enabled else base_metric.segment
+        segment_change = _abc_change(base_metric.segment, target_segment)
+        row_migration_priority = _migration_priority(base_metric.segment, target_segment)
         rows.append(
             AbcAnalyticsRow(
                 contact_id=contact.contact_id,
                 contact_name=contact.contact_name,
                 contact_type_normalized=contact.contact_type_normalized,
-                current_revenue_usd=current_metric.revenue_usd,
-                current_revenue_share_percent=current_metric.revenue_share_percent,
-                current_cumulative_share_percent=current_metric.cumulative_share_percent,
-                current_segment=current_metric.segment,
-                current_won_deals_count=current_metric.won_deals_count,
-                current_last_won_date=current_metric.last_won_date,
-                compare_revenue_usd=compare_metric.revenue_usd,
-                compare_segment=compare_metric.segment,
+                base_revenue_usd=base_metric.revenue_usd,
+                base_revenue_share_percent=base_metric.revenue_share_percent,
+                base_cumulative_share_percent=base_metric.cumulative_share_percent,
+                base_segment=base_metric.segment,
+                base_won_deals_count=base_metric.won_deals_count,
+                base_last_won_date=base_metric.last_won_date,
+                target_revenue_usd=target_metric.revenue_usd,
+                target_segment=target_segment,
                 segment_change=segment_change,
                 migration_priority=row_migration_priority,
                 segment_changed=segment_change != "Без изменений",
@@ -626,7 +626,7 @@ def list_abc_analytics(
         if (contact_id is None or row.contact_id == contact_id)
         and (normalized_search is None or normalized_search in row.contact_name.lower())
         and (contact_type is None or row.contact_type_normalized == contact_type)
-        and (segment is None or row.current_segment == segment)
+        and (segment is None or row.base_segment == segment)
         and (
             migration_priority is None
             or row.migration_priority == migration_priority
@@ -639,17 +639,17 @@ def list_abc_analytics(
         total=len(sorted_rows),
         limit=limit,
         offset=offset,
-        current_total_revenue_usd=_money(
-            sum((row.current_revenue_usd for row in filtered_rows), Decimal("0"))
+        base_total_revenue_usd=_money(
+            sum((row.base_revenue_usd for row in filtered_rows), Decimal("0"))
         ),
-        compare_total_revenue_usd=_money(
-            sum((row.compare_revenue_usd for row in filtered_rows), Decimal("0"))
+        target_total_revenue_usd=_money(
+            sum((row.target_revenue_usd for row in filtered_rows), Decimal("0"))
         ),
-        current_segment_counts=_count_labels(
-            row.current_segment for row in filtered_rows
+        base_segment_counts=_count_labels(
+            row.base_segment for row in filtered_rows
         ),
-        compare_segment_counts=_count_labels(
-            row.compare_segment for row in filtered_rows
+        target_segment_counts=_count_labels(
+            row.target_segment for row in filtered_rows
         ),
         migration_priority_counts=_count_labels(
             row.migration_priority for row in filtered_rows
@@ -1422,7 +1422,7 @@ def _migration_priority(abc_full: str, abc_12m: str) -> str:
         return "срочно"
     if (abc_full, abc_12m) in {("A", "B"), ("B", NO_SALES_SEGMENT)}:
         return "важно"
-    if (abc_full, abc_12m) == ("B", "C"):
+    if (abc_full, abc_12m) in {("B", "C"), ("C", NO_SALES_SEGMENT)}:
         return "наблюдать"
     if abc_full in {"B", "C"} and abc_12m == "A":
         return "развивать"

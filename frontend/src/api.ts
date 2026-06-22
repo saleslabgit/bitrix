@@ -51,14 +51,14 @@ export type AbcAnalytics = {
   contact_id: number;
   contact_name: string;
   contact_type_normalized: string;
-  current_revenue_usd: string;
-  current_revenue_share_percent: string;
-  current_cumulative_share_percent: string;
-  current_segment: string;
-  current_won_deals_count: number;
-  current_last_won_date: string | null;
-  compare_revenue_usd: string;
-  compare_segment: string;
+  base_revenue_usd: string;
+  base_revenue_share_percent: string;
+  base_cumulative_share_percent: string;
+  base_segment: string;
+  base_won_deals_count: number;
+  base_last_won_date: string | null;
+  target_revenue_usd: string;
+  target_segment: string;
   segment_change: string;
   migration_priority: string;
   segment_changed: boolean;
@@ -68,10 +68,10 @@ export type AbcAnalyticsPage = {
   total: number;
   limit: number;
   offset: number;
-  current_total_revenue_usd: string;
-  compare_total_revenue_usd: string;
-  current_segment_counts: Record<string, number>;
-  compare_segment_counts: Record<string, number>;
+  base_total_revenue_usd: string;
+  target_total_revenue_usd: string;
+  base_segment_counts: Record<string, number>;
+  target_segment_counts: Record<string, number>;
   migration_priority_counts: Record<string, number>;
   items: AbcAnalytics[];
 };
@@ -108,14 +108,14 @@ export type AbcSort =
   | "contact_id"
   | "contact_name"
   | "contact_type_normalized"
-  | "current_revenue_usd"
-  | "current_revenue_share_percent"
-  | "current_cumulative_share_percent"
-  | "current_segment"
-  | "current_won_deals_count"
-  | "current_last_won_date"
-  | "compare_revenue_usd"
-  | "compare_segment"
+  | "base_revenue_usd"
+  | "base_revenue_share_percent"
+  | "base_cumulative_share_percent"
+  | "base_segment"
+  | "base_won_deals_count"
+  | "base_last_won_date"
+  | "target_revenue_usd"
+  | "target_segment"
   | "segment_change"
   | "migration_priority";
 

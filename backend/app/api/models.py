@@ -319,14 +319,14 @@ class AbcAnalyticsResponse(ApiModel):
     contact_id: int
     contact_name: str
     contact_type_normalized: str
-    current_revenue_usd: Decimal
-    current_revenue_share_percent: Decimal
-    current_cumulative_share_percent: Decimal
-    current_segment: str
-    current_won_deals_count: int
-    current_last_won_date: date | None
-    compare_revenue_usd: Decimal
-    compare_segment: str
+    base_revenue_usd: Decimal
+    base_revenue_share_percent: Decimal
+    base_cumulative_share_percent: Decimal
+    base_segment: str
+    base_won_deals_count: int
+    base_last_won_date: date | None
+    target_revenue_usd: Decimal
+    target_segment: str
     segment_change: str
     migration_priority: str
     segment_changed: bool
@@ -336,10 +336,10 @@ class AbcAnalyticsPageResponse(ApiModel):
     total: int
     limit: int = Field(gt=0, le=100)
     offset: int = Field(ge=0)
-    current_total_revenue_usd: Decimal
-    compare_total_revenue_usd: Decimal
-    current_segment_counts: dict[str, int]
-    compare_segment_counts: dict[str, int]
+    base_total_revenue_usd: Decimal
+    target_total_revenue_usd: Decimal
+    base_segment_counts: dict[str, int]
+    target_segment_counts: dict[str, int]
     migration_priority_counts: dict[str, int]
     items: tuple[AbcAnalyticsResponse, ...]
 

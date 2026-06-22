@@ -69,14 +69,14 @@ const ABC_SORT_FIELDS: AbcSort[] = [
   "contact_id",
   "contact_name",
   "contact_type_normalized",
-  "current_revenue_usd",
-  "current_revenue_share_percent",
-  "current_cumulative_share_percent",
-  "current_segment",
-  "current_won_deals_count",
-  "current_last_won_date",
-  "compare_revenue_usd",
-  "compare_segment",
+  "base_revenue_usd",
+  "base_revenue_share_percent",
+  "base_cumulative_share_percent",
+  "base_segment",
+  "base_won_deals_count",
+  "base_last_won_date",
+  "target_revenue_usd",
+  "target_segment",
   "segment_change",
   "migration_priority"
 ];
@@ -129,7 +129,7 @@ const initialAbcFilters: AbcFilters = {
   dateTo: "",
   compareDateFrom: "",
   compareDateTo: "",
-  sort: "current_revenue_usd",
+  sort: "base_revenue_usd",
   order: "desc",
   limit: PAGE_SIZE,
   offset: 0
@@ -985,7 +985,7 @@ export function App() {
             </label>
 
             <label className="field">
-              <span>Период с</span>
+              <span>Было с</span>
               <input
                 className="date-input"
                 value={abcDateDrafts.from}
@@ -996,7 +996,7 @@ export function App() {
               />
             </label>
             <label className="field">
-              <span>Период по</span>
+              <span>Было по</span>
               <input
                 className="date-input"
                 value={abcDateDrafts.to}
@@ -1013,11 +1013,11 @@ export function App() {
               onClick={applyAbcDateDrafts}
             >
               <Filter size={16} strokeWidth={1.5} />
-              Применить период
+              Применить было
             </button>
 
             <label className="field">
-              <span>Сравнение с</span>
+              <span>Стало с</span>
               <input
                 className="date-input"
                 value={abcCompareDateDrafts.from}
@@ -1028,7 +1028,7 @@ export function App() {
               />
             </label>
             <label className="field">
-              <span>Сравнение по</span>
+              <span>Стало по</span>
               <input
                 className="date-input"
                 value={abcCompareDateDrafts.to}
@@ -1050,7 +1050,7 @@ export function App() {
               onClick={applyAbcCompareDateDrafts}
             >
               <Filter size={16} strokeWidth={1.5} />
-              Применить сравнение
+              Применить стало
             </button>
 
             <button className="button button-secondary" type="button" onClick={resetAbcFilters}>
@@ -1756,8 +1756,8 @@ function AbcTable({
               onSort={onSort}
             />
             <SortableHeader
-              label="Выручка"
-              field="current_revenue_usd"
+              label="Выручка было"
+              field="base_revenue_usd"
               sort={sort}
               order={order}
               onSort={onSort}
@@ -1765,7 +1765,7 @@ function AbcTable({
             />
             <SortableHeader
               label="Доля"
-              field="current_revenue_share_percent"
+              field="base_revenue_share_percent"
               sort={sort}
               order={order}
               onSort={onSort}
@@ -1773,22 +1773,22 @@ function AbcTable({
             />
             <SortableHeader
               label="Накопленная доля"
-              field="current_cumulative_share_percent"
+              field="base_cumulative_share_percent"
               sort={sort}
               order={order}
               onSort={onSort}
               align="right"
             />
             <SortableHeader
-              label="ABC"
-              field="current_segment"
+              label="ABC было"
+              field="base_segment"
               sort={sort}
               order={order}
               onSort={onSort}
             />
             <SortableHeader
               label="Успешные сделки"
-              field="current_won_deals_count"
+              field="base_won_deals_count"
               sort={sort}
               order={order}
               onSort={onSort}
@@ -1796,7 +1796,7 @@ function AbcTable({
             />
             <SortableHeader
               label="Последняя успешная сделка"
-              field="current_last_won_date"
+              field="base_last_won_date"
               sort={sort}
               order={order}
               onSort={onSort}
@@ -1804,16 +1804,16 @@ function AbcTable({
             {isCompareEnabled && (
               <>
                 <SortableHeader
-                  label="Выручка сравнения"
-                  field="compare_revenue_usd"
+                  label="Выручка стало"
+                  field="target_revenue_usd"
                   sort={sort}
                   order={order}
                   onSort={onSort}
                   align="right"
                 />
                 <SortableHeader
-                  label="ABC сравнения"
-                  field="compare_segment"
+                  label="ABC стало"
+                  field="target_segment"
                   sort={sort}
                   order={order}
                   onSort={onSort}
@@ -1860,24 +1860,24 @@ function AbcTable({
               <td>
                 <span className="badge badge-neutral">{row.contact_type_normalized}</span>
               </td>
-              <td className="number-cell money-cell">{formatUsd(row.current_revenue_usd)}</td>
-              <td className="number-cell">{formatPercent(row.current_revenue_share_percent)}</td>
+              <td className="number-cell money-cell">{formatUsd(row.base_revenue_usd)}</td>
+              <td className="number-cell">{formatPercent(row.base_revenue_share_percent)}</td>
               <td className="number-cell">
-                {formatPercent(row.current_cumulative_share_percent)}
+                {formatPercent(row.base_cumulative_share_percent)}
               </td>
               <td>
-                <span className={`badge ${abcSegmentBadgeClass(row.current_segment)}`}>
-                  {row.current_segment}
+                <span className={`badge ${abcSegmentBadgeClass(row.base_segment)}`}>
+                  {row.base_segment}
                 </span>
               </td>
-              <td className="number-cell">{row.current_won_deals_count}</td>
-              <td>{formatDate(row.current_last_won_date)}</td>
+              <td className="number-cell">{row.base_won_deals_count}</td>
+              <td>{formatDate(row.base_last_won_date)}</td>
               {isCompareEnabled && (
                 <>
-                  <td className="number-cell money-cell">{formatUsd(row.compare_revenue_usd)}</td>
+                  <td className="number-cell money-cell">{formatUsd(row.target_revenue_usd)}</td>
                   <td>
-                    <span className={`badge ${abcSegmentBadgeClass(row.compare_segment)}`}>
-                      {row.compare_segment}
+                    <span className={`badge ${abcSegmentBadgeClass(row.target_segment)}`}>
+                      {row.target_segment}
                     </span>
                   </td>
                   <td>
@@ -1953,18 +1953,18 @@ function AbcSummaryBar({
   return (
     <div className="totals-bar abc-summary-bar">
       <div>
-        <span>Выручка</span>
-        <strong>{formatUsd(page.current_total_revenue_usd)}</strong>
+        <span>Выручка было</span>
+        <strong>{formatUsd(page.base_total_revenue_usd)}</strong>
       </div>
       {isCompareEnabled && (
         <div>
-          <span>Выручка сравнения</span>
-          <strong>{formatUsd(page.compare_total_revenue_usd)}</strong>
+          <span>Выручка стало</span>
+          <strong>{formatUsd(page.target_total_revenue_usd)}</strong>
         </div>
       )}
       <div>
-        <span>ABC</span>
-        <strong>{formatCounts(page.current_segment_counts)}</strong>
+        <span>ABC было</span>
+        <strong>{formatCounts(page.base_segment_counts)}</strong>
       </div>
       {isCompareEnabled && (
         <div>
@@ -2095,7 +2095,7 @@ function entityLabel(report: ReportView) {
 
 function rangeValidationMessage(report: ReportView, isCompareIncomplete: boolean) {
   if (report === "abc" && isCompareIncomplete) {
-    return "Для сравнения заполните обе даты или очистите обе даты сравнения.";
+    return "Для периода «Стало» заполните обе даты или очистите обе даты.";
   }
   if (report === "abc") {
     return "Дата начала периода должна быть не позже даты окончания периода.";
@@ -2105,7 +2105,7 @@ function rangeValidationMessage(report: ReportView, isCompareIncomplete: boolean
 
 function draftRangeValidationMessage(report: ReportView) {
   if (report === "abc") {
-    return "В черновике дат начало периода должно быть не позже окончания периода.";
+    return "В черновике дат «Было» или «Стало» начало должно быть не позже окончания.";
   }
   return "В черновике дат значение «Создана с» должно быть не позже «Создана по».";
 }

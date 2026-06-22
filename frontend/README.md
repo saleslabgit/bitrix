@@ -10,8 +10,8 @@ Implemented screen:
 - `Deals` report table with client search, exact deal ID, status, type, deal creation date filters, pagination, loading, error, empty, reset, Bitrix deal-card links, and sortable local USD budget/profit columns.
 - The Deals table uses `/api/reports/deals/analytics`. `Бюджет` is the single deal amount in local USD, `Выручка` is won-only USD revenue, and `Прибыль` is won-only: `budget_usd * 0.50` for `won`, otherwise `0.00`. Filtered budget/revenue/profit totals are shown above and below the table and are calculated across all filtered rows before pagination.
 - Deals table state is persisted in browser local storage under `bitrix-sales.deals.v1`; reset clears only Deals table state.
-- `ABC` report table with exact customer ID, customer search, type, current ABC segment, migration priority, changed-only filter, applied current period, optional applied comparison period, pagination, loading, error, empty, reset, Bitrix contact-card links, and sortable local USD revenue/share columns.
-- The ABC table uses `/api/reports/abc/analytics`. Current-period ABC is calculated from won-only USD revenue by local `closed_at` dates. When both comparison dates are applied, comparison revenue/segment, transition, and priority columns are shown in the same table; customers with revenue in either period are included so lost and reappeared customers remain visible.
+- `ABC` report table with exact customer ID, customer search, type, `Было` ABC segment, migration priority, changed-only filter, applied `Было` period, optional applied `Стало` period, pagination, loading, error, empty, reset, Bitrix contact-card links, and sortable local USD revenue/share columns.
+- The ABC table uses `/api/reports/abc/analytics`. `Было` ABC is calculated from won-only USD revenue by local `closed_at` dates. When both `Стало` dates are applied, target revenue/segment, transition, and priority columns are shown in the same table; customers with revenue in either period are included so lost and reappeared customers remain visible. Transition direction is always `ABC было -> ABC стало`.
 - ABC table state is persisted separately under `bitrix-sales.abc.v1`; reset clears only ABC table state.
 - Last valid filter metadata is persisted under `bitrix-sales.filter-metadata.v1` so transient empty metadata snapshots do not clear dropdown options.
 - Local Vite serves `/favicon.ico` from `frontend/public/favicon.ico`.
@@ -76,7 +76,7 @@ For built/static deployments, set `VITE_API_BASE_URL` if the API is not served f
 - With no active dataset, the manual `Обновить из Bitrix` panel appears.
 - Contacts search, exact contact ID filter, deal creation date range, type/status filters, clickable non-zero deal counters, sorting, reset, and pagination work.
 - Deals client search, exact deal ID filter, deal creation date range, type/status filters, sorting, filtered totals, reset, and pagination work. The working area uses the available screen width with horizontal table scroll where needed.
-- ABC customer search, exact customer ID filter, current period, optional comparison period, segment/priority filters, changed-only mode, sorting, summary totals, reset, and pagination work. Comparison updates the same table instead of opening a separate table.
+- ABC customer search, exact customer ID filter, `Было` period, optional `Стало` period, segment/priority filters, changed-only mode, sorting, summary totals, reset, and pagination work. `Стало` updates the same table instead of opening a separate table.
 - If the frontend shows an API error, check `http://localhost:8000/api/datasets/status`.
 
 ## Design System

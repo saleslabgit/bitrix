@@ -188,14 +188,15 @@ Shared filter metadata is cached under `bitrix-sales.filter-metadata.v1`;
 resetting either report does not clear the metadata cache.
 
 The ABC screen uses `/api/reports/abc/analytics` for local customer ABC
-analysis. It classifies current-period won USD revenue by local `closed_at`
-dates and supports optional comparison dates in the same table. When both
-comparison dates are applied, the endpoint includes customers with won revenue
-in either period, so transitions such as `A -> Нет продаж` and
-`Нет продаж -> A` remain visible. Current ABC columns stay primary; comparison
-revenue, comparison ABC, transition, and migration priority columns are shown
-only while comparison is enabled. ABC UI state is persisted separately under
-`bitrix-sales.abc.v1`; reset clears only ABC state.
+analysis. `date_from` / `date_to` are the source/base period shown as `Было`;
+`compare_date_from` / `compare_date_to` are the target/result period shown as
+`Стало`. ABC uses won USD revenue by local `closed_at` dates. When both
+`Стало` dates are applied, the endpoint includes customers with won revenue in
+either period, so transitions such as `A -> Нет продаж` and `Нет продаж -> A`
+remain visible. Transition direction is always `ABC было -> ABC стало`.
+Target revenue, target ABC, transition, and migration priority columns are
+shown only while `Стало` is enabled. ABC UI state is persisted separately
+under `bitrix-sales.abc.v1`; reset clears only ABC state.
 
 Region filters and region columns are temporarily hidden in the frontend while
 region detection is unfinished. The frontend does not send region query
