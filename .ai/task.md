@@ -1,132 +1,207 @@
-# Task: TASK-2026-06-22-12
+# Task: TASK-2026-06-22-13
 
 Status: planned
-Created from: current `main` after `80475ba codex: TASK-2026-06-22-11 Test crm.item.list deal contact links`
+Created from: current `main` after `.ai/report.md` for `TASK-2026-06-22-12` reports `done`
 
 ## Title
 
-Fix empty refresh writes
+Improve Contacts verification UI
 
 ## Goal
 
-Fix the manual refresh failure reported by the user after switching normal sync to `crm.item.list`:
+Improve the existing Contacts screen so the product owner can verify refreshed local Bitrix data faster from the UI.
 
-```text
-Invalid Input Error: executemany requires a non-empty list of parameter sets to be provided
-```
+Add sortable Contacts analytics rows, contact ID search, a reliable filter reset, a closed-date column, a USD budget column, and a Bitrix contact-card link next to the contact ID.
 
-The refresh must not fail with a low-level DuckDB `executemany` error when an intermediate row list is empty. It must either safely skip an empty insert where empty data is acceptable, or return a clear user-safe error explaining which required data was absent.
+Keep this as a focused improvement to the current Contacts screen and its local backend analytics API. Do not add a new Deals screen in this task.
 
 ## Facts
 
-- Bitrix is read-only.
-- Normal manual sync now uses `crm.item.fields` + `crm.item.list` for deal items and `contactId` / `contactIds` for links.
-- The user hit the error from the UI manual refresh flow: `POST /api/local/refresh-data`.
-- `backend/app/storage/loaders.py` already uses `_executemany_if_rows()` for raw Bitrix inserts.
-- Other code paths still call `connection.executemany(...)` directly with possibly empty lists.
-- Known direct `executemany` risk areas from current GitHub files:
-  - `backend/app/pipeline/normalization.py` inserts `normalized_contacts` and `normalized_deals` without empty-row guards.
-  - `backend/app/pipeline/currency_rates.py` inserts `currency_rates` without an empty-row guard and can produce an empty `rows` list if NBRB/source/common-date data resolves to no insertable rows.
-  - `backend/app/pipeline/approved_contact_type_rules.py` inserts approved rules without an empty-row guard; default rules are non-empty, but the helper should still be robust for tests/custom calls.
-- This is not a Bitrix write issue and must not add any Bitrix write methods.
+- The user confirmed the manual refresh completed and the data mostly matches.
+- The user requested UI features to verify data:
+  - sorting;
+  - search by ID in filters;
+  - fix `Сбросить фильтр` not updating the table;
+  - add `дата закрытия` column;
+  - add `бюджет` column showing the deal amount in USD;
+  - show a `Посмотреть` link next to the ID using:
+
+```text
+https://dialar.bitrix24.by/crm/contact/details/{{id}}/
+```
+
+- Current frontend is a single `Contacts` screen in `frontend/src/App.tsx`.
+- Current frontend uses local backend endpoints only:
+  - `GET /api/reports/contacts/analytics`;
+  - `GET /api/meta/filters`;
+  - `GET /api/datasets/status`;
+  - `POST /api/local/refresh-data`.
+- `frontend/src/api.ts` `ContactFilters` currently has `search`, `contactType`, `region`, `status`, `limit`, and `offset`; it has no contact ID filter and no sort/order params.
+- Backend endpoint `GET /api/reports/contacts/analytics` currently accepts `limit`, `offset`, `date_from`, `date_to`, `search`, `contact_type`, `region`, and `status`; it has no contact ID filter and no sort/order params.
+- `ContactAnalyticsRow` / `ContactAnalyticsResponse` already include:
+  - `contact_id`;
+  - `contact_name`;
+  - `total_deals_count`, `won_deals_count`, `open_deals_count`, `lost_deals_count`;
+  - `revenue_usd`;
+  - `estimated_profit_usd`;
+  - `first_won_date`;
+  - `last_won_date`;
+  - `latest_deal_date`.
+- Current Contacts table displays `revenue_usd`, `estimated_profit_usd`, and `latest_deal_date`, but does not show `last_won_date` as a closed-date column.
+- This screen is contact-analytics aggregate data, not a per-deal table.
+- The provided Bitrix URL is a contact details URL, so the `Посмотреть` link must use `contact_id` unless current implementation discovers a stronger repository-backed reason to do otherwise.
+- Bitrix remains read-only. Report API and frontend table interactions must use local backend data only and must not call Bitrix.
 
 ## Assumptions
 
-- The immediate user error likely comes from one of the unguarded `executemany` calls after Bitrix data was fetched: normalization or currency-rate loading.
-- Empty raw links can be acceptable; empty contacts/deals/rates may or may not be acceptable depending on stage of the flow.
-- The fix should make the failing step identifiable from the UI-safe status message without exposing raw rows, secrets, local paths, or stack traces.
+- In the current Contacts aggregate table, `дата закрытия` means the latest closed won deal date for the contact, represented by existing `last_won_date`. Show `—` when there is no closed won deal.
+- In the current Contacts aggregate table, `бюджет` should use the existing USD financial value for the contact, `revenue_usd`, because the screen aggregates a contact's won deals. Label it clearly as USD, for example `Бюджет USD`, so it is not confused with original-currency totals.
+- Sorting should be consistent across pagination, so it should be applied before slicing/pagination in the backend, not only to the current frontend page.
+- Exact contact ID filtering is enough for verification. If the user enters `661`, the table should return contact `661` when it exists and matches the other active filters.
 
 ## Unknowns
 
-- Which exact direct `executemany` triggered the user's current failure.
-- Whether the live refresh fetched zero deal items, zero contacts, or fetched deals but no insertable NBRB currency-rate rows.
-- Whether `crm.item.list` full normal sync returned zero rows on this user's run due to Bitrix behavior, field selection, pagination, or a transient issue.
+- Whether the current reset bug is caused only by debounced search state, by object identity/query key behavior, or by a combination of search, offset, and query invalidation.
+- Whether all desired columns will fit comfortably at current desktop density without minor CSS table-width adjustments.
 
 ## Scope
 
-### 1. Audit direct `executemany` usage
+### 1. Backend contact analytics filtering and sorting
 
-Search backend app/tests for direct `executemany` calls.
+Extend the local `GET /api/reports/contacts/analytics` path to support:
 
-For production code, ensure no call can receive an empty parameter list unless it is guarded or intentionally raises a clear domain error before DuckDB is called.
+- optional `contact_id` query param for exact contact ID filtering;
+- optional `sort` query param;
+- optional `order` query param with `asc` / `desc`.
 
-Do not change unrelated test fixture setup unless needed for coverage.
+Apply filtering and sorting in the report function before pagination.
 
-### 2. Fix normalization empty-row handling
-
-In `normalize_local_data()`:
-
-- If there are zero raw contacts, skip normalized contact insert safely.
-- If there are zero raw deals, skip normalized deal insert safely.
-- Ensure this does not mask errors for malformed non-empty data.
-- Keep deals without links supported: they should still normalize as `Без контакта` / `Не определено`.
-
-### 3. Fix currency-rate empty-row handling
-
-In `load_currency_rates_for_raw_deals()`:
-
-- If there are no raw deals, continue returning `None` as today.
-- If raw deals exist but computed currency-rate insert rows are empty, do not call DuckDB `executemany` with an empty list.
-- Prefer a clear `ValueError` with a safe message, for example:
+Use an explicit allowlist of sortable fields. Suggested sortable fields:
 
 ```text
-No currency rate rows were loaded for observed deal currencies/date range.
+contact_id
+contact_name
+contact_type_normalized
+region_normalized
+total_deals_count
+won_deals_count
+open_deals_count
+lost_deals_count
+revenue_usd
+estimated_profit_usd
+last_won_date
+latest_deal_date
 ```
 
-- Preserve existing supported-currency checks and USD-required checks.
-- Do not expose external response payloads or raw deal rows.
+Choose a stable default sort that preserves current useful behavior. If the current effective order is contact ID ascending, keep that unless a stronger repository-backed reason exists.
 
-### 4. Fix approved rules helper robustness
+Tie-break with `contact_id` for deterministic output.
 
-In `replace_contact_type_rules()`:
+Do not build SQL strings from untrusted sort input. This report currently loads local facts into Python and can sort Python rows directly; if SQL is introduced, use an allowlist mapping only.
 
-- If called with an empty rule tuple, clear rules and return `0` without calling empty `executemany`.
-- Preserve current behavior for the default approved rules.
+If an invalid sort/order value is supplied, return a safe FastAPI validation/client error or fall back deterministically. Prefer explicit validation for clarity.
 
-### 5. Improve refresh failure message if needed
+### 2. Frontend filters
 
-If the low-level DuckDB message can still surface from manual refresh, wrap or convert it to a clearer safe status message.
+Update `frontend/src/api.ts` and `frontend/src/App.tsx` filters to include:
 
-Do not expose stack traces, local paths, webhook values, raw Bitrix payloads, phone/email/address/messenger/comment/file/requisite/activity data, or arbitrary custom fields.
+- `contactId` / `contact_id` exact ID search;
+- `sort`;
+- `order`.
+
+Add a compact `ID контакта` filter input near the text search. Keep it numeric/user-friendly, but do not make the UI fragile: empty value should remove the filter.
+
+When any filter changes, reset `offset` to `0`.
+
+Fix `Сбросить` / empty-state reset so it reliably:
+
+- clears text search draft;
+- clears contact ID draft/filter;
+- clears type/region/status filters;
+- resets pagination offset to `0`;
+- triggers the contacts table to refetch/update.
+
+### 3. Frontend sortable table
+
+Make table headers sortable for the useful columns above.
+
+Requirements:
+
+- clicking a sortable header changes `sort` / `order` and resets `offset` to `0`;
+- current sort state is visible in the header with a simple text/icon indicator;
+- keyboard/button semantics are accessible enough for a data table;
+- sorting works with active filters and pagination;
+- no local Bitrix calls are added.
+
+Prefer existing dependencies and patterns. Do not add TanStack Table or another dependency unless it is clearly justified by repository style and scope.
+
+### 4. New/renamed visible table fields
+
+Update the current Contacts table columns:
+
+- Show contact ID with a nearby `Посмотреть` link:
+
+```text
+https://dialar.bitrix24.by/crm/contact/details/{contact_id}/
+```
+
+  Open it in a new tab/window and use safe rel attributes. This is a contact details link, not a deal details link.
+
+- Add `Дата закрытия` using `last_won_date` from the analytics response.
+- Add `Бюджет USD` using `revenue_usd` from the analytics response.
+- Keep or rename the existing financial column as needed to avoid duplicate/confusing labels. It is acceptable for `Бюджет USD` to replace the current `Выручка USD` label if it still displays `revenue_usd`.
+- Keep `Расчетная прибыль USD` and existing deal counts.
+- Keep `Последняя сделка` if it remains useful and the table still fits; otherwise document the chosen compact layout in `.ai/report.md`.
+
+### 5. Documentation
+
+Update relevant docs if API params or frontend verification flow changed. At minimum consider:
+
+- `frontend/README.md`;
+- `docs/development.md`.
+
+Do not update `ui-kits/`.
 
 ### 6. Tests
 
-Add focused backend tests for:
+Add focused backend coverage for:
 
-- `normalize_local_data()` with zero raw contacts and zero raw deals does not raise `executemany requires...` and leaves normalized tables empty.
-- `normalize_local_data()` with deals but no links still creates normalized deals with no analytical contact.
-- `load_currency_rates_for_raw_deals()` with raw deals but no insertable rate rows returns/raises a clear safe error and does not call empty `executemany`.
-- `replace_contact_type_rules(connection, rules=())` clears rules and returns `0` without raising.
-- Manual refresh failure status for this class of issue is safe and understandable.
-- Existing item-list ingestion tests still pass, including secondary designer contact `661`.
-- CRM write methods remain rejected/not introduced.
+- contact ID filtering on `/api/reports/contacts/analytics` report logic or API path;
+- sorting by at least `revenue_usd` and a date field before pagination;
+- invalid/unsupported sort handling, if explicit validation is implemented;
+- deterministic tie-break by `contact_id`.
+
+Frontend has no current test framework beyond TypeScript build. Keep changes type-safe and run the build.
 
 ### 7. Report
 
 Update `.ai/report.md` with:
 
-- exact root cause found in code;
-- whether it was normalization, currency rates, approved rules, or multiple guarded sites;
-- changed files;
-- tests run;
-- confirmation that no Bitrix write methods were added or called;
-- whether frontend build was skipped and why.
+- exact behavior implemented;
+- changed backend params;
+- visible UI changes;
+- how reset filters was fixed;
+- tests/checks run;
+- confirmation that no Bitrix write methods were added and frontend still calls only local backend endpoints.
 
 ## Out Of Scope
 
-- New frontend UI.
-- Changing the `crm.item.list` decision from TASK-11.
-- Reverting to `crm.deal.list` for normal sync.
-- Adding broad `crm.deal.contact.items.get` scans.
-- Changing analytics formulas, contact priority rules, revenue/profit/ABC/RFM semantics.
-- Automatic refresh, scheduler, queues, or background jobs.
-- Bitrix write operations.
-- Exporting raw data.
+- New frontend screens.
+- A per-deal table or Deals screen.
+- Changing contact/deal matching, Bitrix extraction, normalization, priorities, currency conversion, revenue/profit formulas, ABC/RFM logic, or manual refresh pipeline.
+- Calling Bitrix from the frontend.
+- Adding mass `crm.deal.contact.items.get` scans.
+- Any Bitrix write operation.
+- Exporting CSV/raw data.
+- Showing phones, email, addresses, messengers, comments, files, requisites, activities, arbitrary custom fields, webhook values, or raw payloads.
+- Changing `ui-kits/`.
 
 ## Constraints
 
-- Work only on current GitHub repository files.
-- Bitrix remains read-only.
+- Work only from current repository files.
+- Keep Bitrix read-only.
+- The Contacts screen must continue to use `/api/reports/contacts/analytics` for financial metrics.
+- All sorting/filtering/reporting must use local backend data only.
 - Do not add or call methods matching:
 
 ```text
@@ -136,26 +211,28 @@ crm.*.delete
 crm.*.set
 ```
 
-- Do not request or expose forbidden personal fields.
-- Do not print webhook URLs or tokens.
-- Do not commit `.env`, local databases, Parquet snapshots, raw exports, logs, caches, build artifacts, `node_modules`, `frontend/dist`, or `ui-kits/` changes.
-- Keep changes backend-focused and minimal.
+- Do not commit `.env`, DuckDB files, Parquet snapshots, raw exports, generated data, logs, caches, `node_modules`, `frontend/dist`, or `ui-kits/` changes.
+- Keep the UI compact and operational; no marketing/landing page changes.
 
 ## Acceptance Criteria
 
-- The reported `executemany requires a non-empty list of parameter sets` class of failure is fixed or converted into a clear safe domain error.
-- Empty optional inserts are skipped safely.
-- Required empty-data cases produce understandable safe messages.
-- Normal refresh still uses `crm.item.list` for deal items.
-- Multi-contact links from `contactIds` are still preserved.
-- Designer `661` secondary-contact case remains covered by tests.
+- Contacts table can be sorted by useful visible columns, and sorting is stable across pagination.
+- Filter area includes exact search by contact ID.
+- Reset filters clears all filters/searches and visibly refreshes/updates the table.
+- Table shows `Дата закрытия` from the latest closed won deal date (`last_won_date`) for the contact.
+- Table shows `Бюджет USD` from `revenue_usd`; original-currency totals are not used as the primary financial metric.
+- Contact ID area includes a `Посмотреть` link to `https://dialar.bitrix24.by/crm/contact/details/{contact_id}/`.
+- Existing refresh UX remains intact.
+- Existing Contacts empty/loading/error states remain intact.
+- No frontend Bitrix calls are added.
 - No Bitrix write methods are added or called.
 - Backend tests pass.
-- `.ai/report.md` explains the fix and checks.
+- Frontend build passes.
+- `.ai/report.md` is updated.
 - Commit message exactly:
 
 ```text
-codex: TASK-2026-06-22-12 Fix empty refresh writes
+codex: TASK-2026-06-22-13 Improve Contacts verification UI
 ```
 
 ## Checks
@@ -176,7 +253,7 @@ python -m pytest
 
 Use the existing backend dev environment if system Python lacks pytest and document the exact command.
 
-Run frontend build only if frontend code changes:
+Run frontend build after frontend changes:
 
 ```bash
 cd frontend
@@ -203,11 +280,12 @@ git diff --check -- ':!AGENTS.md' ':!.ai/task.md'
 Codex must not commit until all conditions below are true:
 
 - latest relevant commit is this planner commit;
-- direct production `executemany` calls have been audited;
-- empty-row behavior is fixed or explicitly made a safe domain error;
-- backend tests cover the reported class of failure;
-- every required check is either run and reported, or explicitly documented as not run with reason;
+- backend contact analytics supports the new filter/sort contract safely;
+- frontend sends the new params and renders the requested verification UI;
+- reset filters has been fixed and verified;
+- required backend tests and frontend build are run, or any inability is explicitly documented with reason;
 - `.ai/report.md` states that no Bitrix write methods were added or called;
-- staged files are only task files plus `.ai/report.md`;
+- frontend still calls only local backend endpoints, not Bitrix;
+- staged files are only task files plus `.ai/report.md` and relevant docs;
 - forbidden artifacts are not staged;
 - final commit message exactly matches the required `codex:` message above.
