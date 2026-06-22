@@ -1,158 +1,126 @@
-# Task: TASK-2026-06-22-04
+# Task: TASK-2026-06-22-05
 
 Status: planned
-Created from: current `main` after accepted `TASK-2026-06-22-03`
+Created from: current `main` after accepted `TASK-2026-06-22-04`
 
 ## Title
 
-Build contacts frontend
+Run full stack with Compose
 
 ## Goal
 
-Create the first visible frontend milestone: a React/TypeScript/Vite app with one working report screen, `Contacts`, backed by the existing local backend API and styled according to the design-system assets in `ui-kits/`.
+Make local testing convenient for the user by allowing backend and frontend to run together with one command:
 
-This task must keep scope intentionally narrow. Do not build dashboard, ABC, RFM, stale deals, concentration, or other report screens yet. The purpose is to prove the frontend foundation, API integration, design-system usage, table UX, filters, and local development flow on one useful report that can be expanded later.
-
-## Product Scope
-
-Build only this screen:
-
-```text
-Contacts: таблица контактов с поиском и фильтрами
+```bash
+docker compose up --build
 ```
 
-The screen must support:
+After this task, the user should be able to open the frontend in a browser and test the Contacts screen against the local backend without manually starting two separate processes.
 
-- contact list table;
-- search;
-- contact type filter;
-- region filter;
-- deal status filter where supported by the existing endpoint;
-- pagination through `limit`/`offset`;
-- loading state;
-- error state;
-- empty state;
-- visible dataset/API status indicator if lightweight to add from existing endpoints.
+## Scope
 
-Use existing backend endpoints only unless a tiny frontend-support fix is truly unavoidable:
+### 1. Add Frontend To Docker Compose
 
-- `GET /api/reports/contacts`;
-- `GET /api/meta/filters`;
-- optionally `GET /api/datasets/status` or `GET /api/datasets/profile` for a compact status badge.
+Update `docker-compose.yml` so it starts both services:
 
-Do not create a new backend report for this task.
+- `backend` on `http://localhost:8000`;
+- `frontend` on `http://localhost:5173` or another documented port if `5173` is unavailable.
 
-## Required Table Columns
+The frontend service must:
 
-Use columns already returned by the existing contacts endpoint. Expected columns include:
+- run the existing Vite dev server;
+- bind to `0.0.0.0` so it is reachable from the host;
+- proxy `/api` and `/health` to the backend service inside Compose;
+- use Compose service networking, expected backend target `http://backend:8000`;
+- avoid committing `node_modules`, `dist`, caches, or generated build artifacts.
 
-- contact name;
-- raw contact type if available;
-- normalized contact type;
-- region;
-- total deals count;
-- won deals count;
-- open deals count;
-- lost deals count;
-- total amount original.
+Acceptable implementation options:
 
-If the current response shape differs, follow the actual typed backend response and document the difference in `.ai/report.md`. Do not expose forbidden personal fields such as phone, email, address, messenger, comments, files, requisites, or arbitrary Bitrix fields.
+- add a small `frontend/Dockerfile` for development; or
+- use an official Node image directly in Compose if that is cleaner and documented.
 
-## Frontend Architecture
+Prefer the simplest maintainable approach that fits the existing repo.
 
-Implement a minimal but real frontend app under `frontend/`:
+### 2. Keep Existing Manual Frontend Flow Working
 
-- React;
-- TypeScript;
-- Vite;
-- API client layer for backend calls;
-- components split enough to remain maintainable, but no over-engineering;
-- TanStack Query may be used if appropriate and available; if not used, explain why in `.ai/report.md`;
-- table implementation can be plain React table for this first milestone or TanStack Table if the setup cost is reasonable.
+Do not break the current manual flow:
 
-Required npm scripts:
-
-```text
-dev
-build
+```bash
+cd frontend
+npm install
+npm run dev
 ```
 
-Add a test or validation script if practical. At minimum, `npm run build` must pass.
+The Vite proxy should still default to `http://localhost:8000` outside Compose, while Compose can override `VITE_BACKEND_URL=http://backend:8000`.
 
-## Design System Requirement
-
-Before building UI, inspect `ui-kits/` and follow its design tokens/specification/components as the source of truth.
-
-Requirements:
-
-- do not invent an unrelated visual style;
-- use colors, typography, spacing, radius, controls, and layout direction from `ui-kits/` where available;
-- if `ui-kits/` contains only static/exported design specs, translate them into CSS variables/components in the frontend;
-- do not modify `ui-kits/` unless absolutely required to read/use assets; prefer leaving it untouched;
-- document in `.ai/report.md` which `ui-kits/` files were inspected and what was used.
-
-## Backend Boundary
-
-Avoid backend changes. Existing backend is already ready for this first frontend screen.
-
-Allowed only if strictly necessary:
-
-- tiny CORS/dev-server config needed for local frontend-to-backend development;
-- tiny response typing/doc correction if the existing API shape is inconsistent with code.
-
-Forbidden:
-
-- new Bitrix calls;
-- Bitrix sync;
-- Bitrix row listing;
-- Bitrix write methods;
-- new report endpoints;
-- changing contact normalization/business rules;
-- changing currency-rate logic.
-
-## Documentation And Report
+### 3. Documentation
 
 Update:
 
-- `.ai/report.md` — implementation summary, inspected design-system files, endpoints used, checks run, known limitations;
-- `docs/development.md` — how to install/run/build the frontend and expected backend URL/config;
-- `docs/project-status.md` — first frontend screen is implemented, still intentionally limited to Contacts.
+- `docs/development.md` — one-command full-stack launch and URLs;
+- `frontend/README.md` — Compose launch plus manual launch;
+- `.ai/report.md` — changed files, checks, exact commands, known limitations.
 
-Update other docs only if needed.
+Include a short user-facing verification checklist in docs or report:
+
+- backend health is reachable;
+- frontend opens;
+- Contacts table loads;
+- filters/search/pagination work;
+- if frontend shows API error, check backend dataset/status.
+
+### 4. Checks
+
+Run and document:
+
+```bash
+docker compose config
+```
+
+If Docker is available, also run the strongest practical check without leaving long-running services behind, for example:
+
+```bash
+docker compose build
+```
+
+or a bounded startup/health check. Stop services afterward if they are started.
+
+Run frontend build from `frontend/`:
+
+```bash
+npm run build
+```
+
+Run backend tests only if backend code changes.
 
 ## Out Of Scope
 
-- Dashboard.
-- ABC screen.
-- RFM screen.
-- Deal reconciliation screen.
-- Stale deals screen.
-- Deal cycle screen.
-- Concentration screen.
-- Type/region analytics screen.
-- Authentication.
+- Changing backend business logic.
+- Changing frontend report behavior beyond wiring needed for Compose.
+- New screens.
+- New backend endpoints.
+- Bitrix calls.
+- Bitrix sync.
+- Bitrix write methods.
 - Production deployment.
+- Nginx/HTTPS.
 - CI.
-- Scheduled sync or scheduled NBRB refresh.
-- Any Bitrix API call.
-- Any CRM write method.
-- Modifying generated local data, DuckDB files, Parquet snapshots, CSV exports, `.env`, logs, caches, or `ui-kits/`.
+- Authentication.
 
 ## Acceptance Criteria
 
-- `frontend/` contains a working React/TypeScript/Vite app.
-- The app has one implemented screen: Contacts table with search, filters, pagination, loading, error, and empty states.
-- The Contacts screen reads data from existing backend endpoints.
-- The UI follows the `ui-kits/` design-system direction and reports what was used.
-- No forbidden personal fields are displayed.
-- No Bitrix calls are added or run.
-- No generated data/secrets are staged.
-- Frontend build passes.
-- `.ai/report.md` and docs are updated.
+- `docker compose up --build` starts backend and frontend together.
+- Frontend is reachable from the host at a documented URL.
+- Frontend API requests work through the Vite proxy to the backend Compose service.
+- Existing manual frontend dev flow still works.
+- `docker compose config` passes, or inability to run Docker is documented with exact reason.
+- `npm run build` passes from `frontend/`.
+- Docs and `.ai/report.md` include clear launch instructions.
+- No generated artifacts, secrets, `.env`, DuckDB files, Parquet snapshots, CSV exports, logs, caches, `node_modules`, or `frontend/dist` are staged.
 - The implementation commit uses the exact required message:
 
 ```text
-codex: TASK-2026-06-22-04 Build contacts frontend
+codex: TASK-2026-06-22-05 Run full stack with Compose
 ```
 
 ## Checks
@@ -164,24 +132,15 @@ git log --oneline -5
 git status --short
 ```
 
-Run frontend checks from `frontend/` after implementation:
-
-```bash
-npm install
-npm run build
-```
-
-If a package manager lockfile is created, commit the relevant lockfile. Do not commit `node_modules`.
-
-If tests or lint are added, run them and document exact commands.
-
-Run backend tests only if backend code is changed.
-
-Run from repository root if Docker is available:
+Run after implementation:
 
 ```bash
 docker compose config
+cd frontend
+npm run build
 ```
+
+If dependencies need installing locally, use the existing `package-lock.json` and document the exact command.
 
 Before committing:
 
@@ -202,8 +161,8 @@ Codex must not commit until all conditions below are true:
 - `.ai/report.md` is updated;
 - every required check is either run and reported, or explicitly documented as not run with reason;
 - `.ai/report.md` explicitly states that no Bitrix calls were added or run;
-- staged files are only files intentionally changed for `TASK-2026-06-22-04` plus `.ai/report.md`;
-- `.env`, generated data, DuckDB files, Parquet snapshots, CSV exports, logs, caches, `node_modules`, and `ui-kits/` are not staged;
+- staged files are only files intentionally changed for `TASK-2026-06-22-05` plus `.ai/report.md`;
+- `.env`, generated data, DuckDB files, Parquet snapshots, CSV exports, logs, caches, `node_modules`, `frontend/dist`, and `ui-kits/` are not staged;
 - `.ai/task.md` is not staged by Codex unless the user explicitly requested changing the task;
 - the final commit message exactly matches the required `codex:` message above.
 
