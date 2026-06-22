@@ -154,6 +154,12 @@ GET /api/datasets/status
 POST /api/local/refresh-data
 ```
 
+The backend serializes access to its process-local DuckDB connection for these
+local read and refresh endpoints. Concurrent frontend requests can overlap at
+the HTTP layer, but local DuckDB work runs one endpoint operation at a time to
+avoid intermittent failures from sharing one connection across FastAPI worker
+threads.
+
 The Contacts screen uses USD analytics fields from `/api/reports/contacts/analytics`
 as its primary financial metrics. It does not present original-currency sums as
 converted revenue. The endpoint supports exact `contact_id` filtering plus

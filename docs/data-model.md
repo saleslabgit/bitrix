@@ -186,6 +186,15 @@ tables in a DuckDB transaction and become active. Handled failed Bitrix runs are
 recorded as error runs but do not activate and do not commit partial
 raw/normalized replacements.
 
+Backend FastAPI endpoints use one process-local DuckDB connection for local
+storage access. The connection is initialized lazily, its schema is initialized
+once per connection lifecycle, and endpoint operations that use this shared
+connection run inside a process lock. This avoids concurrent use of the same
+DuckDB connection while preserving transaction boundaries for synthetic runs,
+manual Bitrix refresh, diagnostics, and local report reads. `reset_connection()`
+closes the current connection and resets the schema initialization state for
+tests and storage reconfiguration.
+
 ### Raw Parquet Snapshots
 
 Successful runs can write Parquet snapshots under the configured local data

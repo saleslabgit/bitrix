@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from decimal import Decimal
 
@@ -64,6 +65,24 @@ def test_api_status_run_and_filters_return_local_synthetic_data() -> None:
     assert "Не определено" in filters_response.contact_types
     assert filters_response.min_created_at is not None
     assert filters_response.max_created_at is not None
+
+
+def test_local_read_endpoints_share_duckdb_connection_safely_under_concurrency() -> None:
+    run_local_synthetic_sync()
+
+    def read_local_views() -> None:
+        assert dataset_status().active_dataset is not None
+        assert meta_filters().statuses
+        assert report_contacts(limit=5, offset=0).items
+        assert report_contact_analytics(limit=5, offset=0).items
+        assert report_deal_analytics(limit=5, offset=0).items
+        assert report_abc_analytics(limit=5, offset=0).items
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = [executor.submit(read_local_views) for _ in range(40)]
+
+    for future in futures:
+        future.result()
 
 
 def test_filter_metadata_initializes_empty_schema_for_direct_calls() -> None:

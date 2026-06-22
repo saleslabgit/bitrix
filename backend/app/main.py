@@ -36,7 +36,7 @@ from app.bitrix.ingestion import (
     store_bitrix_ingestion_error,
 )
 from app.core.config import get_settings
-from app.local_database import get_connection
+from app.local_database import connection_scope
 from app.pipeline.currency_rates import NbrbRateClient
 from app.pipeline.manual_refresh import run_full_bitrix_manual_refresh
 from app.pipeline.synthetic import get_latest_pipeline_status, run_synthetic_pipeline
@@ -122,7 +122,8 @@ def health() -> dict[str, str]:
 
 @app.get("/api/sync/status", response_model=PipelineStatusResponse)
 def sync_status() -> PipelineStatusResponse:
-    status = get_latest_pipeline_status(get_connection())
+    with connection_scope() as connection:
+        status = get_latest_pipeline_status(connection)
     if status is None:
         return PipelineStatusResponse(
             run_id=None,
@@ -146,22 +147,25 @@ def sync_status() -> PipelineStatusResponse:
 
 @app.post("/api/sync/run", response_model=PipelineStatusResponse)
 def run_local_synthetic_sync() -> PipelineStatusResponse:
-    status = run_synthetic_pipeline(
-        get_connection(),
-        data_dir=settings.data_dir,
-    )
+    with connection_scope() as connection:
+        status = run_synthetic_pipeline(
+            connection,
+            data_dir=settings.data_dir,
+        )
     return PipelineStatusResponse.model_validate(status)
 
 
 @app.get("/api/datasets/status", response_model=DatasetStorageStatusResponse)
 def dataset_status() -> DatasetStorageStatusResponse:
-    status = get_dataset_storage_status(get_connection())
+    with connection_scope() as connection:
+        status = get_dataset_storage_status(connection)
     return DatasetStorageStatusResponse.model_validate(status)
 
 
 @app.get("/api/datasets/profile", response_model=DatasetProfileResponse)
 def dataset_profile() -> DatasetProfileResponse:
-    profile = get_dataset_profile(get_connection())
+    with connection_scope() as connection:
+        profile = get_dataset_profile(connection)
     return DatasetProfileResponse.model_validate(profile)
 
 
@@ -195,7 +199,8 @@ def bitrix_discovery() -> BitrixDiscoveryResponse:
     response_model=ContactDealDiagnosticResponse,
 )
 def contact_deal_diagnostic(contact_id: int) -> ContactDealDiagnosticResponse:
-    diagnostic = get_contact_deal_diagnostic(get_connection(), contact_id)
+    with connection_scope() as connection:
+        diagnostic = get_contact_deal_diagnostic(connection, contact_id)
     return ContactDealDiagnosticResponse.model_validate(diagnostic)
 
 
@@ -207,11 +212,12 @@ def verify_contact_deals_in_bitrix(
     contact_id: int,
 ) -> BitrixContactDealVerificationResponse:
     client = _build_bitrix_client()
-    verification = verify_bitrix_contact_deals(
-        get_connection(),
-        client=client,
-        contact_id=contact_id,
-    )
+    with connection_scope() as connection:
+        verification = verify_bitrix_contact_deals(
+            connection,
+            client=client,
+            contact_id=contact_id,
+        )
     return BitrixContactDealVerificationResponse.model_validate(verification)
 
 
@@ -223,11 +229,12 @@ def explicit_contact_deal_diagnostic(
     contact_id: int,
     deal_ids: list[int] = Query(...),
 ) -> ExplicitContactDealDiagnosticResponse:
-    diagnostic = get_explicit_contact_deal_diagnostic(
-        get_connection(),
-        contact_id=contact_id,
-        deal_ids=tuple(deal_ids),
-    )
+    with connection_scope() as connection:
+        diagnostic = get_explicit_contact_deal_diagnostic(
+            connection,
+            contact_id=contact_id,
+            deal_ids=tuple(deal_ids),
+        )
     return ExplicitContactDealDiagnosticResponse.model_validate(diagnostic)
 
 
@@ -274,18 +281,20 @@ def reconcile_explicit_contact_deals_endpoint(
     deal_ids: list[int] = Query(...),
 ) -> ExplicitContactDealReconciliationResponse:
     client = _build_bitrix_client()
-    result = reconcile_explicit_contact_deals(
-        get_connection(),
-        client=client,
-        contact_id=contact_id,
-        deal_ids=tuple(deal_ids),
-    )
+    with connection_scope() as connection:
+        result = reconcile_explicit_contact_deals(
+            connection,
+            client=client,
+            contact_id=contact_id,
+            deal_ids=tuple(deal_ids),
+        )
     return ExplicitContactDealReconciliationResponse.model_validate(result)
 
 
 @app.get("/api/bitrix/sync/status", response_model=PipelineStatusResponse)
 def bitrix_sync_status() -> PipelineStatusResponse:
-    status = get_latest_bitrix_ingestion_status(get_connection())
+    with connection_scope() as connection:
+        status = get_latest_bitrix_ingestion_status(connection)
     if status is None:
         return PipelineStatusResponse(
             run_id=None,
@@ -312,15 +321,17 @@ def run_manual_bitrix_sync() -> PipelineStatusResponse:
     try:
         client = _build_bitrix_client()
     except (BitrixClientError, ValueError) as exc:
-        status = store_bitrix_ingestion_error(get_connection(), str(exc))
+        with connection_scope() as connection:
+            status = store_bitrix_ingestion_error(connection, str(exc))
         return PipelineStatusResponse.model_validate(status)
 
-    status = run_bitrix_manual_ingestion(
-        get_connection(),
-        client=client,
-        contact_type_field=settings.bitrix_contact_type_field,
-        data_dir=settings.data_dir,
-    )
+    with connection_scope() as connection:
+        status = run_bitrix_manual_ingestion(
+            connection,
+            client=client,
+            contact_type_field=settings.bitrix_contact_type_field,
+            data_dir=settings.data_dir,
+        )
     return PipelineStatusResponse.model_validate(status)
 
 
@@ -329,7 +340,8 @@ def refresh_local_data() -> LocalDataRefreshResponse:
     try:
         client = _build_bitrix_client()
     except (BitrixClientError, ValueError) as exc:
-        status = store_bitrix_ingestion_error(get_connection(), str(exc))
+        with connection_scope() as connection:
+            status = store_bitrix_ingestion_error(connection, str(exc))
         return LocalDataRefreshResponse(
             status=PipelineStatusResponse.model_validate(status),
             message=status.message,
@@ -339,13 +351,14 @@ def refresh_local_data() -> LocalDataRefreshResponse:
             currency_rate_currencies=(),
         )
 
-    result = run_full_bitrix_manual_refresh(
-        get_connection(),
-        client=client,
-        contact_type_field=settings.bitrix_contact_type_field,
-        data_dir=settings.data_dir,
-        rate_client=NbrbRateClient(),
-    )
+    with connection_scope() as connection:
+        result = run_full_bitrix_manual_refresh(
+            connection,
+            client=client,
+            contact_type_field=settings.bitrix_contact_type_field,
+            data_dir=settings.data_dir,
+            rate_client=NbrbRateClient(),
+        )
     return LocalDataRefreshResponse(
         status=PipelineStatusResponse.model_validate(result.status),
         message=result.status.message,
@@ -358,7 +371,8 @@ def refresh_local_data() -> LocalDataRefreshResponse:
 
 @app.get("/api/meta/filters", response_model=FilterMetadataResponse)
 def meta_filters() -> FilterMetadataResponse:
-    filters = get_filter_metadata(get_connection())
+    with connection_scope() as connection:
+        filters = get_filter_metadata(connection)
     return FilterMetadataResponse.model_validate(filters)
 
 
@@ -378,15 +392,16 @@ def report_contacts(
     region: str | None = None,
     status: str | None = None,
 ) -> ContactSummaryPageResponse:
-    page = list_contact_summaries(
-        get_connection(),
-        limit=limit,
-        offset=offset,
-        search=search,
-        contact_type=contact_type,
-        region=region,
-        status=status,
-    )
+    with connection_scope() as connection:
+        page = list_contact_summaries(
+            connection,
+            limit=limit,
+            offset=offset,
+            search=search,
+            contact_type=contact_type,
+            region=region,
+            status=status,
+        )
     return ContactSummaryPageResponse.model_validate(page)
 
 
@@ -410,22 +425,23 @@ def report_contact_analytics(
     order: SortOrderQuery = "asc",
 ) -> ContactAnalyticsPageResponse:
     try:
-        page = list_contact_analytics(
-            get_connection(),
-            limit=limit,
-            offset=offset,
-            date_from=date_from,
-            date_to=date_to,
-            deal_created_from=deal_created_from,
-            deal_created_to=deal_created_to,
-            search=search,
-            contact_type=contact_type,
-            region=region,
-            status=status,
-            contact_id=contact_id,
-            sort=sort,
-            order=order,
-        )
+        with connection_scope() as connection:
+            page = list_contact_analytics(
+                connection,
+                limit=limit,
+                offset=offset,
+                date_from=date_from,
+                date_to=date_to,
+                deal_created_from=deal_created_from,
+                deal_created_to=deal_created_to,
+                search=search,
+                contact_type=contact_type,
+                region=region,
+                status=status,
+                contact_id=contact_id,
+                sort=sort,
+                order=order,
+            )
     except AnalyticsDataUnavailableError as exc:
         raise HTTPException(
             status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -453,21 +469,22 @@ def report_deal_analytics(
     order: SortOrderQuery = "asc",
 ) -> DealAnalyticsPageResponse:
     try:
-        page = list_deal_analytics(
-            get_connection(),
-            limit=limit,
-            offset=offset,
-            deal_id=deal_id,
-            client_id=client_id,
-            status=status,
-            contact_type=contact_type,
-            region=region,
-            client_search=client_search,
-            deal_created_from=deal_created_from,
-            deal_created_to=deal_created_to,
-            sort=sort,
-            order=order,
-        )
+        with connection_scope() as connection:
+            page = list_deal_analytics(
+                connection,
+                limit=limit,
+                offset=offset,
+                deal_id=deal_id,
+                client_id=client_id,
+                status=status,
+                contact_type=contact_type,
+                region=region,
+                client_search=client_search,
+                deal_created_from=deal_created_from,
+                deal_created_to=deal_created_to,
+                sort=sort,
+                order=order,
+            )
     except AnalyticsDataUnavailableError as exc:
         raise HTTPException(
             status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -497,23 +514,24 @@ def report_abc_analytics(
     order: SortOrderQuery = "desc",
 ) -> AbcAnalyticsPageResponse:
     try:
-        page = list_abc_analytics(
-            get_connection(),
-            limit=limit,
-            offset=offset,
-            contact_id=contact_id,
-            search=search,
-            contact_type=contact_type,
-            segment=segment,
-            migration_priority=migration_priority,
-            changed_only=changed_only,
-            date_from=date_from,
-            date_to=date_to,
-            compare_date_from=compare_date_from,
-            compare_date_to=compare_date_to,
-            sort=sort,
-            order=order,
-        )
+        with connection_scope() as connection:
+            page = list_abc_analytics(
+                connection,
+                limit=limit,
+                offset=offset,
+                contact_id=contact_id,
+                search=search,
+                contact_type=contact_type,
+                segment=segment,
+                migration_priority=migration_priority,
+                changed_only=changed_only,
+                date_from=date_from,
+                date_to=date_to,
+                compare_date_from=compare_date_from,
+                compare_date_to=compare_date_to,
+                sort=sort,
+                order=order,
+            )
     except AnalyticsDataUnavailableError as exc:
         raise HTTPException(
             status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -524,10 +542,11 @@ def report_abc_analytics(
 
 @app.get("/api/reports/abc", response_model=tuple[AbcResponse, ...])
 def report_abc(analysis_date: date | None = None) -> tuple[AbcResponse, ...]:
-    return tuple(
-        AbcResponse.model_validate(row)
-        for row in get_abc_report(get_connection(), analysis_date=analysis_date)
-    )
+    with connection_scope() as connection:
+        return tuple(
+            AbcResponse.model_validate(row)
+            for row in get_abc_report(connection, analysis_date=analysis_date)
+        )
 
 
 @app.get("/api/reports/rfm", response_model=tuple[RfmResponse, ...])
@@ -536,15 +555,16 @@ def report_rfm(
     date_to: date | None = None,
     analysis_date: date | None = None,
 ) -> tuple[RfmResponse, ...]:
-    return tuple(
-        RfmResponse.model_validate(row)
-        for row in get_rfm_report(
-            get_connection(),
-            date_from=date_from,
-            date_to=date_to,
-            analysis_date=analysis_date,
+    with connection_scope() as connection:
+        return tuple(
+            RfmResponse.model_validate(row)
+            for row in get_rfm_report(
+                connection,
+                date_from=date_from,
+                date_to=date_to,
+                analysis_date=analysis_date,
+            )
         )
-    )
 
 
 @app.get("/api/reports/stale-deals", response_model=tuple[StaleDealResponse, ...])
@@ -553,15 +573,16 @@ def report_stale_deals(
     date_from: date | None = None,
     date_to: date | None = None,
 ) -> tuple[StaleDealResponse, ...]:
-    return tuple(
-        StaleDealResponse.model_validate(row)
-        for row in list_stale_open_deals(
-            get_connection(),
-            analysis_date=analysis_date,
-            date_from=date_from,
-            date_to=date_to,
+    with connection_scope() as connection:
+        return tuple(
+            StaleDealResponse.model_validate(row)
+            for row in list_stale_open_deals(
+                connection,
+                analysis_date=analysis_date,
+                date_from=date_from,
+                date_to=date_to,
+            )
         )
-    )
 
 
 @app.get("/api/reports/deal-cycle", response_model=DealCycleReportResponse)
@@ -569,13 +590,14 @@ def report_deal_cycle(
     date_from: date | None = None,
     date_to: date | None = None,
 ) -> DealCycleReportResponse:
-    return DealCycleReportResponse.model_validate(
-        get_deal_cycle_report(
-            get_connection(),
-            date_from=date_from,
-            date_to=date_to,
+    with connection_scope() as connection:
+        return DealCycleReportResponse.model_validate(
+            get_deal_cycle_report(
+                connection,
+                date_from=date_from,
+                date_to=date_to,
+            )
         )
-    )
 
 
 @app.get("/api/reports/concentration", response_model=ConcentrationReportResponse)
@@ -583,13 +605,14 @@ def report_concentration(
     date_from: date | None = None,
     date_to: date | None = None,
 ) -> ConcentrationReportResponse:
-    return ConcentrationReportResponse.model_validate(
-        get_concentration_report(
-            get_connection(),
-            date_from=date_from,
-            date_to=date_to,
+    with connection_scope() as connection:
+        return ConcentrationReportResponse.model_validate(
+            get_concentration_report(
+                connection,
+                date_from=date_from,
+                date_to=date_to,
+            )
         )
-    )
 
 
 @app.get("/api/reports/type-region", response_model=TypeRegionAnalyticsReportResponse)
@@ -598,10 +621,11 @@ def report_type_region(
     date_from: date | None = None,
     date_to: date | None = None,
 ) -> TypeRegionAnalyticsReportResponse:
-    return TypeRegionAnalyticsReportResponse.model_validate(
-        get_type_region_analytics(
-            get_connection(),
-            date_from=date_from,
-            date_to=date_to,
+    with connection_scope() as connection:
+        return TypeRegionAnalyticsReportResponse.model_validate(
+            get_type_region_analytics(
+                connection,
+                date_from=date_from,
+                date_to=date_to,
+            )
         )
-    )
