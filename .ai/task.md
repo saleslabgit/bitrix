@@ -1,171 +1,139 @@
-# Task: TASK-2026-06-21-14
+# Task: TASK-2026-06-22-01
 
 Status: planned
-Created from commit: 5b25735dc8a88e4584d2a17cdae8bcaa30d1a9c3
+Created from commit: 7a17ae182669a61cbd48f666a38be6e88f2b3a66
 
 ## Title
 
-Build deal-contact links locally
+Profile live dataset quality
 
 ## Goal
 
-Correct the live Bitrix sync architecture so the first real export does not perform one `crm.deal.contact.items.get` API call per deal. The system must fetch contacts and deals through read-only list APIs, then build deal-contact links locally from already downloaded deal/contact data whenever Bitrix exposes the needed link field(s) in deal metadata/list responses.
+Inspect the first active live Bitrix dataset locally, without calling Bitrix, and produce a safe aggregate quality/profile report that prepares the next product decision: how to configure contact type, priority, and region rules.
 
-This task exists because TASK-13 showed the current per-deal link fetching path is operationally wrong for the real account size. The user's latest instruction is the source of truth: do not mass-load links through per-deal API calls; derive links locally from the downloaded dataset.
+This task must not invent business mappings. It should surface safe aggregate facts and blockers so the user can confirm the mapping rules in a later task.
 
-## Important Requirement Correction
+## Context
 
-The current `SPEC.md` still mentions `crm.deal.contact.items.get` as a preferred method. For this project workflow, update the repo documentation to reflect the corrected rule:
-
-- contacts and deals are loaded via read-only API;
-- deal-contact links are built locally from fields already present in downloaded deal/contact data;
-- `crm.deal.contact.items.get` must not be used as the mass sync path;
-- if a future exceptional diagnostic use is ever needed, it requires a separate explicit planner task and must not be part of the normal sync.
-
-## Hard Safety Rule
-
-Do not call live write methods. Do not test write-method rejection on the production webhook.
-
-Forbidden live examples include, but are not limited to:
-
-- `crm.deal.add`
-- `crm.deal.update`
-- `crm.deal.delete`
-- `crm.contact.add`
-- `crm.contact.update`
-- `crm.contact.delete`
-- any other create/update/delete/write-capable CRM method.
-
-## Live API Rule For This Task
-
-The live sync path must not call `crm.deal.contact.items.get`.
-
-Allowed live methods for this task are limited to read-only metadata/list/status methods:
-
-- `crm.contact.fields`
-- `crm.deal.fields`
-- `crm.contact.list`
-- `crm.deal.list`
-- `crm.status.list`
-
-If local link reconstruction cannot be done from safe deal fields, stop and report the blocker instead of falling back to per-deal `crm.deal.contact.items.get`.
+- TASK-14 completed the first successful live read-only sync.
+- Active dataset should be `bitrix-manual`.
+- Reported live sync counts were:
+  - raw contacts: `14216`;
+  - raw deals: `9142`;
+  - raw links: `8830`;
+  - normalized contacts: `14216`;
+  - normalized deals: `9142`.
+- Deal-contact links are now built locally from deal fields `CONTACT_ID` and `CONTACT_IDS`; normal sync does not mass-call `crm.deal.contact.items.get`.
+- Contact type field is `UF_CRM_1595304971232`, stored locally as `contact_type_raw`.
+- Current contact type/region normalization rules are not yet configured from real data.
 
 ## Scope
 
-### 1. Inspect Current Deal Metadata Safely
+### 1. Read Local Active Dataset Status
 
-Use live metadata only as needed to identify safe deal field(s) that can represent contact linkage, for example `CONTACT_ID` or an equivalent Bitrix deal field.
+Use only the configured local DuckDB database. Do not call Bitrix.
 
-Report only safe metadata:
+Confirm and report safe status facts:
 
-- whether a deal contact-link field exists;
-- field code(s) considered;
-- no raw deal/contact row values;
-- no webhook/token/personal data.
-
-If no safe field exists in deal metadata/list responses, stop after documenting the blocker and do not run full sync.
-
-### 2. Update Bitrix Allowlist And Transform
-
-If a safe deal contact field exists:
-
-- add the required field(s) to the deal select allowlist;
-- transform downloaded deal rows into local `raw_deal_contact_links` without per-deal API calls;
-- for a primary contact ID from a deal row, store:
-  - `deal_id`;
-  - `contact_id`;
-  - `is_primary=true`;
-  - `sort_order` as `NULL` unless safely available;
-  - `role_id` as `NULL` unless safely available.
-- skip empty/null contact IDs safely;
-- keep one row per `deal_id + contact_id`.
-
-Do not add phones, email, addresses, comments, files, activities, arbitrary custom fields, or any forbidden data.
-
-### 3. Remove Per-Deal Link Fetching From Normal Sync
-
-- The normal manual Bitrix ingestion path must not call `client.get_deal_contact_links(deal_id)`.
-- Consider removing the method from the normal path entirely, or keeping it unused with tests proving the sync path does not call it.
-- The live methods reported by the sync must not include `crm.deal.contact.items.get`.
-- Update tests so a fake client without `get_deal_contact_links` can complete ingestion.
-
-### 4. Retry First Live Read-Only Sync
-
-After the implementation and tests pass:
-
-- confirm `.env` is ignored and not staged;
-- confirm `BITRIX_WEBHOOK_URL` is configured without printing it;
-- confirm `BITRIX_CONTACT_TYPE_FIELD=UF_CRM_1595304971232` is configured locally;
-- run live discovery and verify `contact_type_field_exists=true`;
-- run the first manual read-only sync using the corrected local-link path;
-- report only counts/status, not raw rows.
-
-Safe report facts may include:
-
-- sync state;
-- raw contacts count;
-- raw deals count;
-- raw links count;
-- normalized contacts count;
-- normalized deals count;
-- active dataset kind/name/state;
+- active dataset name/kind/state;
+- latest run state;
+- raw/normalized counts;
 - snapshot count only;
-- high-level report endpoint count/health only.
+- whether expected tables exist.
+
+Do not print local absolute paths, raw rows, contact names, deal names, webhook URLs, tokens, or generated file contents.
+
+### 2. Add Safe Dataset Profiling Helpers If Useful
+
+If the current code lacks a clean way to compute these aggregates, add a small backend service/helper module and tests. Keep it local-only and deterministic.
+
+Useful safe aggregates:
+
+- counts by `contact_type_raw`, including null/empty bucket;
+- number of distinct `contact_type_raw` values;
+- contacts missing type;
+- deals without analytical contact;
+- deals without any local link;
+- links whose contact/deal is missing from raw tables;
+- status group counts: won/open/lost;
+- currency counts;
+- category/stage counts by IDs only;
+- date min/max for created/closed dates;
+- normalized contacts still mapped to `Не определено`;
+- normalized deals by `contact_type_normalized` and `region_normalized`.
+
+Contact type raw values are configuration/domain values, not contact row values; they may be reported as aggregate labels with counts. Do not report contact names, deal names, IDs in samples, phone/email/address/comment/file/activity data, or any row-level personal data.
+
+### 3. Check Current Normalization Rules
+
+Inspect local `contact_type_rules` only as aggregate/config data:
+
+- number of active rules;
+- which real `contact_type_raw` values currently have no active rule;
+- whether current normalized type/region outputs are mostly `Не определено`.
+
+Do not invent priorities or regions. If rules are missing, report exactly what user/business input is needed.
+
+### 4. Optional API Surface
+
+If implementation cost is small and fits existing patterns, add a typed local endpoint such as:
+
+```text
+GET /api/datasets/profile
+```
+
+It must return only safe aggregate data. If adding an endpoint would be larger than needed, keep this as a service/helper and report output in `.ai/report.md` only.
 
 ### 5. Documentation And Report
 
-Update documentation concisely:
+Update concise docs only if new service/API/profile behavior is added:
 
-- `SPEC.md` — correct the Bitrix extraction method section so it no longer says normal sync should use per-deal `crm.deal.contact.items.get`.
-- `docs/data-model.md` and/or `docs/development.md` — document that links are built locally from downloaded deal/contact data and that per-deal link API is not used for normal sync.
-- `docs/project-status.md` — update current state/next steps after successful sync or blocker.
-- `.ai/report.md` — full safe report with changed files, checks, live methods called, explicit no-write statement, sync counts/status or blocker, assumptions, unknowns, and next step.
+- `docs/data-model.md` — mention safe dataset profiling if added;
+- `docs/development.md` — mention local-only profile endpoint/helper if added;
+- `docs/project-status.md` — update current next step;
+- `.ai/report.md` — include safe aggregate results, changed files, checks, assumptions, unknowns, and next recommendation.
 
 ## Out Of Scope
 
-- Calling any live write method.
-- Testing write-method rejection against the production webhook.
-- Mass calling `crm.deal.contact.items.get`.
-- Reporting raw CRM rows or contact/deal field values.
-- Committing `.env`, webhook URLs, tokens, raw Bitrix data, DuckDB files, Parquet snapshots, CSV exports, logs, caches, or generated data.
+- Calling Bitrix live API.
+- Re-running sync.
+- Any write methods.
+- Creating or committing `.env`, DuckDB files, Parquet snapshots, CSV exports, logs, caches, raw exports, or generated data.
+- Reporting raw contact/deal rows, contact names, deal names, row IDs as samples, phones, emails, addresses, comments, files, activities, webhook URLs, or tokens.
+- Inventing contact type priorities, normalized regions, or business mapping rules.
 - NBRB integration.
 - Authentication.
 - Frontend or `ui-kits/` work.
 - Scheduler/automatic sync.
 - Production deployment.
-- Complex staging-table architecture beyond what is needed for this corrected sync path.
 
 ## Constraints
 
-- Follow `AGENTS.md`, `docs/workflow.md`, current `.ai/task.md`, and the user's latest correction.
-- Bitrix remains strictly read-only.
-- Live validation must use only allowed read-only methods listed for this task.
-- Do not print or commit secrets.
-- Do not include raw CRM records or personal fields in `.ai/report.md`.
+- Follow `AGENTS.md`, `docs/workflow.md`, current `.ai/task.md`, and the latest user instruction.
+- Work only from local persisted data for profiling.
+- Do not call Bitrix in this task.
+- Keep output aggregate-only and safe.
 - Do not use `git add .`.
 - Do not modify `ui-kits/`.
 - Do not stage `.env` or generated data under `data/` or `backend/data/`.
-- If live sync returns a safe error, report it and stop; do not broaden field allowlists or call unapproved methods without a new planner task.
+- If local active dataset is missing, report the blocker and do not fabricate profile results.
 
 ## Acceptance Criteria
 
-- Normal manual Bitrix sync no longer calls `crm.deal.contact.items.get`.
-- Deal-contact links are built locally from downloaded deal/contact data if the required safe field exists.
-- If no safe deal contact-link field exists, sync is not run and `.ai/report.md` explains the blocker without raw rows or secrets.
-- Tests cover local link construction and prove ingestion can complete without `get_deal_contact_links`.
-- Existing mocked read-only/write-guard tests still pass.
-- Live methods actually called are listed in `.ai/report.md` and exclude write methods.
-- Live methods actually called for sync exclude `crm.deal.contact.items.get`.
-- First corrected manual read-only sync runs successfully, or a safe blocker/error is reported.
-- Active dataset status reflects the sync if it succeeds.
-- At least one read/report endpoint is verified after successful sync using counts/status only.
-- `.ai/report.md` contains safe counts/status and no webhook/token/raw CRM data.
+- No Bitrix live calls are made.
+- Active local dataset status is inspected safely.
+- `.ai/report.md` includes safe aggregate profile results or a safe blocker if the dataset is unavailable.
+- Contact type raw distribution is summarized as aggregate labels/counts.
+- Missing/undefined normalization state is summarized.
+- Deal/link integrity is summarized.
+- No raw rows, personal fields, secrets, local absolute paths, or generated file contents are reported.
+- If code is added, tests cover the profiling logic using synthetic/local fixture data.
+- Documentation is updated if a reusable profile helper/API is added.
 - Generated local data artifacts are not staged or committed.
-- Documentation is corrected so future agents do not reintroduce per-deal link API mass sync.
 - The implementation commit uses the exact required message:
 
 ```text
-codex: TASK-2026-06-21-14 Build deal-contact links locally
+codex: TASK-2026-06-22-01 Profile live dataset quality
 ```
 
 ## Checks
@@ -177,13 +145,7 @@ git log --oneline -5
 git status --short
 ```
 
-Run targeted backend tests from `backend/` in the configured dev environment:
-
-```bash
-python -m pytest tests/test_bitrix_client.py tests/test_bitrix_discovery.py tests/test_bitrix_ingestion.py tests/test_api_bitrix.py
-```
-
-Run full backend tests if code changes affect shared behavior:
+Run targeted backend tests from `backend/` in the configured dev environment if code changes are made:
 
 ```bash
 python -m pytest
@@ -206,7 +168,7 @@ git diff --name-only --cached
 git diff --check -- ':!AGENTS.md' ':!.ai/task.md'
 ```
 
-If any required check or live sync step cannot be run, document the exact safe reason in `.ai/report.md`.
+If any required check cannot be run, document the exact reason in `.ai/report.md`.
 
 ## Hard Workflow Gate
 
@@ -215,11 +177,9 @@ Codex must not commit until all conditions below are true:
 - the latest relevant commit is this planner commit;
 - `.ai/report.md` is updated;
 - every required check is either run and reported, or explicitly documented as not run with reason;
-- all live Bitrix methods actually called are listed in `.ai/report.md`;
-- `.ai/report.md` explicitly states that no live write methods were called;
-- `.ai/report.md` explicitly states whether `crm.deal.contact.items.get` was avoided for sync;
-- sync counts/status are reported without raw CRM rows or secrets, or a safe blocker is reported;
-- staged files are only files intentionally changed for TASK-14 plus `.ai/report.md`;
+- `.ai/report.md` explicitly states that no Bitrix live calls were made;
+- `.ai/report.md` contains only aggregate safe profile data or a safe blocker;
+- staged files are only files intentionally changed for TASK-2026-06-22-01 plus `.ai/report.md`;
 - `.env`, generated data, DuckDB files, Parquet snapshots, CSV exports, logs, caches, and `ui-kits/` are not staged;
 - `.ai/task.md` is not staged unless the user explicitly requested changing the task;
 - the final commit message exactly matches the required `codex:` message above.
