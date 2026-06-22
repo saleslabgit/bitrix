@@ -1,157 +1,224 @@
-# Task: TASK-2026-06-22-27
+# Task: TASK-2026-06-22-28
 
 Status: planned
-Created from: current `main` after `TASK-2026-06-22-26`
+Created from: current `main` after `TASK-2026-06-22-27`
 
 ## Title
 
-Fix filter metadata 500 root cause
+Add sticky tables and contact revenue chart
 
 ## Goal
 
-Eliminate the intermittent browser console error:
+Improve report table usability and add a customer-level revenue chart from the Contacts table.
 
-```text
-GET /api/meta/filters 500 (Internal Server Error)
-```
+User-facing goals:
 
-This must be fixed at the backend/root-cause level, not hidden in the frontend.
+- report tables should use only the available viewport height;
+- table top and bottom controls should stay visible while scrolling table rows;
+- clicking a customer name in the Contacts table should open a modal with a chart of closed won deals for that customer.
 
 ## User Request
 
-The user still sees periodic console errors on the frontend:
+The user confirmed the previous `/api/meta/filters` issue no longer happens and asked for the next task:
 
-```text
-GET http://localhost:5173/api/meta/filters 500 (Internal Server Error)
-```
-
-The previous task removed the expected `503`, but the endpoint now sometimes returns a real `500`.
+- In tables, pin the top and bottom and make tables only as tall as the screen.
+- In the clients table, clicking a client name should open a popup with a chart of closed deals for the selected filter period.
+- X axis: deal close dates.
+- Y axis: revenue.
 
 ## Facts
 
-- `TASK-2026-06-22-26` removed the explicit `HTTPException(503)` guard from `meta_filters()`.
-- Current `meta_filters()` now does only:
+- Frontend currently has Contacts, Deals, and ABC report screens in `frontend/src/App.tsx`.
+- Tables currently live inside `.table-card` with `.table-scroll` using horizontal scroll only.
+- Pagination lives below the table inside the same card.
+- Deals and ABC reports also show totals bars above and below their tables.
+- Contacts rows currently show contact name as plain text inside `.contact-cell`.
+- Contacts filters currently include:
+  - search;
+  - exact contact ID;
+  - contact type;
+  - deal status;
+  - deal creation date range labeled `Создана с` / `Создана по`.
+- Backend contact analytics already supports `date_from` / `date_to` over reporting dates and `deal_created_from` / `deal_created_to` over deal creation dates, but the current Contacts UI exposes only deal creation dates.
+- Revenue is always won-only USD.
+- The frontend package currently has no charting library dependency.
+- Project requirements allow charts through Recharts or ECharts.
+- Bitrix is read-only and report page interactions must read only local backend endpoints.
+- Region filters/columns remain hidden in frontend.
 
-```python
-filters = get_filter_metadata(get_connection())
-return FilterMetadataResponse.model_validate(filters)
-```
+## Product Semantics
 
-- `get_connection()` in `backend/app/local_database.py` keeps one global DuckDB connection in `_connection`.
-- FastAPI sync endpoints run in a worker threadpool.
-- The frontend can trigger concurrent backend requests, for example:
-  - `GET /api/datasets/status`;
-  - `GET /api/meta/filters`;
-  - `GET /api/reports/contacts/analytics`;
-  - `GET /api/reports/deals/analytics`;
-  - `GET /api/reports/abc/analytics`.
-- A single shared DuckDB connection used concurrently from multiple FastAPI worker threads is a likely root cause of intermittent `500` responses.
-- `get_connection()` also calls `initialize_schema()` on each access, so schema initialization/DDL may happen on hot read paths and under concurrent requests.
-- Report page loads must remain local-only and must not call Bitrix.
+### Sticky table workspace
 
-## Assumptions
+Apply the table workspace behavior consistently to Contacts, Deals, and ABC reports.
 
-- The `500` is caused by backend storage/concurrency behavior, not by Vite or Bitrix.
-- The durable local DuckDB file is the normal runtime storage for Docker/local app usage.
-- In-memory DuckDB is mostly for tests and must not be broken silently.
+Definitions:
 
-## Unknowns
+- `Top` means the table column header row must remain visible while scrolling table rows.
+- `Bottom` means pagination and bottom totals, when present, must remain visible while scrolling table rows.
+- The table body area should scroll inside the card instead of making the whole page grow indefinitely.
 
-- The exact runtime traceback is not known from GitHub alone.
-- The bug may be caused by shared connection concurrency, repeated schema initialization, a DuckDB lock/conflict, or response validation after an unexpected row type.
+Expected report behavior:
 
-## Required Investigation Before Fix
+- The visible report card should fit within the current viewport as much as practical after the page header and filters.
+- Table rows scroll vertically inside the table area.
+- Table rows still scroll horizontally when the table is wider than the viewport.
+- Contacts, Deals, and ABC table headers remain visible while vertical scrolling rows.
+- Pagination remains visible at the bottom of the card.
+- For Deals and ABC, totals bars must remain readable; the bottom totals bar should stay with the bottom controls or remain visible in the fixed bottom area.
+- Do not break existing sorting, pagination, empty/error/loading states, or horizontal scroll.
 
-Before implementing the fix, Codex must inspect the actual failure path.
+### Contact revenue chart popup
 
-Required actions:
+Clicking the customer/contact name in the Contacts table opens a modal popup.
 
-- Run the app/backend enough to call `GET /api/meta/filters` through HTTP if practical.
-- Inspect backend logs/traceback for the `500`.
-- If the exact user timing is hard to reproduce manually, add a focused concurrent test that stresses local metadata/status/report reads against the same prepared DuckDB database.
-- Do not conclude “frontend cache issue” unless backend HTTP status is proven stable.
+The chart must show closed won deals assigned to the selected analytical contact.
 
-Record the observed traceback or the reason it could not be reproduced in `.ai/report.md`.
+Chart rules:
+
+- Only local data is used.
+- Only deals where `status_group == "won"` are included.
+- X axis is `closed_at` date.
+- Y axis is won revenue in USD.
+- If multiple won deals have the same close date, aggregate/sum them for that date.
+- Points must be sorted by close date ascending.
+- The modal should show customer name and ID.
+- Show total revenue and deal count for the charted period.
+- Show loading, error, and empty states.
+- Closing the modal must not reset table filters, sorting, or pagination.
+
+Period semantics for this task:
+
+- The chart period should follow the current Contacts screen date filters as the user's selected period.
+- Because the current Contacts UI exposes `Создана с` / `Создана по`, pass those values from the Contacts state to the chart request as the selected period context.
+- The backend endpoint should support explicit closed-date filtering parameters (`date_from` / `date_to`) because the chart itself is by close date.
+- Frontend should map the current Contacts date filter to the chart period for now and clearly label the modal period so the behavior is understandable.
+- If no date filter is selected, show all closed won deals for that contact.
+
+If implementation finds that current date semantics are too misleading, document the concern in `.ai/report.md` and choose the smallest safe behavior that still lets the user inspect closed won deal revenue by close date.
 
 ## Scope
 
-### 1. Fix backend local DB access stability
+### 1. Backend contact revenue series endpoint
 
-Fix the backend so normal concurrent report page requests do not make `/api/meta/filters` return `500`.
+Add a local-only backend endpoint for the chart.
 
-Recommended direction:
+Recommended endpoint:
 
-- Review `backend/app/local_database.py` and `backend/app/storage/connection.py`.
-- Avoid unsafe concurrent use of one global DuckDB connection from multiple FastAPI worker threads.
-- Avoid repeated schema initialization on every hot read request if it contributes to contention.
-- Prefer a small, explicit local database access pattern that matches the current codebase:
-  - either thread-local/read-safe DuckDB connections for file-backed runtime storage;
-  - or a clearly scoped lock/connection helper if that is the least risky option;
-  - or another verified DuckDB-safe pattern.
+```text
+GET /api/reports/contacts/{contact_id}/won-revenue-series
+```
 
-Important requirements:
+Recommended query parameters:
 
-- Preserve transaction safety of manual refresh and activation.
-- Preserve tests that rely on temporary DuckDB paths.
-- Preserve `reset_connection()` behavior for tests.
-- Do not introduce a broad background job or queue.
-- Do not make report page loads call Bitrix.
-- Do not swallow real unexpected storage exceptions silently; the goal is to remove the normal intermittent failure, not hide all failures.
+```text
+date_from?: YYYY-MM-DD
+date_to?: YYYY-MM-DD
+```
 
-### 2. Stabilize `/api/meta/filters`
+Required response fields:
+
+- `contact_id`;
+- `contact_name`;
+- `date_from`;
+- `date_to`;
+- `total_revenue_usd`;
+- `won_deals_count`;
+- `points`.
+
+Each point should contain:
+
+- `closed_date`;
+- `revenue_usd`;
+- `won_deals_count`.
+
+Data source and constraints:
+
+- Use `normalized_deals` and existing local currency conversion logic / `_load_deal_facts()` patterns.
+- Include only deals with `analytical_contact_id == contact_id`.
+- Include only `status_group == "won"`.
+- Include only deals with non-null `closed_at`.
+- Filter by `closed_at.date()` using `date_from` / `date_to` inclusively.
+- Aggregate by close date.
+- Return empty `points` and zero totals if the contact exists but has no matching won deals.
+- Return a safe 404 if the contact does not exist.
+- Do not expose deal names, raw rows, private fields, local paths, or secrets.
+- Do not call Bitrix.
+
+Add backend dataclasses/models/tests consistently with current patterns in:
+
+- `backend/app/reports/analytics.py`;
+- `backend/app/api/models.py`;
+- `backend/app/main.py`;
+- backend tests.
+
+### 2. Frontend modal and chart
+
+Add a Contacts table interaction:
+
+- Contact name becomes a button/link-style control.
+- Clicking it opens a modal.
+- The modal fetches the new backend endpoint for that contact and current Contacts selected period.
+- Modal must not navigate away and must not modify report filters.
+- Modal must be keyboard accessible enough for current UI standards:
+  - visible close button;
+  - click backdrop or close button closes;
+  - `Escape` closes if practical;
+  - use dialog semantics (`role="dialog"`, `aria-modal="true"`).
+
+Chart implementation:
+
+- Prefer adding Recharts as the charting dependency.
+- Update `frontend/package.json` and lockfile if dependency changes.
+- Use a compact line or bar chart suitable for revenue over dates.
+- Format Y values as USD using existing money formatting conventions.
+- Format X values as close dates.
+- Render a useful empty state when there are no won closed deals in the period.
+- Keep the chart readable in a modal on desktop and usable on narrower screens.
+
+### 3. Sticky table workspace
+
+Update `frontend/src/App.tsx` and `frontend/src/styles.css` so Contacts, Deals, and ABC tables use a viewport-bounded card layout.
 
 Required behavior:
 
-- In normal active dataset usage, repeated and concurrent `GET /api/meta/filters` returns `200` with `FilterMetadataResponse`.
-- Empty option lists remain allowed typed payloads.
-- The endpoint must not return `500` because another report/status request happens at the same time.
-- The endpoint must not return `500` because schema initialization runs concurrently on a prepared database.
+- The table card has a bounded height based on the viewport.
+- `.table-scroll` supports vertical and horizontal scrolling.
+- `thead th` are sticky at the top of the scroll area.
+- Pagination is visible at the bottom without scrolling to the last row.
+- Bottom totals, where present, remain visible with the bottom area or otherwise do not disappear while scrolling rows.
+- Long tables should not make the whole page vertically huge.
+- Existing empty/loading/error states still look acceptable.
+- No overlap, clipping, or unreadable controls at common desktop widths.
 
-### 3. Frontend
+### 4. Documentation and report
 
-Frontend changes are not the primary fix.
+Update relevant docs:
 
-Only change frontend if needed after backend is stable. If changed:
-
-- keep cached filter metadata fallback;
-- do not clear dropdowns on transient empty metadata;
-- do not hide real active report errors that affect table data.
-
-### 4. Tests
-
-Add or update tests to cover the real failure mode.
-
-Required backend coverage:
-
-- existing `tests/test_api_local.py` metadata tests still pass;
-- a concurrent read test against a prepared local dataset repeatedly calls metadata/status/report read functions or HTTP endpoints and asserts no exception/500;
-- `meta_filters()` still returns typed empty metadata before dataset preparation;
-- `meta_filters()` still returns typed metadata after synthetic dataset preparation.
-
-If the fix touches shared local DB connection management, run the full backend test suite.
-
-### 5. Documentation and report
-
-Update relevant docs if local DB access behavior changes.
+- `docs/development.md` for new endpoint and frontend behavior;
+- `docs/data-model.md` for the contact won revenue series output if needed;
+- `frontend/README.md` for the modal/chart and sticky table behavior.
 
 Update `.ai/report.md` with:
 
-- actual or reproduced root cause;
-- what changed in DB access or endpoint behavior;
 - changed files;
+- backend endpoint semantics;
+- frontend chart/modal behavior;
+- sticky table implementation notes;
 - checks run;
-- whether HTTP/browser/runtime smoke was run;
-- remaining risks.
+- whether browser visual verification was run;
+- risks/unknowns.
 
 ## Out Of Scope
 
-- New filters or columns.
-- ABC calculation changes.
-- Contacts/Deals report semantics.
-- Manual Bitrix refresh feature changes beyond preserving safety.
-- Calling Bitrix from report pages.
+- Re-enabling region filters or columns.
+- Changing Contacts, Deals, or ABC analytics metric semantics outside the new chart endpoint.
+- Adding a new full report screen.
+- Exporting data.
+- Showing phone, email, address, messengers, comments, files, requisites, or raw Bitrix fields.
+- Calling Bitrix from the chart/modal or report page load.
 - Editing `ui-kits/`.
-- Hiding the console error only by muting frontend logging while backend still returns `500`.
+- Reworking the whole app navigation.
 
 ## Constraints
 
@@ -167,18 +234,39 @@ crm.*.set
 ```
 
 - Do not commit `.env`, DuckDB, Parquet, CSV, raw data, generated data, logs, caches, `node_modules`, `frontend/dist`, or `ui-kits/` changes.
+- If adding Recharts, commit only package metadata/lockfile changes, not installed dependency folders.
 - Do not use `git add .`.
 
 ## Acceptance Criteria
 
-- `/api/meta/filters` no longer intermittently returns `500` during normal frontend usage.
-- Concurrent local reads involving `/api/meta/filters` and other report/status reads are covered by a test or documented runtime smoke and do not fail.
-- The fix addresses backend root cause, not only frontend display.
-- Metadata endpoint still returns typed `200` responses for empty metadata states.
-- Manual refresh/activation behavior remains transaction-safe.
-- No Bitrix calls are added to report page load paths.
+### Table UX
+
+- Contacts, Deals, and ABC report cards are viewport-bounded.
+- Table rows scroll inside the table area.
+- Table headers stay visible while scrolling rows.
+- Pagination stays visible at the bottom of the card.
+- Deals and ABC totals remain readable and usable with the bounded table layout.
+- Existing sorting and pagination continue to work.
+
+### Contact chart
+
+- Clicking a contact/customer name in the Contacts table opens a modal.
+- Modal displays the selected contact name and ID.
+- Modal shows a chart of won revenue by close date for that contact.
+- X axis uses close dates.
+- Y axis uses USD revenue.
+- Multiple won deals on the same close date are aggregated.
+- Modal shows total revenue and won deal count for the charted period.
+- Empty/error/loading states are handled.
+- Closing the modal preserves Contacts filters, sorting, and pagination.
+
+### Data and safety
+
+- Chart uses only local backend data.
+- Chart endpoint does not call Bitrix.
+- Chart endpoint does not expose forbidden personal fields or raw rows.
 - No CRM write methods are added.
-- Relevant tests pass and `.ai/report.md` is updated.
+- Docs and `.ai/report.md` are updated.
 
 ## Checks
 
@@ -192,31 +280,37 @@ git status --short
 Backend checks:
 
 ```bash
-cd backend && python -m pytest tests/test_api_local.py
+cd backend && python -m pytest tests/test_api_local.py tests/test_analytics.py
 ```
 
-If shared DB connection/storage code changes, run full backend tests:
+If shared analytics helpers are touched broadly, run full backend tests:
 
 ```bash
 cd backend && python -m pytest
 ```
 
-Frontend checks, only if frontend code changes:
+Frontend checks:
 
 ```bash
 cd frontend && npm run build
 ```
 
-Runtime smoke if practical:
+If a new frontend dependency is added, run package install/update in the standard frontend workflow and verify the lockfile is updated without committing `node_modules` or `frontend/dist`.
+
+Runtime/browser verification if practical:
 
 ```bash
 docker compose up --build -d
 curl -f http://localhost:8000/health
 curl -f http://localhost:8000/api/meta/filters
-curl -f http://localhost:8000/api/datasets/status
+curl -f http://localhost:5173/
 ```
 
-If using Docker runtime smoke, inspect backend logs for `/api/meta/filters` tracebacks and document the result.
+Then verify in browser:
+
+- Contacts/Deals/ABC table header and bottom controls stay visible while rows scroll;
+- Contacts name click opens modal;
+- chart loads and closes correctly.
 
 Safety search:
 
@@ -231,14 +325,15 @@ Before committing, verify:
 - only task-related files are staged;
 - no forbidden artifacts are staged;
 - `ui-kits/` is not staged;
-- `.ai/report.md` includes traceback/reproduction findings;
+- `node_modules` and `frontend/dist` are not staged;
+- `.ai/report.md` is updated;
 - backend tests are recorded;
-- full backend tests are recorded if shared DB connection code changed;
-- runtime smoke result is recorded if run;
+- frontend build is recorded;
+- browser/runtime verification result is recorded or explicitly marked unavailable;
 - no Bitrix write methods were added.
 
 Commit message:
 
 ```text
-codex: TASK-2026-06-22-27 Fix filter metadata 500 root cause
+codex: TASK-2026-06-22-28 Add sticky tables and contact revenue chart
 ```
