@@ -1,163 +1,158 @@
-# Task: TASK-2026-06-22-21
+# Task: TASK-2026-06-22-22
 
 Status: planned
-Created from: current `main` after `TASK-2026-06-22-20` was cancelled by the user before Codex implementation
+Created from: current `main` after accepted `TASK-2026-06-22-21`
 
 ## Title
 
-Link contact deal counts and hide regions
+Add Deals revenue total
 
 ## Goal
 
-Improve the Contacts-to-Deals verification workflow and temporarily hide region UI until region logic is ready.
+Add `Выручка` to the Deals report totals bar, next to the existing budget and profit totals.
 
-The user wants to click deal counters in the Contacts table and jump directly to the Deals report with matching client and status filters applied.
-
-The user also wants all region filters and region columns hidden from the frontend for now because region detection is not finished.
+Also simplify the totals labels by removing `по фильтру` from the visible UI labels.
 
 ## User Request
 
-From the Contacts table:
+On the Deals page, in the totals bar currently showing:
 
-- clicking `Всего сделок` should open Deals filtered by that contact/client;
-- clicking `Успешные` should open Deals filtered by that contact/client and `won` status;
-- clicking `Открытые` should open Deals filtered by that contact/client and `open` status;
-- clicking `Проигранные` should open Deals filtered by that contact/client and `lost` status.
+```text
+Бюджет по фильтру
+Прибыль по фильтру
+```
 
-Additionally:
+add one more metric:
 
-- hide region filters and region columns everywhere in the frontend for now.
+```text
+Выручка
+```
 
-The previously planned `TASK-2026-06-22-20 Stabilize filter metadata endpoint` is cancelled by the user as not currently needed. Do not implement it in this task.
+And remove `по фильтру` from the visible labels.
+
+The visible labels should become:
+
+```text
+Бюджет
+Выручка
+Прибыль
+```
 
 ## Facts
 
-- Current frontend has Contacts and Deals reports in `frontend/src/App.tsx`.
-- Current Contacts rows contain:
-  - `contact_id`;
-  - `contact_name`;
-  - `total_deals_count`;
-  - `won_deals_count`;
-  - `open_deals_count`;
-  - `lost_deals_count`.
-- Current Deals report already has a client text search filter `clientSearch` backed by `client_search` over local analytical contact/client name.
-- Current normalized deals contain `analytical_contact_id` and `analytical_contact_name` according to `docs/data-model.md`.
-- Current Deals backend endpoint supports deal ID, client search, status, type, region, date, sorting, pagination, and filtered totals.
-- Current frontend Contacts and Deals filters still include region UI and region state.
-- Backend reports must read local DuckDB-backed data only.
+- Current Deals report is implemented in `frontend/src/App.tsx`.
+- Current Deals totals are displayed by `DealTotalsBar` above and below the Deals table.
+- Current Deals backend page response includes:
+  - `filtered_budget_usd`;
+  - `filtered_estimated_profit_usd`.
+- Current Deals budget total sums all filtered deals before pagination.
+- Current Deals profit total is won-only: `budget_usd * 0.50` for won deals, otherwise `0.00`.
+- Current Deal row `estimated_profit_usd` already follows won-only semantics.
+- Revenue in this project means won-only USD revenue.
 - Frontend must call only local backend endpoints.
+- Report APIs must read local DuckDB-backed data only.
 - Bitrix is read-only and must not be called from report page loads.
 
 ## Assumptions
 
-- For the Contacts-to-Deals jump, exact `contact_id` filtering is safer than name-only filtering because two clients can share the same display name.
-- The Deals UI may still show the selected client name in the `Клиент` filter input, but the actual jump filter should be exact by local analytical contact ID when available.
-- When the user manually edits the Deals `Клиент` search input, it should behave as normal fuzzy text search and clear any hidden exact contact ID filter.
-- Clicking a non-zero counter should reset unrelated Deals filters so the result is easy to understand: only client, status, default dates, default pagination, and default sort should remain unless there is a strong existing pattern to preserve more.
-- Clicking a zero counter should either do nothing or render as a disabled/non-link value; it should not navigate to a confusing empty filtered view.
-- `Hide region filters and columns everywhere in frontend` means hide/remove region controls and columns from Contacts and Deals UI, and stop sending frontend `region` query params from these reports. Backend region fields and backend API support may remain for later use.
+- Deals `Выручка` total should be calculated across all currently filtered Deals rows before pagination.
+- Deals `Выручка` total should sum `budget_usd` only for filtered rows where `status_group == "won"`.
+- If the active filter is `status=open` or `status=lost`, `Выручка` should be `0.00`.
+- If the active filter is `status=won`, `Выручка` should equal `Бюджет` for the filtered set.
+- The backend field can be named clearly, recommended:
+
+```text
+filtered_revenue_usd
+```
+
+- Even though visible labels should not say `по фильтру`, the values are still filtered totals based on the current Deals filters.
 
 ## Unknowns
 
-- Browser click-through verification depends on the execution environment. If unavailable, document the limitation in `.ai/report.md`.
+- Browser-level visual verification depends on the execution environment. If unavailable, document the limitation in `.ai/report.md`.
 
 ## Scope
 
-### 1. Backend exact client filter for Deals
+### 1. Backend Deals revenue total
 
-Add exact client/contact filtering to the Deals analytics backend.
-
-Recommended query parameter:
-
-```text
-client_id
-```
+Extend the Deals analytics page response with a filtered revenue total.
 
 Requirements:
 
-- `GET /api/reports/deals/analytics` should accept `client_id` as a positive integer query parameter.
-- It should filter local deals by `normalized_deals.analytical_contact_id` through the existing deal facts path.
-- It must remain local-only: no Bitrix, NBRB, or external calls from the report endpoint.
-- It must not expose forbidden personal fields.
-- It must compose correctly with status, type, created-date, sorting, pagination, and filtered totals.
-- If both `client_id` and `client_search` are supplied, prefer exact `client_id` for filtering. `client_search` can remain a frontend display/search value, but it must not accidentally exclude exact-client rows when `client_id` is present.
+- Add a backend page field, recommended `filtered_revenue_usd`.
+- Compute it across all filtered Deals rows before pagination.
+- Include all current Deals filters:
+  - `deal_id`;
+  - `client_id`;
+  - `client_search`;
+  - `status`;
+  - `contact_type`;
+  - backend-supported `region`;
+  - created-date range.
+- Revenue must be won-only: sum `budget_usd` / `amount_usd` only for rows where `status_group == "won"`.
+- Empty result should return `0.00`.
+- Do not change existing `filtered_budget_usd` or `filtered_estimated_profit_usd` semantics.
+- Do not add persisted analytics tables or migrations.
+- Do not call Bitrix, NBRB, or external services from the report endpoint.
 
-Add backend tests covering:
+Update response models and API types accordingly.
 
-- exact `client_id` returns only that analytical client's deals;
-- exact `client_id` plus `status` returns only matching status deals;
-- filtered budget/profit totals respect exact `client_id` and status before pagination;
-- `client_id` does not use Bitrix or external calls.
+### 2. Frontend totals bar labels and layout
 
-### 2. Contacts table counter links
-
-Make the Contacts deal-count cells clickable where useful.
-
-Required behavior:
-
-- `Всего сделок` click opens/switches to the Deals report with exact client filter and no status filter.
-- `Успешные` click opens/switches to Deals with exact client filter and `status = won`.
-- `Открытые` click opens/switches to Deals with exact client filter and `status = open`.
-- `Проигранные` click opens/switches to Deals with exact client filter and `status = lost`.
-- The Deals client input should visibly show the clicked contact/client name.
-- The actual Deals fetch should use exact `client_id` when the navigation came from a Contacts row.
-- The Deals page should reset to first page (`offset = 0`) after navigation.
-- Unrelated old Deals filters should be cleared on navigation unless keeping one is clearly necessary and documented.
-- Counters with `0` should not behave like active links.
-- Links/buttons must be keyboard-accessible and not break table sorting.
-- Existing contact ID Bitrix link behavior must remain unchanged.
-
-Implementation guidance:
-
-- Add a small helper such as `openDealsForContact(contact, status?)` in `App.tsx` rather than introducing a full router.
-- Reuse existing report state and storage patterns.
-- Keep the UI dense. A number-styled button/link is enough; avoid large new controls.
-
-### 3. Hide region UI in frontend
-
-Temporarily hide region filters and columns from the frontend.
+Update the Deals totals bar in `frontend/src/App.tsx`.
 
 Requirements:
 
-- Remove/hide Region filter from Contacts toolbar.
-- Remove/hide Region filter from Deals toolbar.
-- Remove/hide Region column from Contacts table.
-- Remove/hide Region column from Deals table.
-- Remove region from frontend selected-filter counts.
-- Stop sending `region` query params from frontend report fetches.
-- Make persisted frontend state safe: old `region` values in localStorage must not continue to affect current frontend queries.
-- Make persisted sort state safe: old `region_normalized` sort values in localStorage should fall back to a valid visible default sort.
-- Do not remove backend region fields, backend region query support, storage columns, or docs about data model unless a small doc note is useful. This is a frontend hiding task, not a data-model rewrite.
+- Display three totals both above and below the Deals table:
+  - `Бюджет`;
+  - `Выручка`;
+  - `Прибыль`.
+- Remove `по фильтру` from visible labels.
+- Keep USD formatting consistent with existing totals.
+- Keep loading, error, invalid date, and empty states from showing misleading stale totals.
+- Keep the layout compact and stable with three total chips.
 
-### 4. Frontend docs/report
+### 3. Tests
 
-Update relevant docs if behavior changes, at minimum consider:
+Add focused backend tests covering:
 
-- `frontend/README.md` for Contacts counter navigation and temporarily hidden region UI;
-- `docs/development.md` if operator verification steps change;
+- revenue total includes won deals only;
+- revenue total is computed across all filtered rows before pagination;
+- revenue total respects `client_id` and `status` filters;
+- `status=open` or `status=lost` revenue total is `0.00`;
+- existing budget/profit totals remain unchanged.
+
+Frontend tests are not currently established; run the frontend build.
+
+### 4. Documentation and report
+
+Update relevant docs when behavior changes, at minimum consider:
+
+- `frontend/README.md` for the three Deals totals;
+- `docs/development.md` for Deals response fields;
+- `docs/data-model.md` for Deals page revenue total semantics;
 - `docs/project-status.md` if useful.
 
 Update `.ai/report.md` with:
 
-- note that `TASK-2026-06-22-20` was cancelled and not implemented;
-- backend/client filter changes;
-- frontend Contacts-to-Deals navigation behavior;
-- hidden region UI details;
+- backend field added;
+- revenue semantics;
+- frontend label changes;
 - checks run;
 - confirmation that no Bitrix calls/write methods were added.
 
 ## Out Of Scope
 
+- Changing row-level Deals table columns.
+- Changing Contacts report metrics.
+- Changing budget/profit semantics.
 - Implementing/correcting region normalization logic.
-- Removing region data from backend, storage, reports, or database schema.
 - New report screens.
 - URL routing/query-string routing.
 - Changing Bitrix ingestion, extraction, contact-deal link logic, reconciliation, or manual refresh behavior.
 - Any live Bitrix diagnostic call.
 - Any Bitrix write operation.
 - Displaying forbidden personal fields or raw Bitrix rows.
-- Changing contact priority rules, type normalization semantics, currency loading, report metric formulas, or manual refresh semantics.
-- Implementing the cancelled `TASK-2026-06-22-20` metadata stabilization.
 - Adding CSV/export, authentication, scheduler, or automatic refresh.
 - Modifying `ui-kits/`.
 
@@ -178,26 +173,18 @@ crm.*.set
 
 - Do not commit `.env`, DuckDB files, Parquet snapshots, raw exports, generated data, logs, caches, `node_modules`, `frontend/dist`, or `ui-kits/` changes.
 - Do not expose webhook values, raw rows, local absolute paths, stack traces, or forbidden personal fields.
-- Do not change backend financial semantics: deal profit remains won-only; contact profit remains revenue-based.
+- Keep all financial values in USD.
 
 ## Acceptance Criteria
 
-- Latest relevant task is this planner commit, not cancelled `TASK-2026-06-22-20`.
-- Deals backend supports exact local `client_id` filtering by analytical contact ID.
-- Deals exact client filter composes with status and totals before pagination.
-- In Contacts table, non-zero deal count cells are clickable/keyboard-accessible.
-- Clicking `Всего сделок` opens Deals filtered by the clicked contact/client, with no status filter.
-- Clicking `Успешные` opens Deals filtered by clicked contact/client and `won`.
-- Clicking `Открытые` opens Deals filtered by clicked contact/client and `open`.
-- Clicking `Проигранные` opens Deals filtered by clicked contact/client and `lost`.
-- Deals client input shows the clicked contact name, while backend filtering uses exact `client_id`.
-- Manual editing of Deals client search clears hidden exact `client_id` and uses fuzzy `client_search` behavior.
-- Old unrelated Deals filters do not accidentally remain after clicking a Contacts counter.
-- Zero counters are not misleading clickable actions.
-- Region filters and columns are hidden from Contacts and Deals frontend.
-- Frontend no longer sends region query params for Contacts or Deals.
-- Old persisted region filters/sorts do not affect current frontend reports.
-- Contacts/Deals existing sorting, pagination, reset, loading, empty, and error states remain usable.
+- Deals backend response includes `filtered_revenue_usd` or an equivalently clear field name.
+- Deals revenue total is won-only and computed before pagination.
+- Deals revenue total respects current filters, including `client_id` and `status`.
+- Existing Deals budget and profit totals keep their current semantics.
+- Deals totals bar shows three labels: `Бюджет`, `Выручка`, `Прибыль`.
+- Visible labels no longer include `по фильтру`.
+- Totals are shown both above and below the Deals table as before.
+- Loading/error/empty/invalid-date states remain clear and do not show stale totals.
 - Frontend still calls only local backend endpoints.
 - Backend report endpoints do not call Bitrix, NBRB, or external services.
 - No Bitrix write methods are added.
@@ -206,7 +193,7 @@ crm.*.set
 - Commit message exactly:
 
 ```text
-codex: TASK-2026-06-22-21 Link contact deal counts and hide regions
+codex: TASK-2026-06-22-22 Add Deals revenue total
 ```
 
 ## Checks
@@ -265,11 +252,10 @@ If Docker/browser checks cannot be run, document the reason in `.ai/report.md`.
 
 Codex must not commit until all conditions below are true:
 
-- cancelled `TASK-2026-06-22-20` was not implemented;
-- exact Deals `client_id` filtering is implemented and tested;
-- Contacts counter click-to-Deals behavior works for all four count columns;
-- region UI is hidden from frontend filters and tables;
-- old persisted region state no longer affects frontend queries;
+- latest relevant commit is this planner commit;
+- Deals revenue total is implemented, tested, and documented;
+- visible Deals totals labels are exactly `Бюджет`, `Выручка`, `Прибыль`;
+- no existing budget/profit semantics regress;
 - no frontend Bitrix calls are added;
 - no Bitrix write methods are added anywhere;
 - required backend tests and frontend build are run, or inability is explicitly documented;
