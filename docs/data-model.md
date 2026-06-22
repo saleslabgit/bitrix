@@ -214,7 +214,7 @@ The first local analytics outputs are calculated on demand from `normalized_cont
 
 Implemented local report outputs:
 
-- contact analytics with deal counts, won revenue USD, estimated profit USD, first/last won dates, latest deal date, and sales flag;
+- contact analytics with deal counts, USD budget breakdown for all/open/lost assigned deals, won revenue USD, estimated profit USD, first/last won dates, latest deal date, and sales flag;
 - ABC comparison for full period vs last 12 months, with `Нет продаж` for contacts without won revenue in a period;
 - RFM rows with 1-5 scores, segment, and a reactivation flag;
 - stale open deals based on open age compared with the P75 won-deal cycle for the same contact type, falling back to overall P75;
@@ -222,7 +222,7 @@ Implemented local report outputs:
 - revenue concentration for top 1, top 3, and top 5 contacts;
 - type, region, and type-region aggregate rows.
 
-Revenue, ABC, RFM monetary values, concentration, and estimated profit use only won deals. Estimated profit is always `revenue_usd * 0.50`. Deals without an analytical contact remain represented as `Без контакта` / `Не определено` in deal, type, and region outputs and do not create a fake contact.
+Contact analytics budget fields use all assigned deals in local USD: `budget_usd` includes all statuses, `budget_in_work_usd` includes open deals, and `lost_budget_usd` includes lost deals. Revenue, ABC, RFM monetary values, concentration, and estimated profit use only won deals. Estimated profit is always `revenue_usd * 0.50`. Deals without an analytical contact remain represented as `Без контакта` / `Не определено` in deal, type, and region outputs and do not create a fake contact.
 
 For deterministic synthetic reports, the default analysis date is the maximum local report date from normalized deals. Last-12-month ABC starts from the same month/day one year before that analysis date.
 

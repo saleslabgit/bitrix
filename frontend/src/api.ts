@@ -7,6 +7,9 @@ export type ContactAnalytics = {
   won_deals_count: number;
   open_deals_count: number;
   lost_deals_count: number;
+  budget_usd: string;
+  budget_in_work_usd: string;
+  lost_budget_usd: string;
   revenue_usd: string;
   estimated_profit_usd: string;
   first_won_date: string | null;
@@ -31,6 +34,9 @@ export type ContactSort =
   | "won_deals_count"
   | "open_deals_count"
   | "lost_deals_count"
+  | "budget_usd"
+  | "budget_in_work_usd"
+  | "lost_budget_usd"
   | "revenue_usd"
   | "estimated_profit_usd"
   | "last_won_date"

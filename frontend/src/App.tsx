@@ -145,7 +145,7 @@ export function App() {
     setFilters((current) => ({
       ...current,
       sort,
-      order: current.sort === sort && current.order === "asc" ? "desc" : "asc",
+      order: current.sort === sort ? (current.order === "desc" ? "asc" : "desc") : "desc",
       offset: 0
     }));
   }
@@ -584,7 +584,7 @@ function ContactsTable({
               align="right"
             />
             <SortableHeader
-              label="Won"
+              label="Успешные"
               field="won_deals_count"
               sort={sort}
               order={order}
@@ -592,7 +592,7 @@ function ContactsTable({
               align="right"
             />
             <SortableHeader
-              label="Open"
+              label="Открытые"
               field="open_deals_count"
               sort={sort}
               order={order}
@@ -600,7 +600,7 @@ function ContactsTable({
               align="right"
             />
             <SortableHeader
-              label="Lost"
+              label="Проигранные"
               field="lost_deals_count"
               sort={sort}
               order={order}
@@ -608,7 +608,31 @@ function ContactsTable({
               align="right"
             />
             <SortableHeader
-              label="Бюджет USD"
+              label="Бюджет"
+              field="budget_usd"
+              sort={sort}
+              order={order}
+              onSort={onSort}
+              align="right"
+            />
+            <SortableHeader
+              label="Бюджет в работе"
+              field="budget_in_work_usd"
+              sort={sort}
+              order={order}
+              onSort={onSort}
+              align="right"
+            />
+            <SortableHeader
+              label="Бюджет проигранных"
+              field="lost_budget_usd"
+              sort={sort}
+              order={order}
+              onSort={onSort}
+              align="right"
+            />
+            <SortableHeader
+              label="Выручка"
               field="revenue_usd"
               sort={sort}
               order={order}
@@ -616,7 +640,7 @@ function ContactsTable({
               align="right"
             />
             <SortableHeader
-              label="Расчетная прибыль USD"
+              label="Прибыль"
               field="estimated_profit_usd"
               sort={sort}
               order={order}
@@ -667,6 +691,9 @@ function ContactsTable({
               <td className="number-cell">{contact.won_deals_count}</td>
               <td className="number-cell">{contact.open_deals_count}</td>
               <td className="number-cell">{contact.lost_deals_count}</td>
+              <td className="number-cell money-cell">{formatUsd(contact.budget_usd)}</td>
+              <td className="number-cell money-cell">{formatUsd(contact.budget_in_work_usd)}</td>
+              <td className="number-cell money-cell">{formatUsd(contact.lost_budget_usd)}</td>
               <td className="number-cell money-cell">{formatUsd(contact.revenue_usd)}</td>
               <td className="number-cell money-cell">
                 {formatUsd(contact.estimated_profit_usd)}

@@ -138,6 +138,9 @@ def test_api_analytics_reports_return_local_typed_data() -> None:
 
     assert contacts.total == 10
     assert contacts.items[0].revenue_usd > 0
+    assert contacts.items[0].budget_usd >= contacts.items[0].revenue_usd
+    assert "budget_in_work_usd" in contacts.items[0].model_dump()
+    assert "lost_budget_usd" in contacts.items[0].model_dump()
     assert open_contacts.total >= 1
     assert all(item.open_deals_count >= 1 for item in open_contacts.items)
     assert contact_by_id.total == 1

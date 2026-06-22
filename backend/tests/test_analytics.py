@@ -44,9 +44,15 @@ def test_contact_analytics_counts_only_won_revenue_and_profit() -> None:
     assert page.total == 10
     assert rows[1].total_deals_count == 4
     assert rows[1].won_deals_count == 4
+    assert rows[1].budget_usd == Decimal("354242.42")
+    assert rows[1].budget_in_work_usd == Decimal("0.00")
+    assert rows[1].lost_budget_usd == Decimal("0.00")
     assert rows[1].revenue_usd == Decimal("354242.42")
     assert rows[1].estimated_profit_usd == Decimal("177121.21")
     assert rows[2].open_deals_count == 1
+    assert rows[2].budget_usd == Decimal("191454.55")
+    assert rows[2].budget_in_work_usd == Decimal("45000.00")
+    assert rows[2].lost_budget_usd == Decimal("0.00")
     assert rows[2].revenue_usd == Decimal("146454.55")
     assert rows[2].has_sales is True
 
@@ -87,6 +93,23 @@ def test_contact_analytics_abc_and_rfm_handle_no_sales_contact() -> None:
     assert rfm_row.segment == NO_SALES_SEGMENT
 
 
+def test_contact_analytics_budget_breakdown_uses_assigned_deals_usd() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        run_synthetic_pipeline(connection)
+
+        row = [
+            row
+            for row in list_contact_analytics(connection, limit=20).items
+            if row.contact_id == 7
+        ][0]
+
+    assert row.budget_usd == Decimal("40000.00")
+    assert row.budget_in_work_usd == Decimal("0.00")
+    assert row.lost_budget_usd == Decimal("25000.00")
+    assert row.revenue_usd == Decimal("15000.00")
+    assert row.estimated_profit_usd == Decimal("7500.00")
+
+
 def test_contact_analytics_supports_exact_contact_id_filter() -> None:
     with duckdb.connect(database=":memory:") as connection:
         run_synthetic_pipeline(connection)
@@ -119,6 +142,21 @@ def test_contact_analytics_sorts_before_pagination_by_revenue_and_date() -> None
         (row.last_won_date for row in date_page.items),
         reverse=True,
     )
+
+
+def test_contact_analytics_sorts_before_pagination_by_budget() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        run_synthetic_pipeline(connection)
+
+        page = list_contact_analytics(
+            connection,
+            limit=1,
+            sort="budget_usd",
+            order="desc",
+        )
+
+    assert page.items[0].contact_id == 1
+    assert page.items[0].budget_usd == Decimal("354242.42")
 
 
 def test_contact_analytics_sort_tie_breaks_by_contact_id() -> None:

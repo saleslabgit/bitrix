@@ -275,6 +275,9 @@ class ContactAnalyticsResponse(ApiModel):
     won_deals_count: int
     open_deals_count: int
     lost_deals_count: int
+    budget_usd: Decimal
+    budget_in_work_usd: Decimal
+    lost_budget_usd: Decimal
     revenue_usd: Decimal
     estimated_profit_usd: Decimal
     first_won_date: date | None

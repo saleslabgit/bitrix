@@ -1,68 +1,81 @@
-# Отчет: TASK-2026-06-22-13
+# Отчет: TASK-2026-06-22-14
 
 Статус: done
 
 ## Кратко
 
-Улучшил существующий Contacts screen для быстрой проверки локальных Bitrix
-данных после refresh.
+Добавил в Contacts analytics отдельные USD-бюджеты для проверки сделок и
+обновил таблицу под бизнес-лейблы пользователя.
 
-Теперь таблица поддерживает server-side сортировку до pagination, точный поиск
-по contact ID, надежный reset всех фильтров, ссылку `Посмотреть` на карточку
-контакта в Bitrix, колонку `Дата закрытия` по `last_won_date` и колонку
-`Бюджет USD` по `revenue_usd`.
+`Бюджет` теперь больше не использует won-only `revenue_usd`. Он показывает
+сумму всех назначенных contact deals в USD. `Выручка` осталась won-only.
 
-## Backend Behavior
+## Backend Fields
 
-`GET /api/reports/contacts/analytics` расширен параметрами:
-
-- `contact_id` — exact positive contact ID filter;
-- `sort` — allowlisted sort field;
-- `order` — `asc` / `desc`.
-
-Allowed sort fields:
+В `ContactAnalyticsRow` / `ContactAnalyticsResponse` добавлены поля:
 
 ```text
-contact_id
-contact_name
-contact_type_normalized
-region_normalized
-total_deals_count
-won_deals_count
-open_deals_count
-lost_deals_count
-revenue_usd
-estimated_profit_usd
-last_won_date
-latest_deal_date
+budget_usd
+budget_in_work_usd
+lost_budget_usd
 ```
 
-Sorting applies in the Python report layer before slicing by `offset`/`limit`.
-Tie-break is always `contact_id` ascending for deterministic output. Unsupported
-sort/order values are rejected safely by the report function and FastAPI type
-validation for the HTTP path.
+Формулы:
 
-## Frontend Behavior
+- `budget_usd` — сумма `amount_usd` всех сделок, где
+  `analytical_contact_id = contact_id`;
+- `budget_in_work_usd` — сумма `amount_usd` open-сделок контакта;
+- `lost_budget_usd` — сумма `amount_usd` lost-сделок контакта;
+- `revenue_usd` — без изменений, won-only revenue;
+- `estimated_profit_usd` — без изменений, `revenue_usd * 0.50`.
 
-- Added compact `ID контакта` input near text search. It keeps only digits and
-  sends `contact_id` only when non-empty.
-- Added sortable table header buttons for visible verification columns.
-- Clicking a header toggles `asc`/`desc`, updates `sort`/`order`, and resets
-  `offset` to `0`.
-- Reset now clears text search draft, contact ID draft/filter, type, region,
-  status, pagination offset, and invalidates the contacts query.
-- Contact ID is shown in its own compact column with:
+Все суммы используют локально нормализованные USD values из report layer. ABC,
+RFM, concentration, normalization, refresh, contact selection, and currency
+loading behavior не менялись.
+
+Новые budget поля добавлены в server-side sort allowlist:
 
 ```text
-https://dialar.bitrix24.by/crm/contact/details/{contact_id}/
+budget_usd
+budget_in_work_usd
+lost_budget_usd
 ```
 
-  The link opens in a new tab with `rel="noopener noreferrer"`.
-- `Бюджет USD` displays `revenue_usd`. The previous `Выручка USD` label was
-  replaced to avoid duplicate/confusing financial columns.
-- `Дата закрытия` displays `last_won_date`, with `—` when absent.
-- `Расчетная прибыль USD`, deal counts, and `Последняя сделка` remain visible.
-- Existing refresh, loading, error, empty, and pagination states remain intact.
+Sorting остается deterministic с tie-break по `contact_id`.
+
+## Frontend
+
+Таблица Contacts теперь показывает финансовые колонки:
+
+| Label | Source |
+|---|---|
+| `Бюджет` | `budget_usd` |
+| `Бюджет в работе` | `budget_in_work_usd` |
+| `Бюджет проигранных` | `lost_budget_usd` |
+| `Выручка` | `revenue_usd` |
+| `Прибыль` | `estimated_profit_usd` |
+
+Count labels изменены:
+
+| Old | New |
+|---|---|
+| `Won` | `Успешные` |
+| `Open` | `Открытые` |
+| `Lost` | `Проигранные` |
+
+Sort behavior изменен:
+
+- first click on a different sortable column sets `order=desc`;
+- repeated click on the active column toggles `desc` / `asc`;
+- offset still resets to `0`.
+
+Working area layout changed to use the available width inside the app shell.
+`page-header`, `toolbar`, `table-card`, and alerts are no longer constrained by
+`max-width: var(--grid-desktop-max)`. `.main-panel` keeps small side padding and
+the table still uses horizontal scroll.
+
+Existing refresh UX, filters, ID search, reset, dates, and Bitrix `Посмотреть`
+links remain in the same screen.
 
 Frontend still calls only local backend endpoints:
 
@@ -78,6 +91,7 @@ No frontend Bitrix calls were added.
 ## Changed Files
 
 - `backend/app/reports/analytics.py`
+- `backend/app/api/models.py`
 - `backend/app/main.py`
 - `backend/tests/test_analytics.py`
 - `backend/tests/test_api_local.py`
@@ -86,6 +100,7 @@ No frontend Bitrix calls were added.
 - `frontend/src/styles.css`
 - `frontend/README.md`
 - `docs/development.md`
+- `docs/data-model.md`
 - `.ai/report.md`
 
 Pre-existing unstaged local changes in `.ai/task.md`, `AGENTS.md`, and
@@ -96,19 +111,19 @@ modified.
 
 Before implementation:
 
-- `git log --oneline -5` — latest commit was
-  `421304d planner: TASK-2026-06-22-13 Improve Contacts verification UI`.
+- `git log --oneline -5` — latest relevant commit was
+  `795d08f planner: TASK-2026-06-22-14 Add contact budget breakdown columns`.
 - `git status --short --branch` — showed pre-existing modified `.ai/task.md`,
   `AGENTS.md`, and `WORKFLOW.md`.
 
 Focused backend:
 
 - `cd backend && /tmp/bitrix-backend-venv/bin/pytest tests/test_analytics.py tests/test_api_local.py`
-  — passed, `20 passed`.
+  — passed, `22 passed`.
 
 Full backend:
 
-- `cd backend && /tmp/bitrix-backend-venv/bin/pytest` — passed, `80 passed`.
+- `cd backend && /tmp/bitrix-backend-venv/bin/pytest` — passed, `82 passed`.
 
 Frontend:
 
@@ -127,12 +142,13 @@ Compose/operator startup:
 
 ## Facts
 
-- Contacts analytics remains aggregate contact-level data, not a per-deal table.
-- `Дата закрытия` uses existing `last_won_date`.
-- `Бюджет USD` uses existing `revenue_usd`, not original-currency totals.
-- Sorting/filtering use local backend analytics data only.
-- The Bitrix link is a plain external contact details link and does not call
-  Bitrix from frontend code.
+- Contacts table remains aggregate contact-level analytics, not a per-deal
+  table.
+- Budget fields reflect the current report period and assigned local report
+  rows used by `list_contact_analytics()`.
+- `revenue_usd` remains won-only.
+- `estimated_profit_usd` remains `revenue_usd * 0.50`.
+- No `ui-kits/` files were changed.
 
 ## Unknowns
 
@@ -141,8 +157,7 @@ Compose/operator startup:
 
 ## Risks Or Next Step
 
-If the dense table feels too wide on smaller laptop screens, the next UI-only
-adjustment should be column priority/compact display. Current implementation
-keeps all requested verification columns and relies on horizontal table scroll.
+The table is intentionally wider after adding all requested budget columns. It
+uses full available working width plus horizontal scroll on narrower screens.
 
 No Bitrix write methods were added or called.

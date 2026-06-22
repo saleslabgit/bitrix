@@ -24,6 +24,9 @@ ContactAnalyticsSortField = Literal[
     "won_deals_count",
     "open_deals_count",
     "lost_deals_count",
+    "budget_usd",
+    "budget_in_work_usd",
+    "lost_budget_usd",
     "revenue_usd",
     "estimated_profit_usd",
     "last_won_date",
@@ -39,6 +42,9 @@ CONTACT_ANALYTICS_SORT_FIELDS: tuple[str, ...] = (
     "won_deals_count",
     "open_deals_count",
     "lost_deals_count",
+    "budget_usd",
+    "budget_in_work_usd",
+    "lost_budget_usd",
     "revenue_usd",
     "estimated_profit_usd",
     "last_won_date",
@@ -68,6 +74,9 @@ class ContactAnalyticsRow:
     won_deals_count: int
     open_deals_count: int
     lost_deals_count: int
+    budget_usd: Decimal
+    budget_in_work_usd: Decimal
+    lost_budget_usd: Decimal
     revenue_usd: Decimal
     estimated_profit_usd: Decimal
     first_won_date: date | None
@@ -800,6 +809,13 @@ def _build_contact_analytics_row(
         for deal in contact_deals
         if deal.status_group == "won" and deal.closed_at is not None
     ]
+    open_deals = [deal for deal in contact_deals if deal.status_group == "open"]
+    lost_deals = [deal for deal in contact_deals if deal.status_group == "lost"]
+    budget_usd = _money(sum((deal.amount_usd for deal in contact_deals), Decimal("0")))
+    budget_in_work_usd = _money(
+        sum((deal.amount_usd for deal in open_deals), Decimal("0"))
+    )
+    lost_budget_usd = _money(sum((deal.amount_usd for deal in lost_deals), Decimal("0")))
     revenue_usd = _money(sum((deal.amount_usd for deal in won_deals), Decimal("0")))
     won_dates = sorted(deal.closed_at.date() for deal in won_deals if deal.closed_at)
     deal_dates = [
@@ -816,8 +832,11 @@ def _build_contact_analytics_row(
         region_normalized=contact.region_normalized,
         total_deals_count=len(contact_deals),
         won_deals_count=len(won_deals),
-        open_deals_count=sum(deal.status_group == "open" for deal in contact_deals),
-        lost_deals_count=sum(deal.status_group == "lost" for deal in contact_deals),
+        open_deals_count=len(open_deals),
+        lost_deals_count=len(lost_deals),
+        budget_usd=budget_usd,
+        budget_in_work_usd=budget_in_work_usd,
+        lost_budget_usd=lost_budget_usd,
         revenue_usd=revenue_usd,
         estimated_profit_usd=_profit(revenue_usd),
         first_won_date=won_dates[0] if won_dates else None,

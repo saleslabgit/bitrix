@@ -156,8 +156,12 @@ The Contacts screen uses USD analytics fields from `/api/reports/contacts/analyt
 as its primary financial metrics. It does not present original-currency sums as
 converted revenue. The endpoint supports exact `contact_id` filtering plus
 allowlisted `sort` and `order` query parameters for stable server-side sorting
-before pagination. The frontend uses those local parameters for the verification
-table and still does not call Bitrix directly.
+before pagination. Contact analytics rows include USD budget breakdown fields:
+`budget_usd` for all assigned deals, `budget_in_work_usd` for open assigned
+deals, `lost_budget_usd` for lost assigned deals, while `revenue_usd` remains
+won-only and `estimated_profit_usd` remains `revenue_usd * 0.50`. The frontend
+uses those local parameters and fields for the full-width verification table and
+still does not call Bitrix directly.
 
 The frontend must continue to read only local backend endpoints. It must not
 call Bitrix directly or display forbidden personal fields such as phone, email,
