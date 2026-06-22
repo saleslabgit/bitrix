@@ -217,6 +217,8 @@ Implemented local report outputs:
 - contact analytics with deal counts, USD budget breakdown for all/open/lost assigned deals, won revenue USD, estimated profit USD, first/last won dates, latest deal date, and sales flag;
 - deal analytics with one row per normalized deal: deal ID/name, status group, normalized analytical type/region, USD budget, USD estimated profit, created date, and closed date;
 - ABC comparison for full period vs last 12 months, with `Нет продаж` for contacts without won revenue in a period;
+- paginated ABC analytics with filters, sorting, current-period classification,
+  and optional comparison-period segment transitions in the same row set;
 - RFM rows with 1-5 scores, segment, and a reactivation flag;
 - stale open deals based on open age compared with the P75 won-deal cycle for the same contact type, falling back to overall P75;
 - deal-cycle metrics overall, by normalized contact type, and by normalized region;
@@ -241,6 +243,25 @@ USD deal conversion does not require a stored `currency_rates` row because the
 amount is already denominated in the target currency. Non-USD reports still
 require local currency rates; missing non-USD rates are treated as unavailable
 local analytics data rather than silently estimated.
+
+`GET /api/reports/abc/analytics` calculates classic customer ABC on demand from
+local normalized data. ABC uses only won deals, local USD revenue, and
+`normalized_deals.closed_at` for period filtering. Rows are grouped by
+`analytical_contact_id`; deals without an analytical contact are not shown as
+fake customers. Classification sorts positive-revenue customers by revenue
+descending and then `contact_id` ascending. Segment assignment uses cumulative
+share before the current row: below 80% is `A`, from 80% to below 95% is `B`,
+and 95% or above is `C`; the row that crosses a threshold remains in the
+segment that started before the threshold, so the largest customer is always
+`A`. Customers with no won revenue in a period have segment `Нет продаж` for
+that period.
+
+Without comparison dates, the ABC page includes customers with current-period
+won revenue. With comparison dates, it includes customers with won revenue in
+either the current or comparison period, so lost and reappeared customers remain
+visible. The transition direction is `comparison segment -> current segment`.
+Filtered totals and counts are calculated after filters and before pagination.
+ABC output is not persisted as an analytics table.
 
 For deterministic synthetic reports, the default analysis date is the maximum local report date from normalized deals. Last-12-month ABC starts from the same month/day one year before that analysis date.
 

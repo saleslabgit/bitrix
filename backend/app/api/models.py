@@ -315,6 +315,35 @@ class DealAnalyticsPageResponse(ApiModel):
     items: tuple[DealAnalyticsResponse, ...]
 
 
+class AbcAnalyticsResponse(ApiModel):
+    contact_id: int
+    contact_name: str
+    contact_type_normalized: str
+    current_revenue_usd: Decimal
+    current_revenue_share_percent: Decimal
+    current_cumulative_share_percent: Decimal
+    current_segment: str
+    current_won_deals_count: int
+    current_last_won_date: date | None
+    compare_revenue_usd: Decimal
+    compare_segment: str
+    segment_change: str
+    migration_priority: str
+    segment_changed: bool
+
+
+class AbcAnalyticsPageResponse(ApiModel):
+    total: int
+    limit: int = Field(gt=0, le=100)
+    offset: int = Field(ge=0)
+    current_total_revenue_usd: Decimal
+    compare_total_revenue_usd: Decimal
+    current_segment_counts: dict[str, int]
+    compare_segment_counts: dict[str, int]
+    migration_priority_counts: dict[str, int]
+    items: tuple[AbcAnalyticsResponse, ...]
+
+
 class AbcResponse(ApiModel):
     contact_id: int
     contact_name: str

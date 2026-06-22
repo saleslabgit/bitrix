@@ -10,9 +10,12 @@ Implemented screen:
 - `Deals` report table with client search, exact deal ID, status, type, deal creation date filters, pagination, loading, error, empty, reset, Bitrix deal-card links, and sortable local USD budget/profit columns.
 - The Deals table uses `/api/reports/deals/analytics`. `Бюджет` is the single deal amount in local USD, `Выручка` is won-only USD revenue, and `Прибыль` is won-only: `budget_usd * 0.50` for `won`, otherwise `0.00`. Filtered budget/revenue/profit totals are shown above and below the table and are calculated across all filtered rows before pagination.
 - Deals table state is persisted in browser local storage under `bitrix-sales.deals.v1`; reset clears only Deals table state.
+- `ABC` report table with exact customer ID, customer search, type, current ABC segment, migration priority, changed-only filter, applied current period, optional applied comparison period, pagination, loading, error, empty, reset, Bitrix contact-card links, and sortable local USD revenue/share columns.
+- The ABC table uses `/api/reports/abc/analytics`. Current-period ABC is calculated from won-only USD revenue by local `closed_at` dates. When both comparison dates are applied, comparison revenue/segment, transition, and priority columns are shown in the same table; customers with revenue in either period are included so lost and reappeared customers remain visible.
+- ABC table state is persisted separately under `bitrix-sales.abc.v1`; reset clears only ABC table state.
 - Last valid filter metadata is persisted under `bitrix-sales.filter-metadata.v1` so transient empty metadata snapshots do not clear dropdown options.
 - Local Vite serves `/favicon.ico` from `frontend/public/favicon.ico`.
-- Region filters and columns are temporarily hidden in Contacts and Deals while region detection is unfinished. Existing backend region support remains available for later use.
+- Region filters and columns are temporarily hidden in Contacts, Deals, and ABC while region detection is unfinished. Existing backend region support remains available for later use.
 
 The app reads only the local backend API. It does not call Bitrix.
 
@@ -31,8 +34,8 @@ http://localhost:5173
 ```
 
 Compose only starts services. It does not automatically call Bitrix or refresh
-local data. If an active `data/analytics.duckdb` dataset exists, the Contacts
-and Deals tables load normally. If the screen says `Локальная база не подготовлена.`,
+local data. If an active `data/analytics.duckdb` dataset exists, the Contacts,
+Deals, and ABC tables load normally. If the screen says `Локальная база не подготовлена.`,
 click `Обновить из Bitrix`; the backend runs the manual read-only refresh,
 applies approved contact type rules, reruns local normalization, loads NBRB
 rates, and then the screen reloads status, filters, and report rows. Local
@@ -69,16 +72,17 @@ For built/static deployments, set `VITE_API_BASE_URL` if the API is not served f
 
 - Backend health opens at `http://localhost:8000/health`.
 - Frontend opens at `http://localhost:5173`.
-- Contacts and Deals tables load when a local active dataset exists.
+- Contacts, Deals, and ABC tables load when a local active dataset exists.
 - With no active dataset, the manual `Обновить из Bitrix` panel appears.
 - Contacts search, exact contact ID filter, deal creation date range, type/status filters, clickable non-zero deal counters, sorting, reset, and pagination work.
 - Deals client search, exact deal ID filter, deal creation date range, type/status filters, sorting, filtered totals, reset, and pagination work. The working area uses the available screen width with horizontal table scroll where needed.
+- ABC customer search, exact customer ID filter, current period, optional comparison period, segment/priority filters, changed-only mode, sorting, summary totals, reset, and pagination work. Comparison updates the same table instead of opening a separate table.
 - If the frontend shows an API error, check `http://localhost:8000/api/datasets/status`.
 
 ## Design System
 
 The app imports `../ui-kits/styles.css`, which includes the approved color,
-typography, spacing, and effects tokens. The Contacts and Deals screens mirror the
+typography, spacing, and effects tokens. The Contacts, Deals, and ABC screens mirror the
 provided SaaS web-app direction: light surface, left navigation, blue primary
 states, Manrope typography, 8px controls, subtle borders, and compact data-table
 density.

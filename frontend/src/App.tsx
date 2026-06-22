@@ -8,15 +8,21 @@ import {
   ChevronRight,
   Database,
   Filter,
+  PieChart,
   RefreshCcw,
   Search
 } from "lucide-react";
 import {
+  fetchAbcAnalytics,
   fetchContactAnalytics,
   fetchDatasetStatus,
   fetchDealAnalytics,
   fetchFilterMetadata,
   refreshLocalData,
+  type AbcAnalytics,
+  type AbcAnalyticsPage,
+  type AbcFilters,
+  type AbcSort,
   type ContactAnalytics,
   type ContactFilters,
   type ContactSort,
@@ -31,6 +37,7 @@ import {
 const PAGE_SIZE = 25;
 const CONTACTS_STORAGE_KEY = "bitrix-sales.contacts.v1";
 const DEALS_STORAGE_KEY = "bitrix-sales.deals.v1";
+const ABC_STORAGE_KEY = "bitrix-sales.abc.v1";
 const FILTER_METADATA_STORAGE_KEY = "bitrix-sales.filter-metadata.v1";
 const CONTACT_SORT_FIELDS: ContactSort[] = [
   "contact_id",
@@ -57,6 +64,31 @@ const DEAL_SORT_FIELDS: DealSort[] = [
   "estimated_profit_usd",
   "created_date",
   "closed_date"
+];
+const ABC_SORT_FIELDS: AbcSort[] = [
+  "contact_id",
+  "contact_name",
+  "contact_type_normalized",
+  "current_revenue_usd",
+  "current_revenue_share_percent",
+  "current_cumulative_share_percent",
+  "current_segment",
+  "current_won_deals_count",
+  "current_last_won_date",
+  "compare_revenue_usd",
+  "compare_segment",
+  "segment_change",
+  "migration_priority"
+];
+const ABC_SEGMENTS = ["A", "B", "C", "Нет продаж"];
+const MIGRATION_PRIORITIES = [
+  "срочно",
+  "важно",
+  "наблюдать",
+  "развивать",
+  "закрепить",
+  "изменение",
+  "без изменений"
 ];
 
 const initialFilters: ContactFilters = {
@@ -86,17 +118,37 @@ const initialDealFilters: DealFilters = {
   offset: 0
 };
 
-type ReportView = "contacts" | "deals";
+const initialAbcFilters: AbcFilters = {
+  search: "",
+  contactId: "",
+  contactType: "",
+  segment: "",
+  migrationPriority: "",
+  changedOnly: false,
+  dateFrom: "",
+  dateTo: "",
+  compareDateFrom: "",
+  compareDateTo: "",
+  sort: "current_revenue_usd",
+  order: "desc",
+  limit: PAGE_SIZE,
+  offset: 0
+};
+
+type ReportView = "contacts" | "deals" | "abc";
 
 export function App() {
   const queryClient = useQueryClient();
   const [activeReport, setActiveReport] = useState<ReportView>("contacts");
   const [filters, setFilters] = useState<ContactFilters>(() => loadStoredFilters());
   const [dealFilters, setDealFilters] = useState<DealFilters>(() => loadStoredDealFilters());
+  const [abcFilters, setAbcFilters] = useState<AbcFilters>(() => loadStoredAbcFilters());
   const [searchDraft, setSearchDraft] = useState(filters.search);
   const [contactIdDraft, setContactIdDraft] = useState(filters.contactId);
   const [dealIdDraft, setDealIdDraft] = useState(dealFilters.dealId);
   const [dealClientSearchDraft, setDealClientSearchDraft] = useState(dealFilters.clientSearch);
+  const [abcSearchDraft, setAbcSearchDraft] = useState(abcFilters.search);
+  const [abcContactIdDraft, setAbcContactIdDraft] = useState(abcFilters.contactId);
   const [dealCreatedDrafts, setDealCreatedDrafts] = useState({
     from: filters.dealCreatedFrom,
     to: filters.dealCreatedTo
@@ -104,6 +156,14 @@ export function App() {
   const [dealReportCreatedDrafts, setDealReportCreatedDrafts] = useState({
     from: dealFilters.dealCreatedFrom,
     to: dealFilters.dealCreatedTo
+  });
+  const [abcDateDrafts, setAbcDateDrafts] = useState({
+    from: abcFilters.dateFrom,
+    to: abcFilters.dateTo
+  });
+  const [abcCompareDateDrafts, setAbcCompareDateDrafts] = useState({
+    from: abcFilters.compareDateFrom,
+    to: abcFilters.compareDateTo
   });
   const [lastFilterMetadata, setLastFilterMetadata] = useState<FilterMetadata | null>(() =>
     loadStoredFilterMetadata()
@@ -139,6 +199,38 @@ export function App() {
   const areDealReportCreatedDraftsChanged =
     dealReportCreatedDrafts.from !== dealFilters.dealCreatedFrom ||
     dealReportCreatedDrafts.to !== dealFilters.dealCreatedTo;
+  const isAbcDateRangeInvalid =
+    Boolean(abcFilters.dateFrom) &&
+    Boolean(abcFilters.dateTo) &&
+    abcFilters.dateFrom > abcFilters.dateTo;
+  const areAbcDateDraftsInvalid =
+    Boolean(abcDateDrafts.from) &&
+    Boolean(abcDateDrafts.to) &&
+    abcDateDrafts.from > abcDateDrafts.to;
+  const areAbcDateDraftsComplete =
+    isEmptyOrCompleteIsoDate(abcDateDrafts.from) &&
+    isEmptyOrCompleteIsoDate(abcDateDrafts.to);
+  const areAbcDateDraftsChanged =
+    abcDateDrafts.from !== abcFilters.dateFrom || abcDateDrafts.to !== abcFilters.dateTo;
+  const isAbcCompareIncomplete =
+    (Boolean(abcFilters.compareDateFrom) && !abcFilters.compareDateTo) ||
+    (!abcFilters.compareDateFrom && Boolean(abcFilters.compareDateTo));
+  const isAbcCompareRangeInvalid =
+    Boolean(abcFilters.compareDateFrom) &&
+    Boolean(abcFilters.compareDateTo) &&
+    abcFilters.compareDateFrom > abcFilters.compareDateTo;
+  const areAbcCompareDraftsInvalid =
+    Boolean(abcCompareDateDrafts.from) &&
+    Boolean(abcCompareDateDrafts.to) &&
+    abcCompareDateDrafts.from > abcCompareDateDrafts.to;
+  const areAbcCompareDraftsComplete =
+    isEmptyOrCompleteIsoDate(abcCompareDateDrafts.from) &&
+    isEmptyOrCompleteIsoDate(abcCompareDateDrafts.to);
+  const areAbcCompareDraftsChanged =
+    abcCompareDateDrafts.from !== abcFilters.compareDateFrom ||
+    abcCompareDateDrafts.to !== abcFilters.compareDateTo;
+  const isAbcCompareEnabled =
+    Boolean(abcFilters.compareDateFrom) && Boolean(abcFilters.compareDateTo);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -165,12 +257,28 @@ export function App() {
   }, [dealClientSearchDraft]);
 
   useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setAbcFilters((current) => ({
+        ...current,
+        search: abcSearchDraft,
+        offset: 0
+      }));
+    }, 300);
+
+    return () => window.clearTimeout(timer);
+  }, [abcSearchDraft]);
+
+  useEffect(() => {
     storeFilters(filters);
   }, [filters]);
 
   useEffect(() => {
     storeDealFilters(dealFilters);
   }, [dealFilters]);
+
+  useEffect(() => {
+    storeAbcFilters(abcFilters);
+  }, [abcFilters]);
 
   const statusQuery = useQuery({
     queryKey: ["dataset-status"],
@@ -213,6 +321,17 @@ export function App() {
     enabled: activeReport === "deals" && isDatasetReady && !isDealReportCreatedRangeInvalid
   });
 
+  const abcQuery = useQuery({
+    queryKey: ["abc", abcFilters],
+    queryFn: () => fetchAbcAnalytics(abcFilters),
+    enabled:
+      activeReport === "abc" &&
+      isDatasetReady &&
+      !isAbcDateRangeInvalid &&
+      !isAbcCompareIncomplete &&
+      !isAbcCompareRangeInvalid
+  });
+
   const refreshMutation = useMutation({
     mutationFn: refreshLocalData,
     onMutate: () => {
@@ -224,7 +343,8 @@ export function App() {
         queryClient.invalidateQueries({ queryKey: ["dataset-status"] }),
         queryClient.invalidateQueries({ queryKey: ["filter-metadata"] }),
         queryClient.invalidateQueries({ queryKey: ["contacts"] }),
-        queryClient.invalidateQueries({ queryKey: ["deals"] })
+        queryClient.invalidateQueries({ queryKey: ["deals"] }),
+        queryClient.invalidateQueries({ queryKey: ["abc"] })
       ]);
     },
     onSettled: async () => {
@@ -239,14 +359,22 @@ export function App() {
     }
   }, [filterQuery.data, isFreshFilterMetadataValid]);
 
-  const activeQuery = activeReport === "contacts" ? contactsQuery : dealsQuery;
-  const activeFilters = activeReport === "contacts" ? filters : dealFilters;
+  const activeQuery =
+    activeReport === "contacts" ? contactsQuery : activeReport === "deals" ? dealsQuery : abcQuery;
+  const activeFilters =
+    activeReport === "contacts" ? filters : activeReport === "deals" ? dealFilters : abcFilters;
   const activeRangeInvalid =
-    activeReport === "contacts" ? isDealCreatedRangeInvalid : isDealReportCreatedRangeInvalid;
+    activeReport === "contacts"
+      ? isDealCreatedRangeInvalid
+      : activeReport === "deals"
+        ? isDealReportCreatedRangeInvalid
+        : isAbcDateRangeInvalid || isAbcCompareIncomplete || isAbcCompareRangeInvalid;
   const activeDraftsInvalid =
     activeReport === "contacts"
       ? areDealCreatedDraftsInvalid
-      : areDealReportCreatedDraftsInvalid;
+      : activeReport === "deals"
+        ? areDealReportCreatedDraftsInvalid
+        : areAbcDateDraftsInvalid || areAbcCompareDraftsInvalid;
   const total = activeQuery.data?.total ?? 0;
   const isRefreshing = refreshMutation.isPending;
   const pageNumber = Math.floor(activeFilters.offset / activeFilters.limit) + 1;
@@ -261,7 +389,9 @@ export function App() {
         ? "Загрузка данных"
         : activeReport === "contacts"
           ? `${total.toLocaleString("ru-RU")} контактов найдено`
-          : `${total.toLocaleString("ru-RU")} сделок найдено`;
+          : activeReport === "deals"
+            ? `${total.toLocaleString("ru-RU")} сделок найдено`
+            : `${total.toLocaleString("ru-RU")} клиентов в ABC`;
 
   const selectedFilterCount = useMemo(
     () =>
@@ -287,8 +417,28 @@ export function App() {
       ].filter(Boolean).length,
     [dealFilters]
   );
+  const selectedAbcFilterCount = useMemo(
+    () =>
+      [
+        abcFilters.search.trim(),
+        abcFilters.contactId.trim(),
+        abcFilters.contactType,
+        abcFilters.segment,
+        abcFilters.migrationPriority,
+        abcFilters.changedOnly ? "changed" : "",
+        abcFilters.dateFrom,
+        abcFilters.dateTo,
+        abcFilters.compareDateFrom,
+        abcFilters.compareDateTo
+      ].filter(Boolean).length,
+    [abcFilters]
+  );
   const activeSelectedFilterCount =
-    activeReport === "contacts" ? selectedFilterCount : selectedDealFilterCount;
+    activeReport === "contacts"
+      ? selectedFilterCount
+      : activeReport === "deals"
+        ? selectedDealFilterCount
+        : selectedAbcFilterCount;
 
   function updateFilter(name: keyof ContactFilters, value: string) {
     setFilters((current) => ({
@@ -316,6 +466,16 @@ export function App() {
     void queryClient.invalidateQueries({ queryKey: ["deals"] });
   }
 
+  function resetAbcFilters() {
+    setAbcSearchDraft("");
+    setAbcContactIdDraft("");
+    setAbcDateDrafts({ from: "", to: "" });
+    setAbcCompareDateDrafts({ from: "", to: "" });
+    window.localStorage.removeItem(ABC_STORAGE_KEY);
+    setAbcFilters(initialAbcFilters);
+    void queryClient.invalidateQueries({ queryKey: ["abc"] });
+  }
+
   function updateContactIdFilter(value: string) {
     const numericValue = value.replace(/\D/g, "");
     setContactIdDraft(numericValue);
@@ -328,6 +488,20 @@ export function App() {
       [name]: value,
       offset: 0
     }));
+  }
+
+  function updateAbcFilter(name: keyof AbcFilters, value: string | boolean) {
+    setAbcFilters((current) => ({
+      ...current,
+      [name]: value,
+      offset: 0
+    }));
+  }
+
+  function updateAbcContactIdFilter(value: string) {
+    const numericValue = value.replace(/\D/g, "");
+    setAbcContactIdDraft(numericValue);
+    updateAbcFilter("contactId", numericValue);
   }
 
   function updateDealIdFilter(value: string) {
@@ -382,6 +556,15 @@ export function App() {
     }));
   }
 
+  function updateAbcSort(sort: AbcSort) {
+    setAbcFilters((current) => ({
+      ...current,
+      sort,
+      order: current.sort === sort ? (current.order === "desc" ? "asc" : "desc") : "desc",
+      offset: 0
+    }));
+  }
+
   function updateDealCreatedDraft(name: "from" | "to", value: string) {
     setDealCreatedDrafts((current) => ({
       ...current,
@@ -420,6 +603,48 @@ export function App() {
     }));
   }
 
+  function updateAbcDateDraft(name: "from" | "to", value: string) {
+    setAbcDateDrafts((current) => ({
+      ...current,
+      [name]: value
+    }));
+  }
+
+  function applyAbcDateDrafts() {
+    if (!areAbcDateDraftsComplete || areAbcDateDraftsInvalid) {
+      return;
+    }
+    setAbcFilters((current) => ({
+      ...current,
+      dateFrom: abcDateDrafts.from,
+      dateTo: abcDateDrafts.to,
+      offset: 0
+    }));
+  }
+
+  function updateAbcCompareDateDraft(name: "from" | "to", value: string) {
+    setAbcCompareDateDrafts((current) => ({
+      ...current,
+      [name]: value
+    }));
+  }
+
+  function applyAbcCompareDateDrafts() {
+    if (!areAbcCompareDraftsComplete || areAbcCompareDraftsInvalid) {
+      return;
+    }
+    const hasOneCompareDate = Boolean(abcCompareDateDrafts.from) !== Boolean(abcCompareDateDrafts.to);
+    if (hasOneCompareDate) {
+      return;
+    }
+    setAbcFilters((current) => ({
+      ...current,
+      compareDateFrom: abcCompareDateDrafts.from,
+      compareDateTo: abcCompareDateDrafts.to,
+      offset: 0
+    }));
+  }
+
   function changePage(direction: "previous" | "next") {
     if (activeReport === "contacts") {
       setFilters((current) => ({
@@ -431,7 +656,17 @@ export function App() {
       }));
       return;
     }
-    setDealFilters((current) => ({
+    if (activeReport === "deals") {
+      setDealFilters((current) => ({
+        ...current,
+        offset:
+          direction === "previous"
+            ? Math.max(0, current.offset - current.limit)
+            : current.offset + current.limit
+      }));
+      return;
+    }
+    setAbcFilters((current) => ({
       ...current,
       offset:
         direction === "previous"
@@ -466,6 +701,15 @@ export function App() {
             <BriefcaseBusiness size={18} strokeWidth={1.5} />
             Deals
           </button>
+          <button
+            className={activeReport === "abc" ? "nav-item nav-item-active" : "nav-item"}
+            type="button"
+            onClick={() => setActiveReport("abc")}
+            aria-current={activeReport === "abc" ? "page" : undefined}
+          >
+            <PieChart size={18} strokeWidth={1.5} />
+            ABC
+          </button>
         </nav>
       </aside>
 
@@ -473,12 +717,8 @@ export function App() {
         <header className="page-header">
           <div>
             <p className="eyebrow">Reports</p>
-            <h1>{activeReport === "contacts" ? "Contacts" : "Deals"}</h1>
-            <p className="page-subtitle">
-              {activeReport === "contacts"
-                ? "Таблица контактов с поиском и фильтрами по локальным данным."
-                : "Таблица сделок с фильтрами по локальным данным."}
-            </p>
+            <h1>{reportTitle(activeReport)}</h1>
+            <p className="page-subtitle">{reportSubtitle(activeReport)}</p>
           </div>
           <div className="header-actions">
             <DatasetBadge
@@ -682,6 +922,144 @@ export function App() {
           </section>
         )}
 
+        {isDatasetReady && activeReport === "abc" && (
+          <section className="toolbar toolbar-abc" aria-label="Фильтры ABC">
+            <label className="field search-field">
+              <span>Клиент</span>
+              <div className="input-shell">
+                <Search size={16} strokeWidth={1.5} />
+                <input
+                  value={abcSearchDraft}
+                  onChange={(event) => setAbcSearchDraft(event.target.value)}
+                  placeholder="Название клиента"
+                  type="search"
+                />
+              </div>
+            </label>
+
+            <label className="field">
+              <span>ID клиента</span>
+              <div className="input-shell">
+                <Search size={16} strokeWidth={1.5} />
+                <input
+                  value={abcContactIdDraft}
+                  onChange={(event) => updateAbcContactIdFilter(event.target.value)}
+                  placeholder="661"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  type="search"
+                />
+              </div>
+            </label>
+
+            <SelectField
+              label="Тип"
+              value={abcFilters.contactType}
+              onChange={(value) => updateAbcFilter("contactType", value)}
+              options={filterMetadata?.contact_types ?? []}
+              disabled={!filterMetadata}
+            />
+            <SelectField
+              label="ABC"
+              value={abcFilters.segment}
+              onChange={(value) => updateAbcFilter("segment", value)}
+              options={ABC_SEGMENTS}
+            />
+            <SelectField
+              label="Приоритет"
+              value={abcFilters.migrationPriority}
+              onChange={(value) => updateAbcFilter("migrationPriority", value)}
+              options={MIGRATION_PRIORITIES}
+            />
+
+            <label className="field checkbox-field">
+              <span>Изменения</span>
+              <label className="check-shell">
+                <input
+                  checked={abcFilters.changedOnly}
+                  onChange={(event) => updateAbcFilter("changedOnly", event.target.checked)}
+                  type="checkbox"
+                />
+                Только изменения
+              </label>
+            </label>
+
+            <label className="field">
+              <span>Период с</span>
+              <input
+                className="date-input"
+                value={abcDateDrafts.from}
+                onChange={(event) => updateAbcDateDraft("from", event.target.value)}
+                min={dateOnly(filterMetadata?.min_closed_at)}
+                max={dateOnly(filterMetadata?.max_closed_at)}
+                type="date"
+              />
+            </label>
+            <label className="field">
+              <span>Период по</span>
+              <input
+                className="date-input"
+                value={abcDateDrafts.to}
+                onChange={(event) => updateAbcDateDraft("to", event.target.value)}
+                min={dateOnly(filterMetadata?.min_closed_at)}
+                max={dateOnly(filterMetadata?.max_closed_at)}
+                type="date"
+              />
+            </label>
+            <button
+              className="button button-secondary date-apply-button"
+              type="button"
+              disabled={!areAbcDateDraftsChanged || !areAbcDateDraftsComplete || areAbcDateDraftsInvalid}
+              onClick={applyAbcDateDrafts}
+            >
+              <Filter size={16} strokeWidth={1.5} />
+              Применить период
+            </button>
+
+            <label className="field">
+              <span>Сравнение с</span>
+              <input
+                className="date-input"
+                value={abcCompareDateDrafts.from}
+                onChange={(event) => updateAbcCompareDateDraft("from", event.target.value)}
+                min={dateOnly(filterMetadata?.min_closed_at)}
+                max={dateOnly(filterMetadata?.max_closed_at)}
+                type="date"
+              />
+            </label>
+            <label className="field">
+              <span>Сравнение по</span>
+              <input
+                className="date-input"
+                value={abcCompareDateDrafts.to}
+                onChange={(event) => updateAbcCompareDateDraft("to", event.target.value)}
+                min={dateOnly(filterMetadata?.min_closed_at)}
+                max={dateOnly(filterMetadata?.max_closed_at)}
+                type="date"
+              />
+            </label>
+            <button
+              className="button button-secondary date-apply-button"
+              type="button"
+              disabled={
+                !areAbcCompareDraftsChanged ||
+                !areAbcCompareDraftsComplete ||
+                areAbcCompareDraftsInvalid ||
+                Boolean(abcCompareDateDrafts.from) !== Boolean(abcCompareDateDrafts.to)
+              }
+              onClick={applyAbcCompareDateDrafts}
+            >
+              <Filter size={16} strokeWidth={1.5} />
+              Применить сравнение
+            </button>
+
+            <button className="button button-secondary" type="button" onClick={resetAbcFilters}>
+              <Filter size={16} strokeWidth={1.5} />
+              Сбросить
+            </button>
+          </section>
+        )}
+
         {isDatasetReady && (filterQuery.isError || isFreshFilterMetadataInvalid) && (
           <InlineAlert
             title={
@@ -711,17 +1089,17 @@ export function App() {
         )}
 
         {isDatasetReady && activeRangeInvalid && (
-          <InlineValidation message="Дата «Создана с» должна быть не позже даты «Создана по»." />
+          <InlineValidation message={rangeValidationMessage(activeReport, isAbcCompareIncomplete)} />
         )}
 
         {isDatasetReady && activeDraftsInvalid && (
-          <InlineValidation message="В черновике дат значение «Создана с» должно быть не позже «Создана по»." />
+          <InlineValidation message={draftRangeValidationMessage(activeReport)} />
         )}
 
-        <section className="table-card" aria-label={activeReport === "contacts" ? "Контакты" : "Сделки"}>
+        <section className="table-card" aria-label={reportTitle(activeReport)}>
           <div className="table-header">
             <div>
-              <h2>{activeReport === "contacts" ? "Список контактов" : "Список сделок"}</h2>
+              <h2>{tableTitle(activeReport)}</h2>
               <p>{tableSubtitle}</p>
             </div>
             {activeSelectedFilterCount > 0 && (
@@ -747,14 +1125,20 @@ export function App() {
             />
           ) : activeQuery.isError ? (
             <TableError
-              entityLabel={activeReport === "contacts" ? "контакты" : "сделки"}
+              entityLabel={entityLabel(activeReport)}
               message={activeQuery.error.message}
               onRetry={() => void activeQuery.refetch()}
             />
           ) : activeRangeInvalid ? (
             <EmptyState
-              entityLabel={activeReport === "contacts" ? "Контакты" : "Сделки"}
-              onReset={activeReport === "contacts" ? resetFilters : resetDealFilters}
+              entityLabel={reportTitle(activeReport)}
+              onReset={
+                activeReport === "contacts"
+                  ? resetFilters
+                  : activeReport === "deals"
+                    ? resetDealFilters
+                    : resetAbcFilters
+              }
             />
           ) : activeQuery.isPending ? (
             <ContactsSkeleton />
@@ -762,6 +1146,8 @@ export function App() {
             <EmptyState entityLabel="Контакты" onReset={resetFilters} />
           ) : activeReport === "deals" && (dealsQuery.data?.items.length ?? 0) === 0 ? (
             <EmptyState entityLabel="Сделки" onReset={resetDealFilters} />
+          ) : activeReport === "abc" && (abcQuery.data?.items.length ?? 0) === 0 ? (
+            <EmptyState entityLabel="ABC" onReset={resetAbcFilters} />
           ) : activeReport === "contacts" ? (
             <ContactsTable
               contacts={contactsQuery.data?.items ?? []}
@@ -770,7 +1156,7 @@ export function App() {
               onSort={updateSort}
               onOpenDeals={openDealsForContact}
             />
-          ) : (
+          ) : activeReport === "deals" ? (
             <>
               {dealsQuery.data && <DealTotalsBar page={dealsQuery.data} />}
               <DealsTable
@@ -780,6 +1166,22 @@ export function App() {
                 onSort={updateDealSort}
               />
               {dealsQuery.data && <DealTotalsBar page={dealsQuery.data} />}
+            </>
+          ) : (
+            <>
+              {abcQuery.data && (
+                <AbcSummaryBar page={abcQuery.data} isCompareEnabled={isAbcCompareEnabled} />
+              )}
+              <AbcTable
+                rows={abcQuery.data?.items ?? []}
+                sort={abcFilters.sort}
+                order={abcFilters.order}
+                isCompareEnabled={isAbcCompareEnabled}
+                onSort={updateAbcSort}
+              />
+              {abcQuery.data && (
+                <AbcSummaryBar page={abcQuery.data} isCompareEnabled={isAbcCompareEnabled} />
+              )}
             </>
           )}
 
@@ -1019,7 +1421,7 @@ function ContactsSkeleton() {
   );
 }
 
-type SortField = ContactSort | DealSort;
+type SortField = ContactSort | DealSort | AbcSort;
 
 function ContactsTable({
   contacts,
@@ -1320,6 +1722,184 @@ function DealsTable({
   );
 }
 
+function AbcTable({
+  rows,
+  sort,
+  order,
+  isCompareEnabled,
+  onSort
+}: {
+  rows: AbcAnalytics[];
+  sort: AbcSort;
+  order: "asc" | "desc";
+  isCompareEnabled: boolean;
+  onSort: (sort: AbcSort) => void;
+}) {
+  return (
+    <div className="table-scroll">
+      <table className={isCompareEnabled ? "abc-table abc-table-compare" : "abc-table"}>
+        <thead>
+          <tr>
+            <SortableHeader label="ID" field="contact_id" sort={sort} order={order} onSort={onSort} />
+            <SortableHeader
+              label="Клиент"
+              field="contact_name"
+              sort={sort}
+              order={order}
+              onSort={onSort}
+            />
+            <SortableHeader
+              label="Тип"
+              field="contact_type_normalized"
+              sort={sort}
+              order={order}
+              onSort={onSort}
+            />
+            <SortableHeader
+              label="Выручка"
+              field="current_revenue_usd"
+              sort={sort}
+              order={order}
+              onSort={onSort}
+              align="right"
+            />
+            <SortableHeader
+              label="Доля"
+              field="current_revenue_share_percent"
+              sort={sort}
+              order={order}
+              onSort={onSort}
+              align="right"
+            />
+            <SortableHeader
+              label="Накопленная доля"
+              field="current_cumulative_share_percent"
+              sort={sort}
+              order={order}
+              onSort={onSort}
+              align="right"
+            />
+            <SortableHeader
+              label="ABC"
+              field="current_segment"
+              sort={sort}
+              order={order}
+              onSort={onSort}
+            />
+            <SortableHeader
+              label="Успешные сделки"
+              field="current_won_deals_count"
+              sort={sort}
+              order={order}
+              onSort={onSort}
+              align="right"
+            />
+            <SortableHeader
+              label="Последняя успешная сделка"
+              field="current_last_won_date"
+              sort={sort}
+              order={order}
+              onSort={onSort}
+            />
+            {isCompareEnabled && (
+              <>
+                <SortableHeader
+                  label="Выручка сравнения"
+                  field="compare_revenue_usd"
+                  sort={sort}
+                  order={order}
+                  onSort={onSort}
+                  align="right"
+                />
+                <SortableHeader
+                  label="ABC сравнения"
+                  field="compare_segment"
+                  sort={sort}
+                  order={order}
+                  onSort={onSort}
+                />
+                <SortableHeader
+                  label="Переход"
+                  field="segment_change"
+                  sort={sort}
+                  order={order}
+                  onSort={onSort}
+                />
+                <SortableHeader
+                  label="Приоритет"
+                  field="migration_priority"
+                  sort={sort}
+                  order={order}
+                  onSort={onSort}
+                />
+              </>
+            )}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr className={row.segment_changed ? "abc-row-changed" : undefined} key={row.contact_id}>
+              <td>
+                <div className="id-cell">
+                  <span>{row.contact_id}</span>
+                  <a
+                    href={`https://dialar.bitrix24.by/crm/contact/details/${row.contact_id}/`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Посмотреть
+                  </a>
+                </div>
+              </td>
+              <td>
+                <div className="contact-cell">
+                  <span>{row.contact_name}</span>
+                  {row.segment_changed && <small>Сегмент изменился</small>}
+                </div>
+              </td>
+              <td>
+                <span className="badge badge-neutral">{row.contact_type_normalized}</span>
+              </td>
+              <td className="number-cell money-cell">{formatUsd(row.current_revenue_usd)}</td>
+              <td className="number-cell">{formatPercent(row.current_revenue_share_percent)}</td>
+              <td className="number-cell">
+                {formatPercent(row.current_cumulative_share_percent)}
+              </td>
+              <td>
+                <span className={`badge ${abcSegmentBadgeClass(row.current_segment)}`}>
+                  {row.current_segment}
+                </span>
+              </td>
+              <td className="number-cell">{row.current_won_deals_count}</td>
+              <td>{formatDate(row.current_last_won_date)}</td>
+              {isCompareEnabled && (
+                <>
+                  <td className="number-cell money-cell">{formatUsd(row.compare_revenue_usd)}</td>
+                  <td>
+                    <span className={`badge ${abcSegmentBadgeClass(row.compare_segment)}`}>
+                      {row.compare_segment}
+                    </span>
+                  </td>
+                  <td>
+                    <span className={row.segment_changed ? "badge badge-warning" : "badge badge-neutral"}>
+                      {row.segment_change}
+                    </span>
+                  </td>
+                  <td>
+                    <span className={`badge ${priorityBadgeClass(row.migration_priority)}`}>
+                      {row.migration_priority}
+                    </span>
+                  </td>
+                </>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function DealCountButton({
   count,
   label,
@@ -1355,6 +1935,43 @@ function DealTotalsBar({ page }: { page: DealAnalyticsPage }) {
         <span>Прибыль</span>
         <strong>{formatUsd(page.filtered_estimated_profit_usd)}</strong>
       </div>
+    </div>
+  );
+}
+
+function AbcSummaryBar({
+  page,
+  isCompareEnabled
+}: {
+  page: AbcAnalyticsPage;
+  isCompareEnabled: boolean;
+}) {
+  const changedCount = page.migration_priority_counts["без изменений"] === undefined
+    ? page.total
+    : page.total - page.migration_priority_counts["без изменений"];
+
+  return (
+    <div className="totals-bar abc-summary-bar">
+      <div>
+        <span>Выручка</span>
+        <strong>{formatUsd(page.current_total_revenue_usd)}</strong>
+      </div>
+      {isCompareEnabled && (
+        <div>
+          <span>Выручка сравнения</span>
+          <strong>{formatUsd(page.compare_total_revenue_usd)}</strong>
+        </div>
+      )}
+      <div>
+        <span>ABC</span>
+        <strong>{formatCounts(page.current_segment_counts)}</strong>
+      </div>
+      {isCompareEnabled && (
+        <div>
+          <span>Изменений</span>
+          <strong>{changedCount.toLocaleString("ru-RU")}</strong>
+        </div>
+      )}
     </div>
   );
 }
@@ -1410,6 +2027,89 @@ function statusBadgeClass(status: string) {
   return "badge-neutral";
 }
 
+function abcSegmentBadgeClass(segment: string) {
+  if (segment === "A") {
+    return "badge-success";
+  }
+  if (segment === "B") {
+    return "badge-primary";
+  }
+  if (segment === "C") {
+    return "badge-warning";
+  }
+  return "badge-neutral";
+}
+
+function priorityBadgeClass(priority: string) {
+  if (priority === "срочно") {
+    return "badge-danger";
+  }
+  if (priority === "важно") {
+    return "badge-warning";
+  }
+  if (priority === "развивать" || priority === "закрепить") {
+    return "badge-success";
+  }
+  return "badge-neutral";
+}
+
+function reportTitle(report: ReportView) {
+  if (report === "contacts") {
+    return "Contacts";
+  }
+  if (report === "deals") {
+    return "Deals";
+  }
+  return "ABC";
+}
+
+function reportSubtitle(report: ReportView) {
+  if (report === "contacts") {
+    return "Таблица контактов с поиском и фильтрами по локальным данным.";
+  }
+  if (report === "deals") {
+    return "Таблица сделок с фильтрами по локальным данным.";
+  }
+  return "ABC-анализ клиентов по won-only USD выручке из локальной базы.";
+}
+
+function tableTitle(report: ReportView) {
+  if (report === "contacts") {
+    return "Список контактов";
+  }
+  if (report === "deals") {
+    return "Список сделок";
+  }
+  return "ABC клиентов";
+}
+
+function entityLabel(report: ReportView) {
+  if (report === "contacts") {
+    return "контакты";
+  }
+  if (report === "deals") {
+    return "сделки";
+  }
+  return "ABC";
+}
+
+function rangeValidationMessage(report: ReportView, isCompareIncomplete: boolean) {
+  if (report === "abc" && isCompareIncomplete) {
+    return "Для сравнения заполните обе даты или очистите обе даты сравнения.";
+  }
+  if (report === "abc") {
+    return "Дата начала периода должна быть не позже даты окончания периода.";
+  }
+  return "Дата «Создана с» должна быть не позже даты «Создана по».";
+}
+
+function draftRangeValidationMessage(report: ReportView) {
+  if (report === "abc") {
+    return "В черновике дат начало периода должно быть не позже окончания периода.";
+  }
+  return "В черновике дат значение «Создана с» должно быть не позже «Создана по».";
+}
+
 function formatUsd(value: string) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) {
@@ -1422,6 +2122,25 @@ function formatUsd(value: string) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   }).format(numeric);
+}
+
+function formatPercent(value: string) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return value;
+  }
+  return `${new Intl.NumberFormat("ru-RU", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1
+  }).format(numeric)}%`;
+}
+
+function formatCounts(counts: Record<string, number>) {
+  const labels = ["A", "B", "C", "Нет продаж"];
+  return labels
+    .filter((label) => counts[label])
+    .map((label) => `${label}: ${counts[label].toLocaleString("ru-RU")}`)
+    .join(" / ") || "—";
 }
 
 function formatDate(value: string | null) {
@@ -1503,6 +2222,38 @@ function loadStoredDealFilters(): DealFilters {
   }
 }
 
+function loadStoredAbcFilters(): AbcFilters {
+  try {
+    const stored = window.localStorage.getItem(ABC_STORAGE_KEY);
+    if (!stored) {
+      return initialAbcFilters;
+    }
+    const parsed = JSON.parse(stored) as Partial<Record<keyof AbcFilters, unknown>>;
+    return {
+      search: stringValue(parsed.search),
+      contactId: stringValue(parsed.contactId).replace(/\D/g, ""),
+      contactType: stringValue(parsed.contactType),
+      segment: ABC_SEGMENTS.includes(stringValue(parsed.segment))
+        ? stringValue(parsed.segment)
+        : "",
+      migrationPriority: MIGRATION_PRIORITIES.includes(stringValue(parsed.migrationPriority))
+        ? stringValue(parsed.migrationPriority)
+        : "",
+      changedOnly: parsed.changedOnly === true,
+      dateFrom: dateValue(parsed.dateFrom),
+      dateTo: dateValue(parsed.dateTo),
+      compareDateFrom: dateValue(parsed.compareDateFrom),
+      compareDateTo: dateValue(parsed.compareDateTo),
+      sort: abcSortValue(parsed.sort),
+      order: parsed.order === "asc" ? "asc" : "desc",
+      limit: positiveNumberValue(parsed.limit, PAGE_SIZE),
+      offset: nonNegativeNumberValue(parsed.offset)
+    };
+  } catch {
+    return initialAbcFilters;
+  }
+}
+
 function loadStoredFilterMetadata(): FilterMetadata | null {
   try {
     const stored = window.localStorage.getItem(FILTER_METADATA_STORAGE_KEY);
@@ -1540,6 +2291,14 @@ function storeDealFilters(filters: DealFilters) {
   window.localStorage.setItem(DEALS_STORAGE_KEY, JSON.stringify(filters));
 }
 
+function storeAbcFilters(filters: AbcFilters) {
+  if (areDefaultAbcFilters(filters)) {
+    window.localStorage.removeItem(ABC_STORAGE_KEY);
+    return;
+  }
+  window.localStorage.setItem(ABC_STORAGE_KEY, JSON.stringify(filters));
+}
+
 function storeFilterMetadata(metadata: FilterMetadata) {
   window.localStorage.setItem(FILTER_METADATA_STORAGE_KEY, JSON.stringify(metadata));
 }
@@ -1550,6 +2309,10 @@ function areDefaultFilters(filters: ContactFilters) {
 
 function areDefaultDealFilters(filters: DealFilters) {
   return JSON.stringify(filters) === JSON.stringify(initialDealFilters);
+}
+
+function areDefaultAbcFilters(filters: AbcFilters) {
+  return JSON.stringify(filters) === JSON.stringify(initialAbcFilters);
 }
 
 function stringValue(value: unknown) {
@@ -1608,6 +2371,12 @@ function dealSortValue(value: unknown): DealSort {
   return typeof value === "string" && DEAL_SORT_FIELDS.includes(value as DealSort)
     ? (value as DealSort)
     : initialDealFilters.sort;
+}
+
+function abcSortValue(value: unknown): AbcSort {
+  return typeof value === "string" && ABC_SORT_FIELDS.includes(value as AbcSort)
+    ? (value as AbcSort)
+    : initialAbcFilters.sort;
 }
 
 function positiveNumberValue(value: unknown, fallback: number) {

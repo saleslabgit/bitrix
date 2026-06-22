@@ -43,6 +43,21 @@ DealAnalyticsSortField = Literal[
     "created_date",
     "closed_date",
 ]
+AbcAnalyticsSortField = Literal[
+    "contact_id",
+    "contact_name",
+    "contact_type_normalized",
+    "current_revenue_usd",
+    "current_revenue_share_percent",
+    "current_cumulative_share_percent",
+    "current_segment",
+    "current_won_deals_count",
+    "current_last_won_date",
+    "compare_revenue_usd",
+    "compare_segment",
+    "segment_change",
+    "migration_priority",
+]
 SortOrder = Literal["asc", "desc"]
 CONTACT_ANALYTICS_SORT_FIELDS: tuple[str, ...] = (
     "contact_id",
@@ -71,6 +86,21 @@ DEAL_ANALYTICS_SORT_FIELDS: tuple[str, ...] = (
     "estimated_profit_usd",
     "created_date",
     "closed_date",
+)
+ABC_ANALYTICS_SORT_FIELDS: tuple[str, ...] = (
+    "contact_id",
+    "contact_name",
+    "contact_type_normalized",
+    "current_revenue_usd",
+    "current_revenue_share_percent",
+    "current_cumulative_share_percent",
+    "current_segment",
+    "current_won_deals_count",
+    "current_last_won_date",
+    "compare_revenue_usd",
+    "compare_segment",
+    "segment_change",
+    "migration_priority",
 )
 
 
@@ -137,6 +167,47 @@ class DealAnalyticsPage:
     filtered_revenue_usd: Decimal
     filtered_estimated_profit_usd: Decimal
     items: tuple[DealAnalyticsRow, ...]
+
+
+@dataclass(frozen=True)
+class AbcPeriodMetric:
+    revenue_usd: Decimal
+    revenue_share_percent: Decimal
+    cumulative_share_percent: Decimal
+    segment: str
+    won_deals_count: int
+    last_won_date: date | None
+
+
+@dataclass(frozen=True)
+class AbcAnalyticsRow:
+    contact_id: int
+    contact_name: str
+    contact_type_normalized: str
+    current_revenue_usd: Decimal
+    current_revenue_share_percent: Decimal
+    current_cumulative_share_percent: Decimal
+    current_segment: str
+    current_won_deals_count: int
+    current_last_won_date: date | None
+    compare_revenue_usd: Decimal
+    compare_segment: str
+    segment_change: str
+    migration_priority: str
+    segment_changed: bool
+
+
+@dataclass(frozen=True)
+class AbcAnalyticsPage:
+    total: int
+    limit: int
+    offset: int
+    current_total_revenue_usd: Decimal
+    compare_total_revenue_usd: Decimal
+    current_segment_counts: dict[str, int]
+    compare_segment_counts: dict[str, int]
+    migration_priority_counts: dict[str, int]
+    items: tuple[AbcAnalyticsRow, ...]
 
 
 class AnalyticsDataUnavailableError(ValueError):
@@ -456,6 +527,134 @@ def get_abc_report(
             ),
         )
         for contact in contacts
+    )
+
+
+def list_abc_analytics(
+    connection: duckdb.DuckDBPyConnection,
+    *,
+    limit: int = 50,
+    offset: int = 0,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    compare_date_from: date | None = None,
+    compare_date_to: date | None = None,
+    contact_id: int | None = None,
+    search: str | None = None,
+    contact_type: str | None = None,
+    segment: str | None = None,
+    migration_priority: str | None = None,
+    changed_only: bool = False,
+    sort: AbcAnalyticsSortField = "current_revenue_usd",
+    order: SortOrder = "desc",
+) -> AbcAnalyticsPage:
+    if sort not in ABC_ANALYTICS_SORT_FIELDS:
+        raise ValueError(f"Unsupported ABC analytics sort field: {sort}")
+    if order not in {"asc", "desc"}:
+        raise ValueError(f"Unsupported ABC analytics sort order: {order}")
+
+    compare_enabled = compare_date_from is not None or compare_date_to is not None
+    contacts = {contact.contact_id: contact for contact in _load_contacts(connection)}
+    deals = _load_deal_facts(connection)
+    current_metrics = _abc_period_metrics(
+        deals,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    compare_metrics = (
+        _abc_period_metrics(
+            deals,
+            date_from=compare_date_from,
+            date_to=compare_date_to,
+        )
+        if compare_enabled
+        else {}
+    )
+    contact_ids = {
+        contact_id
+        for contact_id, metric in current_metrics.items()
+        if metric.revenue_usd > 0
+    }
+    if compare_enabled:
+        contact_ids.update(
+            contact_id
+            for contact_id, metric in compare_metrics.items()
+            if metric.revenue_usd > 0
+        )
+
+    rows = []
+    for row_contact_id in sorted(contact_ids):
+        contact = contacts.get(row_contact_id)
+        if contact is None:
+            continue
+        current_metric = current_metrics.get(
+            row_contact_id,
+            _empty_abc_period_metric(),
+        )
+        compare_metric = compare_metrics.get(
+            row_contact_id,
+            _empty_abc_period_metric(),
+        )
+        previous_segment = compare_metric.segment if compare_enabled else current_metric.segment
+        segment_change = _abc_change(previous_segment, current_metric.segment)
+        row_migration_priority = _migration_priority(previous_segment, current_metric.segment)
+        rows.append(
+            AbcAnalyticsRow(
+                contact_id=contact.contact_id,
+                contact_name=contact.contact_name,
+                contact_type_normalized=contact.contact_type_normalized,
+                current_revenue_usd=current_metric.revenue_usd,
+                current_revenue_share_percent=current_metric.revenue_share_percent,
+                current_cumulative_share_percent=current_metric.cumulative_share_percent,
+                current_segment=current_metric.segment,
+                current_won_deals_count=current_metric.won_deals_count,
+                current_last_won_date=current_metric.last_won_date,
+                compare_revenue_usd=compare_metric.revenue_usd,
+                compare_segment=compare_metric.segment,
+                segment_change=segment_change,
+                migration_priority=row_migration_priority,
+                segment_changed=segment_change != "Без изменений",
+            )
+        )
+
+    normalized_search = search.strip().lower() if search else None
+    if normalized_search == "":
+        normalized_search = None
+    filtered_rows = tuple(
+        row
+        for row in rows
+        if (contact_id is None or row.contact_id == contact_id)
+        and (normalized_search is None or normalized_search in row.contact_name.lower())
+        and (contact_type is None or row.contact_type_normalized == contact_type)
+        and (segment is None or row.current_segment == segment)
+        and (
+            migration_priority is None
+            or row.migration_priority == migration_priority
+        )
+        and (not changed_only or row.segment_changed)
+    )
+    sorted_rows = _sort_abc_analytics_rows(filtered_rows, sort=sort, order=order)
+
+    return AbcAnalyticsPage(
+        total=len(sorted_rows),
+        limit=limit,
+        offset=offset,
+        current_total_revenue_usd=_money(
+            sum((row.current_revenue_usd for row in filtered_rows), Decimal("0"))
+        ),
+        compare_total_revenue_usd=_money(
+            sum((row.compare_revenue_usd for row in filtered_rows), Decimal("0"))
+        ),
+        current_segment_counts=_count_labels(
+            row.current_segment for row in filtered_rows
+        ),
+        compare_segment_counts=_count_labels(
+            row.compare_segment for row in filtered_rows
+        ),
+        migration_priority_counts=_count_labels(
+            row.migration_priority for row in filtered_rows
+        ),
+        items=sorted_rows[offset : offset + limit],
     )
 
 
@@ -948,6 +1147,35 @@ def _sort_deal_analytics_rows(
     return tuple(sorted(rows, key=cmp_to_key(compare)))
 
 
+def _sort_abc_analytics_rows(
+    rows: tuple[AbcAnalyticsRow, ...],
+    *,
+    sort: str,
+    order: SortOrder,
+) -> tuple[AbcAnalyticsRow, ...]:
+    descending = order == "desc"
+
+    def compare(left: AbcAnalyticsRow, right: AbcAnalyticsRow) -> int:
+        left_value = _abc_analytics_sort_value(left, sort)
+        right_value = _abc_analytics_sort_value(right, sort)
+
+        if left_value is None and right_value is None:
+            return _compare(left.contact_id, right.contact_id)
+        if left_value is None:
+            return 1
+        if right_value is None:
+            return -1
+
+        result = _compare(left_value, right_value)
+        if result and descending:
+            return -result
+        if result:
+            return result
+        return _compare(left.contact_id, right.contact_id)
+
+    return tuple(sorted(rows, key=cmp_to_key(compare)))
+
+
 def _contact_analytics_sort_value(
     row: ContactAnalyticsRow,
     sort: str,
@@ -960,6 +1188,16 @@ def _contact_analytics_sort_value(
 
 def _deal_analytics_sort_value(
     row: DealAnalyticsRow,
+    sort: str,
+) -> int | str | Decimal | date | None:
+    value = getattr(row, sort)
+    if isinstance(value, str):
+        return value.lower()
+    return value
+
+
+def _abc_analytics_sort_value(
+    row: AbcAnalyticsRow,
     sort: str,
 ) -> int | str | Decimal | date | None:
     value = getattr(row, sort)
@@ -1040,6 +1278,90 @@ def _build_deal_analytics_row(deal: _DealFact) -> DealAnalyticsRow:
     )
 
 
+def _abc_period_metrics(
+    deals: tuple[_DealFact, ...],
+    *,
+    date_from: date | None,
+    date_to: date | None,
+) -> dict[int, AbcPeriodMetric]:
+    won_by_contact: dict[int, list[_DealFact]] = {}
+    for deal in deals:
+        if (
+            deal.analytical_contact_id is None
+            or deal.status_group != "won"
+            or deal.closed_at is None
+            or not _date_in_period(deal.closed_at.date(), date_from, date_to)
+        ):
+            continue
+        won_by_contact.setdefault(deal.analytical_contact_id, []).append(deal)
+
+    revenue_by_contact = {
+        contact_id: _money(sum((deal.amount_usd for deal in contact_deals), Decimal("0")))
+        for contact_id, contact_deals in won_by_contact.items()
+    }
+    total_revenue = sum(
+        (revenue for revenue in revenue_by_contact.values() if revenue > 0),
+        Decimal("0"),
+    )
+    if total_revenue <= 0:
+        return {
+            contact_id: AbcPeriodMetric(
+                revenue_usd=_money(revenue),
+                revenue_share_percent=Decimal("0.0"),
+                cumulative_share_percent=Decimal("0.0"),
+                segment=NO_SALES_SEGMENT,
+                won_deals_count=len(contact_deals),
+                last_won_date=max(
+                    deal.closed_at.date() for deal in contact_deals if deal.closed_at
+                ),
+            )
+            for contact_id, contact_deals in won_by_contact.items()
+            for revenue in (revenue_by_contact[contact_id],)
+        }
+
+    metrics: dict[int, AbcPeriodMetric] = {}
+    cumulative = Decimal("0")
+    for contact_id, revenue in sorted(
+        (
+            (contact_id, revenue)
+            for contact_id, revenue in revenue_by_contact.items()
+            if revenue > 0
+        ),
+        key=lambda row: (-row[1], row[0]),
+    ):
+        prior_share = cumulative / total_revenue
+        if prior_share < Decimal("0.80"):
+            segment = "A"
+        elif prior_share < Decimal("0.95"):
+            segment = "B"
+        else:
+            segment = "C"
+        cumulative += revenue
+        contact_deals = won_by_contact[contact_id]
+        metrics[contact_id] = AbcPeriodMetric(
+            revenue_usd=_money(revenue),
+            revenue_share_percent=_percent(revenue, total_revenue),
+            cumulative_share_percent=_percent(cumulative, total_revenue),
+            segment=segment,
+            won_deals_count=len(contact_deals),
+            last_won_date=max(
+                deal.closed_at.date() for deal in contact_deals if deal.closed_at
+            ),
+        )
+    return metrics
+
+
+def _empty_abc_period_metric() -> AbcPeriodMetric:
+    return AbcPeriodMetric(
+        revenue_usd=Decimal("0.00"),
+        revenue_share_percent=Decimal("0.0"),
+        cumulative_share_percent=Decimal("0.0"),
+        segment=NO_SALES_SEGMENT,
+        won_deals_count=0,
+        last_won_date=None,
+    )
+
+
 def _revenue_by_contact(
     deals: tuple[_DealFact, ...],
     *,
@@ -1094,6 +1416,8 @@ def _abc_change(abc_full: str, abc_12m: str) -> str:
 
 
 def _migration_priority(abc_full: str, abc_12m: str) -> str:
+    if abc_full == abc_12m:
+        return "без изменений"
     if abc_full == "A" and abc_12m in {NO_SALES_SEGMENT, "C"}:
         return "срочно"
     if (abc_full, abc_12m) in {("A", "B"), ("B", NO_SALES_SEGMENT)}:
@@ -1104,7 +1428,7 @@ def _migration_priority(abc_full: str, abc_12m: str) -> str:
         return "развивать"
     if abc_full == NO_SALES_SEGMENT and abc_12m == "A":
         return "закрепить"
-    return "без изменений"
+    return "изменение"
 
 
 def _rfm_metric_values(
@@ -1166,6 +1490,13 @@ def _needs_reactivation(
         return False
     last_won_date = max(deal.closed_at.date() for deal in all_won_deals if deal.closed_at)
     return (analysis_date - last_won_date).days > REACTIVATION_DAYS_THRESHOLD
+
+
+def _count_labels(labels) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for label in labels:
+        counts[label] = counts.get(label, 0) + 1
+    return dict(sorted(counts.items()))
 
 
 def _grouped_cycle_metrics(

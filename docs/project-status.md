@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-Frontend reporting milestone for the Bitrix sales analytics MVP: local analytics backend plus React/Vite Contacts and Deals report screens reading local backend endpoints. The local app has a manual UI-triggered data refresh flow for local testing after `docker compose up --build`; Contacts and Deals financial columns use local USD analytics metrics instead of original-currency totals.
+Frontend reporting milestone for the Bitrix sales analytics MVP: local analytics backend plus React/Vite Contacts, Deals, and ABC report screens reading local backend endpoints. The local app has a manual UI-triggered data refresh flow for local testing after `docker compose up --build`; Contacts, Deals, and ABC financial columns use local USD analytics metrics instead of original-currency totals.
 
 ## Done In This Task
 
@@ -76,6 +76,8 @@ Frontend reporting milestone for the Bitrix sales analytics MVP: local analytics
 - Linked non-zero Contacts deal counters to the Deals report with exact local analytical client ID filters and optional status filters.
 - Temporarily hid frontend region filters and region columns while keeping backend region support intact.
 - Added won-only filtered Deals revenue total and simplified visible totals labels to `Бюджет`, `Выручка`, and `Прибыль`.
+- Added `GET /api/reports/abc/analytics` for paginated local customer ABC analysis with current-period classification, optional comparison-period transitions in the same table, allowlisted filters/sorting, filtered totals, and migration priority counts.
+- Added an ABC frontend report with local-only filters, applied current/comparison date ranges, changed-only mode, separate browser state under `bitrix-sales.abc.v1`, transition badges, and comparison columns shown only when comparison is enabled.
 
 ## Intentionally Not Done
 
@@ -84,7 +86,7 @@ Frontend reporting milestone for the Bitrix sales analytics MVP: local analytics
 - Full staging-table swap mechanics beyond the current transaction-backed single active table set.
 - Production migration tooling.
 - Authentication.
-- Frontend screens beyond Contacts and Deals.
+- Frontend screens beyond Contacts, Deals, and ABC.
 - Background refresh queues, schedulers, and automatic refresh on Docker startup.
 - Storybook.
 - CI and production deployment.
@@ -114,4 +116,4 @@ Frontend reporting milestone for the Bitrix sales analytics MVP: local analytics
 
 ## Next Likely Steps
 
-Review the Contacts and Deals frontend reports, then plan the next report screen or shared frontend refinement only after acceptance.
+Review the Contacts, Deals, and ABC frontend reports, then plan the next report screen or shared frontend refinement only after acceptance.

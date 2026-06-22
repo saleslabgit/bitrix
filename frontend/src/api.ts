@@ -47,6 +47,35 @@ export type DealAnalyticsPage = {
   items: DealAnalytics[];
 };
 
+export type AbcAnalytics = {
+  contact_id: number;
+  contact_name: string;
+  contact_type_normalized: string;
+  current_revenue_usd: string;
+  current_revenue_share_percent: string;
+  current_cumulative_share_percent: string;
+  current_segment: string;
+  current_won_deals_count: number;
+  current_last_won_date: string | null;
+  compare_revenue_usd: string;
+  compare_segment: string;
+  segment_change: string;
+  migration_priority: string;
+  segment_changed: boolean;
+};
+
+export type AbcAnalyticsPage = {
+  total: number;
+  limit: number;
+  offset: number;
+  current_total_revenue_usd: string;
+  compare_total_revenue_usd: string;
+  current_segment_counts: Record<string, number>;
+  compare_segment_counts: Record<string, number>;
+  migration_priority_counts: Record<string, number>;
+  items: AbcAnalytics[];
+};
+
 export type ContactSort =
   | "contact_id"
   | "contact_name"
@@ -74,6 +103,21 @@ export type DealSort =
   | "estimated_profit_usd"
   | "created_date"
   | "closed_date";
+
+export type AbcSort =
+  | "contact_id"
+  | "contact_name"
+  | "contact_type_normalized"
+  | "current_revenue_usd"
+  | "current_revenue_share_percent"
+  | "current_cumulative_share_percent"
+  | "current_segment"
+  | "current_won_deals_count"
+  | "current_last_won_date"
+  | "compare_revenue_usd"
+  | "compare_segment"
+  | "segment_change"
+  | "migration_priority";
 
 export type FilterMetadata = {
   contact_types: string[];
@@ -138,6 +182,23 @@ export type DealFilters = {
   dealCreatedFrom: string;
   dealCreatedTo: string;
   sort: DealSort;
+  order: SortOrder;
+  limit: number;
+  offset: number;
+};
+
+export type AbcFilters = {
+  search: string;
+  contactId: string;
+  contactType: string;
+  segment: string;
+  migrationPriority: string;
+  changedOnly: boolean;
+  dateFrom: string;
+  dateTo: string;
+  compareDateFrom: string;
+  compareDateTo: string;
+  sort: AbcSort;
   order: SortOrder;
   limit: number;
   offset: number;
@@ -208,6 +269,46 @@ export async function fetchDealAnalytics(filters: DealFilters): Promise<DealAnal
   params.set("order", filters.order);
 
   return request<DealAnalyticsPage>(`/api/reports/deals/analytics?${params.toString()}`);
+}
+
+export async function fetchAbcAnalytics(filters: AbcFilters): Promise<AbcAnalyticsPage> {
+  const params = new URLSearchParams({
+    limit: String(filters.limit),
+    offset: String(filters.offset)
+  });
+
+  if (filters.search.trim()) {
+    params.set("search", filters.search.trim());
+  }
+  if (filters.contactId.trim()) {
+    params.set("contact_id", filters.contactId.trim());
+  }
+  if (filters.contactType) {
+    params.set("contact_type", filters.contactType);
+  }
+  if (filters.segment) {
+    params.set("segment", filters.segment);
+  }
+  if (filters.migrationPriority) {
+    params.set("migration_priority", filters.migrationPriority);
+  }
+  if (filters.changedOnly) {
+    params.set("changed_only", "true");
+  }
+  if (filters.dateFrom) {
+    params.set("date_from", filters.dateFrom);
+  }
+  if (filters.dateTo) {
+    params.set("date_to", filters.dateTo);
+  }
+  if (filters.compareDateFrom && filters.compareDateTo) {
+    params.set("compare_date_from", filters.compareDateFrom);
+    params.set("compare_date_to", filters.compareDateTo);
+  }
+  params.set("sort", filters.sort);
+  params.set("order", filters.order);
+
+  return request<AbcAnalyticsPage>(`/api/reports/abc/analytics?${params.toString()}`);
 }
 
 export function fetchFilterMetadata(): Promise<FilterMetadata> {

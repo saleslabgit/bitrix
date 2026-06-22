@@ -59,7 +59,7 @@ Simple local app flow:
 
 1. Run `docker compose up --build`.
 2. Open `http://localhost:5173`.
-3. If an active local dataset exists, the Contacts and Deals tables load normally.
+3. If an active local dataset exists, the Contacts, Deals, and ABC tables load normally.
 4. If the frontend says `Локальная база не подготовлена.`, click
    `Обновить из Bitrix`.
 5. Wait for the manual read-only refresh to finish; it can take several
@@ -89,15 +89,15 @@ Full-stack verification checklist:
 
 - `http://localhost:8000/health` returns backend health.
 - `http://localhost:5173` opens the frontend.
-- The Contacts and Deals tables load when an active local dataset exists.
+- The Contacts, Deals, and ABC tables load when an active local dataset exists.
 - With no active dataset, the active report screen shows the manual refresh panel.
 - Search, filters, sorting, reset, and pagination respond.
 - If the frontend shows an API error, check `GET http://localhost:8000/api/datasets/status` and confirm an active dataset is available.
 
 ## Frontend
 
-The frontend milestone lives under `frontend/` and implements Contacts and
-Deals report screens.
+The frontend milestone lives under `frontend/` and implements Contacts, Deals,
+and ABC report screens.
 
 Install dependencies:
 
@@ -148,6 +148,7 @@ Frontend endpoints used by the report screens:
 ```text
 GET /api/reports/contacts/analytics
 GET /api/reports/deals/analytics
+GET /api/reports/abc/analytics
 GET /api/meta/filters
 GET /api/datasets/status
 POST /api/local/refresh-data
@@ -186,10 +187,20 @@ profit is won-only: `budget_usd * 0.50` when `status_group == "won"`, otherwise
 Shared filter metadata is cached under `bitrix-sales.filter-metadata.v1`;
 resetting either report does not clear the metadata cache.
 
+The ABC screen uses `/api/reports/abc/analytics` for local customer ABC
+analysis. It classifies current-period won USD revenue by local `closed_at`
+dates and supports optional comparison dates in the same table. When both
+comparison dates are applied, the endpoint includes customers with won revenue
+in either period, so transitions such as `A -> Нет продаж` and
+`Нет продаж -> A` remain visible. Current ABC columns stay primary; comparison
+revenue, comparison ABC, transition, and migration priority columns are shown
+only while comparison is enabled. ABC UI state is persisted separately under
+`bitrix-sales.abc.v1`; reset clears only ABC state.
+
 Region filters and region columns are temporarily hidden in the frontend while
 region detection is unfinished. The frontend does not send region query
-parameters from Contacts or Deals screens, but backend region fields and query
-support remain in place for later use.
+parameters from Contacts, Deals, or ABC screens, but backend region fields and
+query support remain in place for later use.
 
 Local Vite serves `/favicon.ico` from `frontend/public/favicon.ico`, so browser
 favicon probing should not produce a 404 during development.
@@ -208,6 +219,7 @@ GET  http://localhost:8000/api/meta/filters
 GET  http://localhost:8000/api/reports/contacts
 GET  http://localhost:8000/api/reports/contacts/analytics
 GET  http://localhost:8000/api/reports/deals/analytics
+GET  http://localhost:8000/api/reports/abc/analytics
 GET  http://localhost:8000/api/reports/abc
 GET  http://localhost:8000/api/reports/rfm
 GET  http://localhost:8000/api/reports/stale-deals

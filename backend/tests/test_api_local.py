@@ -12,6 +12,7 @@ from app.main import (
     dataset_profile,
     meta_filters,
     report_abc,
+    report_abc_analytics,
     report_concentration,
     report_contact_analytics,
     report_contacts,
@@ -312,6 +313,17 @@ def test_api_analytics_reports_return_local_typed_data() -> None:
         order="desc",
     )
     abc = report_abc()
+    abc_page = report_abc_analytics(limit=10, offset=0)
+    abc_compare_page = report_abc_analytics(
+        limit=10,
+        offset=0,
+        date_from=date(2025, 1, 1),
+        date_to=date(2025, 12, 31),
+        compare_date_from=date(2024, 1, 1),
+        compare_date_to=date(2024, 12, 31),
+        sort="current_revenue_usd",
+        order="desc",
+    )
     rfm = report_rfm()
     stale_deals = report_stale_deals()
     deal_cycle = report_deal_cycle()
@@ -364,6 +376,13 @@ def test_api_analytics_reports_return_local_typed_data() -> None:
     assert sorted_contacts.items[0].contact_id == 1
     assert len(abc) == 10
     assert any(row.abc_12m == "Нет продаж" for row in abc)
+    assert abc_page.total >= 1
+    assert abc_page.current_total_revenue_usd > 0
+    assert abc_page.items[0].current_revenue_usd > 0
+    assert "region_normalized" not in abc_page.items[0].model_dump()
+    assert abc_compare_page.compare_total_revenue_usd > 0
+    assert abc_compare_page.current_segment_counts
+    assert abc_compare_page.migration_priority_counts
     assert len(rfm) == 10
     assert any(row.needs_reactivation for row in rfm)
     assert any(row.deal_id == 21 for row in stale_deals)
@@ -437,6 +456,7 @@ def test_api_responses_do_not_expose_forbidden_fields() -> None:
         report_contacts(limit=10, offset=0).model_dump(),
         report_contact_analytics(limit=10, offset=0).model_dump(),
         report_deal_analytics(limit=10, offset=0).model_dump(),
+        report_abc_analytics(limit=10, offset=0).model_dump(),
         [row.model_dump() for row in report_abc()],
         [row.model_dump() for row in report_rfm()],
         [row.model_dump() for row in report_stale_deals()],

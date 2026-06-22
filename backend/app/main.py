@@ -4,6 +4,7 @@ from typing import Annotated, Literal
 from fastapi import FastAPI, HTTPException, Query, status as http_status
 
 from app.api.models import (
+    AbcAnalyticsPageResponse,
     AbcResponse,
     BitrixItemDealContactVerificationResponse,
     BitrixContactDealVerificationResponse,
@@ -47,6 +48,7 @@ from app.reports.analytics import (
     get_rfm_report,
     get_type_region_analytics,
     list_contact_analytics,
+    list_abc_analytics,
     list_deal_analytics,
     list_stale_open_deals,
 )
@@ -94,6 +96,21 @@ DealAnalyticsSortQuery = Literal[
     "estimated_profit_usd",
     "created_date",
     "closed_date",
+]
+AbcAnalyticsSortQuery = Literal[
+    "contact_id",
+    "contact_name",
+    "contact_type_normalized",
+    "current_revenue_usd",
+    "current_revenue_share_percent",
+    "current_cumulative_share_percent",
+    "current_segment",
+    "current_won_deals_count",
+    "current_last_won_date",
+    "compare_revenue_usd",
+    "compare_segment",
+    "segment_change",
+    "migration_priority",
 ]
 SortOrderQuery = Literal["asc", "desc"]
 
@@ -470,6 +487,52 @@ def report_deal_analytics(
             detail=str(exc),
         ) from exc
     return DealAnalyticsPageResponse.model_validate(page)
+
+
+@app.get(
+    "/api/reports/abc/analytics",
+    response_model=AbcAnalyticsPageResponse,
+)
+def report_abc_analytics(
+    limit: int = Query(default=50, gt=0, le=100),
+    offset: int = Query(default=0, ge=0),
+    contact_id: Annotated[int | None, Query(gt=0)] = None,
+    search: str | None = None,
+    contact_type: str | None = None,
+    segment: str | None = None,
+    migration_priority: str | None = None,
+    changed_only: bool = False,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    compare_date_from: date | None = None,
+    compare_date_to: date | None = None,
+    sort: AbcAnalyticsSortQuery = "current_revenue_usd",
+    order: SortOrderQuery = "desc",
+) -> AbcAnalyticsPageResponse:
+    try:
+        page = list_abc_analytics(
+            get_connection(),
+            limit=limit,
+            offset=offset,
+            contact_id=contact_id,
+            search=search,
+            contact_type=contact_type,
+            segment=segment,
+            migration_priority=migration_priority,
+            changed_only=changed_only,
+            date_from=date_from,
+            date_to=date_to,
+            compare_date_from=compare_date_from,
+            compare_date_to=compare_date_to,
+            sort=sort,
+            order=order,
+        )
+    except AnalyticsDataUnavailableError as exc:
+        raise HTTPException(
+            status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+    return AbcAnalyticsPageResponse.model_validate(page)
 
 
 @app.get("/api/reports/abc", response_model=tuple[AbcResponse, ...])

@@ -1,26 +1,22 @@
-# Отчет: TASK-2026-06-22-22
+# Отчет: TASK-2026-06-22-23
 
 Статус: done
 
 ## Кратко
 
-Добавил won-only `Выручка` в Deals totals и упростил видимые labels totals
-bar до:
-
-```text
-Бюджет
-Выручка
-Прибыль
-```
+Добавил customer ABC report как локальный backend endpoint и новый frontend
+экран `ABC`.
 
 ## Измененные файлы
 
 - `backend/app/reports/analytics.py`
 - `backend/app/api/models.py`
+- `backend/app/main.py`
 - `backend/tests/test_analytics.py`
 - `backend/tests/test_api_local.py`
 - `frontend/src/api.ts`
 - `frontend/src/App.tsx`
+- `frontend/src/styles.css`
 - `frontend/README.md`
 - `docs/development.md`
 - `docs/data-model.md`
@@ -29,99 +25,109 @@ bar до:
 
 ## Backend
 
-Deals analytics page response now includes:
+Добавлен `GET /api/reports/abc/analytics`.
 
-```text
-filtered_revenue_usd
-```
+Семантика:
 
-Revenue semantics:
+- источник данных только локальные `normalized_contacts`, `normalized_deals`
+  и `currency_rates`;
+- Bitrix, NBRB и внешние сервисы не вызываются на report page load;
+- ABC основан только на won USD revenue;
+- период фильтруется по `closed_at`;
+- классификация сортирует клиентов по выручке по убыванию, затем
+  `contact_id` по возрастанию;
+- сегменты считаются по cumulative share before current row:
+  `A` до 80%, `B` от 80% до 95%, `C` от 95%;
+- крупнейший revenue customer всегда попадает в `A`;
+- без comparison в ответ попадают клиенты с выручкой текущего периода;
+- с comparison в ответ попадают клиенты с выручкой в текущем или comparison
+  периоде;
+- переход считается как `ABC сравнения -> ABC текущего периода`;
+- `Нет продаж` используется для периода без won revenue;
+- totals/counts считаются по отфильтрованному набору до pagination;
+- sorting allowlisted и stable.
 
-- calculated across all filtered Deals rows before pagination;
-- won-only: sums `budget_usd` only for rows where `status_group == "won"`;
-- `status=open` and `status=lost` return `0.00` revenue;
-- with `status=won`, revenue equals filtered budget for that filtered set.
-
-Existing totals are unchanged:
-
-- `filtered_budget_usd` still sums all filtered deals before pagination;
-- `filtered_estimated_profit_usd` remains won-only profit.
-
-No persisted analytics tables or migrations were added. Report endpoint remains
-local DuckDB-backed and does not call Bitrix, NBRB, or external services.
+Старый `GET /api/reports/abc` сохранен.
 
 ## Frontend
 
-`DealTotalsBar` now renders three totals above and below the Deals table:
+Добавлен navigation item `ABC`.
 
-- `Бюджет`;
-- `Выручка`;
-- `Прибыль`.
+Экран:
 
-The visible labels no longer include `по фильтру`. Loading, error, invalid-date,
-and empty states still do not render stale totals because the totals bar remains
-inside the successful non-empty Deals table branch.
+- вызывает только `/api/reports/abc/analytics`;
+- содержит фильтры ID клиента, поиск клиента, тип, ABC сегмент, приоритет
+  перехода, `Только изменения`, текущий период и optional comparison период;
+- date inputs работают через draft/apply pattern;
+- incomplete comparison range блокирует запрос до заполнения обеих дат или
+  очистки обеих дат;
+- comparison колонки отображаются в той же таблице только когда comparison
+  включен;
+- измененные строки визуально отмечены подсветкой и badge;
+- state хранится отдельно под `bitrix-sales.abc.v1`;
+- reset очищает только ABC state;
+- region filters/columns не добавлялись.
 
 ## Документация
 
 Обновлены:
 
-- `frontend/README.md`;
 - `docs/development.md`;
 - `docs/data-model.md`;
-- `docs/project-status.md`.
+- `docs/project-status.md`;
+- `frontend/README.md`.
 
 ## Запущенные проверки
 
 Before implementation:
 
 - `git log --oneline -5`
-- `git status --short --branch`
+- `git status --short`
 
-Backend:
+Backend focused:
 
-- `cd backend && /tmp/bitrix-backend-venv/bin/python -m compileall app` —
-  passed.
 - `cd backend && /tmp/bitrix-backend-venv/bin/pytest tests/test_analytics.py tests/test_api_local.py`
-  — passed, `45 passed`.
+  — passed, `50 passed`.
+
+Backend full:
+
 - `cd backend && /tmp/bitrix-backend-venv/bin/pytest` — passed,
-  `105 passed`.
+  `110 passed`.
 
 Frontend:
 
 - `cd frontend && npm run build` — passed.
-- repeated `cd frontend && npm run build` — passed.
 
 Operator/safety:
 
 - `docker compose config` — passed.
 - `rg "crm\.[A-Za-z0-9_.]*(add|update|delete|set)" backend/app backend/tests frontend/src`
-  — found only existing negative test `crm.deal.update`; no Bitrix write method
-  was added.
+  — found only existing negative test `crm.deal.update`; no Bitrix write
+  method was added.
 
 ## Факты
 
-- Frontend still calls only local backend endpoints.
-- Backend report endpoints read local DuckDB-backed data only.
+- Frontend report screens still call only local backend endpoints.
+- Backend ABC analytics endpoint reads local DuckDB-backed data only.
 - No Bitrix calls were added to report page load paths.
 - No Bitrix write methods were added.
-- No forbidden personal fields were added to response models or UI.
-- Existing Deals budget/profit semantics were preserved.
+- No forbidden personal fields were added to ABC response models or UI.
 - `ui-kits/` was not changed.
 
 ## Предположения
 
-- Deals `Выручка` means won-only USD revenue for the current filtered Deals set,
-  matching project revenue semantics.
+- Customer and contact are the same analytical entity for ABC.
+- Transition direction is comparison period to current period.
 
 ## Неизвестное
 
 - Browser visual verification was not run. The UI change is covered by
   TypeScript/Vite build.
-- Full `docker compose up --build -d` flow was not run. `docker compose config`
-  was verified.
+- Full `docker compose up --build -d` and HTTP smoke check were not run.
+  `docker compose config` was verified.
 
 ## Риски или следующий шаг
 
-Review should verify in browser that the Deals totals bar shows exactly:
-`Бюджет`, `Выручка`, `Прибыль`, both above and below the table.
+Review should verify in browser that ABC comparison updates the same table and
+that `A -> Нет продаж` / `Нет продаж -> A` transitions are visible when the
+selected periods contain those cases.
