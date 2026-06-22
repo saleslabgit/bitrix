@@ -292,7 +292,7 @@ export async function fetchAbcAnalytics(filters: AbcFilters): Promise<AbcAnalyti
   if (filters.migrationPriority) {
     params.set("migration_priority", filters.migrationPriority);
   }
-  if (filters.changedOnly) {
+  if (filters.changedOnly && filters.compareDateFrom && filters.compareDateTo) {
     params.set("changed_only", "true");
   }
   if (filters.dateFrom) {

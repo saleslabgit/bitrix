@@ -219,15 +219,17 @@ h1 {
 }
 
 .toolbar-abc {
-  grid-template-columns:
-    minmax(220px, 1.3fr)
-    minmax(110px, 0.55fr)
-    repeat(4, minmax(130px, 0.75fr))
-    repeat(2, minmax(135px, 0.7fr))
-    auto
-    repeat(2, minmax(135px, 0.7fr))
-    auto
-    auto;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.toolbar-abc .search-field {
+  grid-column: span 2;
+}
+
+.toolbar-abc .button {
+  width: 100%;
+  min-width: 0;
+  padding: 0 12px;
 }
 
 .field {
@@ -244,6 +246,10 @@ h1 {
   min-width: 150px;
 }
 
+.toolbar-abc .checkbox-field {
+  min-width: 0;
+}
+
 .check-shell {
   display: inline-flex;
   align-items: center;
@@ -253,6 +259,12 @@ h1 {
   font-size: 13px;
   font-weight: var(--font-weight-medium);
   white-space: nowrap;
+}
+
+.toolbar-abc .check-shell {
+  width: 100%;
+  min-width: 0;
+  white-space: normal;
 }
 
 .check-shell input {
@@ -832,6 +844,10 @@ tbody tr:hover {
 
   .toolbar {
     grid-template-columns: 1fr;
+  }
+
+  .toolbar-abc .search-field {
+    grid-column: auto;
   }
 
   .status-badge {

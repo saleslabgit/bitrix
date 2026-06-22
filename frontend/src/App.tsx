@@ -425,13 +425,13 @@ export function App() {
         abcFilters.contactType,
         abcFilters.segment,
         abcFilters.migrationPriority,
-        abcFilters.changedOnly ? "changed" : "",
+        abcFilters.changedOnly && isAbcCompareEnabled ? "changed" : "",
         abcFilters.dateFrom,
         abcFilters.dateTo,
         abcFilters.compareDateFrom,
         abcFilters.compareDateTo
       ].filter(Boolean).length,
-    [abcFilters]
+    [abcFilters, isAbcCompareEnabled]
   );
   const activeSelectedFilterCount =
     activeReport === "contacts"
@@ -976,11 +976,12 @@ export function App() {
               <span>Изменения</span>
               <label className="check-shell">
                 <input
-                  checked={abcFilters.changedOnly}
+                  checked={isAbcCompareEnabled && abcFilters.changedOnly}
+                  disabled={!isAbcCompareEnabled}
                   onChange={(event) => updateAbcFilter("changedOnly", event.target.checked)}
                   type="checkbox"
                 />
-                Только изменения
+                Только изменившие ABC
               </label>
             </label>
 
