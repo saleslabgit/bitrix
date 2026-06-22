@@ -18,6 +18,7 @@ import {
   type ContactAnalytics,
   type ContactFilters,
   type ContactSort,
+  type FilterMetadata,
   type LocalDataRefreshResponse
 } from "./api";
 
@@ -60,6 +61,11 @@ export function App() {
   const [filters, setFilters] = useState<ContactFilters>(() => loadStoredFilters());
   const [searchDraft, setSearchDraft] = useState(filters.search);
   const [contactIdDraft, setContactIdDraft] = useState(filters.contactId);
+  const [dealCreatedDrafts, setDealCreatedDrafts] = useState({
+    from: filters.dealCreatedFrom,
+    to: filters.dealCreatedTo
+  });
+  const [lastFilterMetadata, setLastFilterMetadata] = useState<FilterMetadata | null>(null);
   const [lastRefreshResult, setLastRefreshResult] = useState<LocalDataRefreshResponse | null>(
     null
   );
@@ -67,6 +73,16 @@ export function App() {
     Boolean(filters.dealCreatedFrom) &&
     Boolean(filters.dealCreatedTo) &&
     filters.dealCreatedFrom > filters.dealCreatedTo;
+  const areDealCreatedDraftsInvalid =
+    Boolean(dealCreatedDrafts.from) &&
+    Boolean(dealCreatedDrafts.to) &&
+    dealCreatedDrafts.from > dealCreatedDrafts.to;
+  const areDealCreatedDraftsComplete =
+    isEmptyOrCompleteIsoDate(dealCreatedDrafts.from) &&
+    isEmptyOrCompleteIsoDate(dealCreatedDrafts.to);
+  const areDealCreatedDraftsChanged =
+    dealCreatedDrafts.from !== filters.dealCreatedFrom ||
+    dealCreatedDrafts.to !== filters.dealCreatedTo;
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -97,6 +113,7 @@ export function App() {
     queryFn: fetchFilterMetadata,
     enabled: isDatasetReady
   });
+  const filterMetadata = filterQuery.data ?? lastFilterMetadata;
 
   const contactsQuery = useQuery({
     queryKey: ["contacts", filters],
@@ -121,6 +138,12 @@ export function App() {
       await queryClient.invalidateQueries({ queryKey: ["dataset-status"] });
     }
   });
+
+  useEffect(() => {
+    if (filterQuery.data) {
+      setLastFilterMetadata(filterQuery.data);
+    }
+  }, [filterQuery.data]);
 
   const total = contactsQuery.data?.total ?? 0;
   const isRefreshing = refreshMutation.isPending;
@@ -161,6 +184,7 @@ export function App() {
   function resetFilters() {
     setSearchDraft("");
     setContactIdDraft("");
+    setDealCreatedDrafts({ from: "", to: "" });
     window.localStorage.removeItem(CONTACTS_STORAGE_KEY);
     setFilters(initialFilters);
     void queryClient.invalidateQueries({ queryKey: ["contacts"] });
@@ -177,6 +201,25 @@ export function App() {
       ...current,
       sort,
       order: current.sort === sort ? (current.order === "desc" ? "asc" : "desc") : "desc",
+      offset: 0
+    }));
+  }
+
+  function updateDealCreatedDraft(name: "from" | "to", value: string) {
+    setDealCreatedDrafts((current) => ({
+      ...current,
+      [name]: value
+    }));
+  }
+
+  function applyDealCreatedDrafts() {
+    if (!areDealCreatedDraftsComplete || areDealCreatedDraftsInvalid) {
+      return;
+    }
+    setFilters((current) => ({
+      ...current,
+      dealCreatedFrom: dealCreatedDrafts.from,
+      dealCreatedTo: dealCreatedDrafts.to,
       offset: 0
     }));
   }
@@ -259,32 +302,32 @@ export function App() {
               label="Тип"
               value={filters.contactType}
               onChange={(value) => updateFilter("contactType", value)}
-              options={filterQuery.data?.contact_types ?? []}
-              disabled={filterQuery.isPending || filterQuery.isError}
+              options={filterMetadata?.contact_types ?? []}
+              disabled={!filterMetadata}
             />
             <SelectField
               label="Регион"
               value={filters.region}
               onChange={(value) => updateFilter("region", value)}
-              options={filterQuery.data?.regions ?? []}
-              disabled={filterQuery.isPending || filterQuery.isError}
+              options={filterMetadata?.regions ?? []}
+              disabled={!filterMetadata}
             />
             <SelectField
               label="Статус сделки"
               value={filters.status}
               onChange={(value) => updateFilter("status", value)}
-              options={filterQuery.data?.statuses ?? []}
-              disabled={filterQuery.isPending || filterQuery.isError}
+              options={filterMetadata?.statuses ?? []}
+              disabled={!filterMetadata}
             />
 
             <label className="field">
               <span>Создана с</span>
               <input
                 className="date-input"
-                value={filters.dealCreatedFrom}
-                onChange={(event) => updateFilter("dealCreatedFrom", event.target.value)}
-                min={dateOnly(filterQuery.data?.min_created_at)}
-                max={dateOnly(filterQuery.data?.max_created_at)}
+                value={dealCreatedDrafts.from}
+                onChange={(event) => updateDealCreatedDraft("from", event.target.value)}
+                min={dateOnly(filterMetadata?.min_created_at)}
+                max={dateOnly(filterMetadata?.max_created_at)}
                 type="date"
               />
             </label>
@@ -293,13 +336,27 @@ export function App() {
               <span>Создана по</span>
               <input
                 className="date-input"
-                value={filters.dealCreatedTo}
-                onChange={(event) => updateFilter("dealCreatedTo", event.target.value)}
-                min={dateOnly(filterQuery.data?.min_created_at)}
-                max={dateOnly(filterQuery.data?.max_created_at)}
+                value={dealCreatedDrafts.to}
+                onChange={(event) => updateDealCreatedDraft("to", event.target.value)}
+                min={dateOnly(filterMetadata?.min_created_at)}
+                max={dateOnly(filterMetadata?.max_created_at)}
                 type="date"
               />
             </label>
+
+            <button
+              className="button button-secondary date-apply-button"
+              type="button"
+              disabled={
+                !areDealCreatedDraftsChanged ||
+                !areDealCreatedDraftsComplete ||
+                areDealCreatedDraftsInvalid
+              }
+              onClick={applyDealCreatedDrafts}
+            >
+              <Filter size={16} strokeWidth={1.5} />
+              Применить даты
+            </button>
 
             <button className="button button-secondary" type="button" onClick={resetFilters}>
               <Filter size={16} strokeWidth={1.5} />
@@ -330,6 +387,10 @@ export function App() {
 
         {isDatasetReady && isDealCreatedRangeInvalid && (
           <InlineValidation message="Дата «Создана с» должна быть не позже даты «Создана по»." />
+        )}
+
+        {isDatasetReady && areDealCreatedDraftsInvalid && (
+          <InlineValidation message="В черновике дат значение «Создана с» должно быть не позже «Создана по»." />
         )}
 
         <section className="table-card" aria-label="Контакты">
@@ -897,6 +958,10 @@ function stringValue(value: unknown) {
 function dateValue(value: unknown) {
   const string = stringValue(value);
   return /^\d{4}-\d{2}-\d{2}$/.test(string) ? string : "";
+}
+
+function isEmptyOrCompleteIsoDate(value: string) {
+  return value === "" || /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
 function sortValue(value: unknown): ContactSort {

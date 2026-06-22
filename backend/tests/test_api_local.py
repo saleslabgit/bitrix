@@ -1,5 +1,6 @@
 from datetime import date
 
+import duckdb
 import pytest
 
 from app import main
@@ -19,6 +20,8 @@ from app.main import (
     run_local_synthetic_sync,
     sync_status,
 )
+from app.reports.local import get_filter_metadata
+from app.storage import initialize_schema
 
 
 FORBIDDEN_RESPONSE_PARTS = (
@@ -57,6 +60,160 @@ def test_api_status_run_and_filters_return_local_synthetic_data() -> None:
     assert "Не определено" in filters_response.contact_types
     assert filters_response.min_created_at is not None
     assert filters_response.max_created_at is not None
+
+
+def test_filter_metadata_initializes_empty_schema_for_direct_calls() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        filters_response = get_filter_metadata(connection)
+
+    assert filters_response.contact_types == ()
+    assert filters_response.regions == ()
+    assert filters_response.statuses == ()
+    assert filters_response.min_created_at is None
+    assert filters_response.max_created_at is None
+    assert filters_response.min_closed_at is None
+    assert filters_response.max_closed_at is None
+
+
+def test_meta_filters_returns_empty_metadata_before_dataset_is_prepared() -> None:
+    filters_response = meta_filters()
+
+    assert filters_response.contact_types == ()
+    assert filters_response.regions == ()
+    assert filters_response.statuses == ()
+    assert filters_response.min_created_at is None
+    assert filters_response.max_created_at is None
+    assert filters_response.min_closed_at is None
+    assert filters_response.max_closed_at is None
+
+
+def test_filter_metadata_handles_empty_contacts_and_no_closed_deals() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        initialize_schema(connection)
+        connection.execute(
+            """
+            INSERT INTO normalized_deals (
+                deal_id,
+                deal_name,
+                amount_original,
+                currency_original,
+                created_at,
+                closed_at,
+                stage_id,
+                category_id,
+                status_group,
+                analytical_contact_id,
+                analytical_contact_name,
+                contact_type_normalized,
+                region_normalized
+            )
+            VALUES (
+                1,
+                'Open Deal',
+                100.00,
+                'USD',
+                TIMESTAMP '2026-01-01 10:00:00',
+                NULL,
+                'OPEN',
+                0,
+                'open',
+                NULL,
+                'Без контакта',
+                'Не определено',
+                'Не определено'
+            )
+            """
+        )
+
+        filters_response = get_filter_metadata(connection)
+
+    assert filters_response.contact_types == ()
+    assert filters_response.regions == ()
+    assert filters_response.statuses == ("open",)
+    assert filters_response.min_created_at is not None
+    assert filters_response.max_created_at is not None
+    assert filters_response.min_closed_at is None
+    assert filters_response.max_closed_at is None
+
+
+def test_filter_metadata_ignores_null_distinct_values_from_older_local_schema() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        connection.execute(
+            """
+            CREATE TABLE normalized_contacts (
+                contact_id BIGINT PRIMARY KEY,
+                contact_name VARCHAR NOT NULL,
+                contact_type_raw VARCHAR,
+                contact_type_normalized VARCHAR,
+                region_normalized VARCHAR
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE normalized_deals (
+                deal_id BIGINT PRIMARY KEY,
+                deal_name VARCHAR NOT NULL,
+                amount_original DECIMAL(18, 2) NOT NULL,
+                currency_original VARCHAR NOT NULL,
+                created_at TIMESTAMP NOT NULL,
+                closed_at TIMESTAMP,
+                stage_id VARCHAR NOT NULL,
+                category_id INTEGER,
+                status_group VARCHAR,
+                analytical_contact_id BIGINT,
+                analytical_contact_name VARCHAR NOT NULL,
+                contact_type_normalized VARCHAR,
+                region_normalized VARCHAR
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO normalized_contacts (
+                contact_id,
+                contact_name,
+                contact_type_raw,
+                contact_type_normalized,
+                region_normalized
+            )
+            VALUES
+                (1, 'A', NULL, NULL, NULL),
+                (2, 'B', NULL, 'Partner', 'West')
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO normalized_deals (
+                deal_id,
+                deal_name,
+                amount_original,
+                currency_original,
+                created_at,
+                closed_at,
+                stage_id,
+                category_id,
+                status_group,
+                analytical_contact_id,
+                analytical_contact_name,
+                contact_type_normalized,
+                region_normalized
+            )
+            VALUES
+                (1, 'Open Deal', 100.00, 'USD', TIMESTAMP '2026-01-01 10:00:00', NULL, 'OPEN', 0, NULL, 1, 'A', NULL, NULL),
+                (2, 'Won Deal', 200.00, 'USD', TIMESTAMP '2026-02-01 10:00:00', TIMESTAMP '2026-03-01 10:00:00', 'WON', 0, 'won', 2, 'B', 'Partner', 'West')
+            """
+        )
+
+        filters_response = get_filter_metadata(connection)
+
+    assert filters_response.contact_types == ("Partner",)
+    assert filters_response.regions == ("West",)
+    assert filters_response.statuses == ("won",)
+    assert filters_response.min_created_at is not None
+    assert filters_response.max_created_at is not None
+    assert filters_response.min_closed_at is not None
+    assert filters_response.max_closed_at is not None
 
 
 def test_dataset_status_reports_active_and_latest_without_sensitive_paths() -> None:

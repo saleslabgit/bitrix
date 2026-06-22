@@ -4,6 +4,8 @@ from decimal import Decimal
 
 import duckdb
 
+from app.storage import initialize_schema
+
 
 @dataclass(frozen=True)
 class FilterMetadata:
@@ -39,11 +41,14 @@ class ContactSummaryPage:
 
 
 def get_filter_metadata(connection: duckdb.DuckDBPyConnection) -> FilterMetadata:
+    initialize_schema(connection)
     contact_types = _single_column(
         connection,
         """
         SELECT DISTINCT contact_type_normalized
         FROM normalized_contacts
+        WHERE contact_type_normalized IS NOT NULL
+        AND contact_type_normalized != ''
         ORDER BY contact_type_normalized
         """,
     )
@@ -52,6 +57,8 @@ def get_filter_metadata(connection: duckdb.DuckDBPyConnection) -> FilterMetadata
         """
         SELECT DISTINCT region_normalized
         FROM normalized_contacts
+        WHERE region_normalized IS NOT NULL
+        AND region_normalized != ''
         ORDER BY region_normalized
         """,
     )
@@ -60,6 +67,8 @@ def get_filter_metadata(connection: duckdb.DuckDBPyConnection) -> FilterMetadata
         """
         SELECT DISTINCT status_group
         FROM normalized_deals
+        WHERE status_group IS NOT NULL
+        AND status_group != ''
         ORDER BY status_group
         """,
     )
@@ -73,6 +82,8 @@ def get_filter_metadata(connection: duckdb.DuckDBPyConnection) -> FilterMetadata
         FROM normalized_deals
         """
     ).fetchone()
+    if period_row is None:
+        period_row = (None, None, None, None)
     return FilterMetadata(
         contact_types=contact_types,
         regions=regions,

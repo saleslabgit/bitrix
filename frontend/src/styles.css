@@ -198,6 +198,7 @@ h1 {
     minmax(110px, 0.6fr)
     repeat(3, minmax(130px, 0.8fr))
     repeat(2, minmax(135px, 0.75fr))
+    auto
     auto;
   align-items: end;
   gap: var(--space-5);
@@ -282,6 +283,10 @@ h1 {
   height: 40px;
   gap: var(--space-3);
   padding: 0 18px;
+}
+
+.date-apply-button {
+  align-self: end;
 }
 
 .button:disabled,

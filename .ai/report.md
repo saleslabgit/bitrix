@@ -1,67 +1,74 @@
-# Отчет: TASK-2026-06-22-15
+# Отчет: TASK-2026-06-22-16
 
 Статус: done
 
 ## Кратко
 
-Сделал Contacts screen более стабильным рабочим местом для проверки данных:
-отключил disruptive background refetch, добавил сохранение состояния таблицы в
-browser local storage и добавил фильтр по дате создания сделки.
+Исправил стабильность фильтров Contacts:
+
+- backend metadata helper теперь безопасен для прямого вызова, пустой локальной
+  схемы, таблиц без строк, сделок без `closed_at` и старых/грязных локальных
+  таблиц с `NULL` в distinct-значениях фильтров;
+- frontend хранит последний успешный `/api/meta/filters` response и не стирает
+  dropdown options при transient metadata error;
+- date inputs для даты создания сделки теперь редактируются как drafts и
+  применяются к активному query state только после явного `Применить даты`.
+
+## Измененные файлы
+
+- `backend/app/reports/local.py`
+- `backend/tests/test_api_local.py`
+- `frontend/src/App.tsx`
+- `frontend/src/styles.css`
+- `.ai/report.md`
 
 ## Backend
 
-`GET /api/reports/contacts/analytics` получил новые query parameters:
+`get_filter_metadata()` теперь вызывает `initialize_schema(connection)` сам.
+Это закрывает прямые вызовы helper на новом DuckDB connection без
+предварительной подготовки схемы.
 
-```text
-deal_created_from=YYYY-MM-DD
-deal_created_to=YYYY-MM-DD
-```
+Distinct-списки `contact_types`, `regions`, `statuses` теперь отбрасывают
+`NULL` и пустые строки перед построением response. Это защищает
+`FilterMetadataResponse`, где эти поля типизированы как строки, от validation
+500 на старых или частично подготовленных локальных таблицах.
 
-Семантика:
+Проверенные metadata states:
 
-- фильтр применяет inclusive range к `_DealFact.created_at.date()`;
-- это отдельная семантика от существующих `date_from` / `date_to`, которые
-  продолжают использовать report date через `_reporting_date()`;
-- metrics/counts/budgets/revenue/profit считаются по deal set после фильтра по
-  creation date;
-- status filter применяется поверх уже отфильтрованного по creation date deal
-  set;
-- если creation-date range активен, contacts без matching assigned deals не
-  показываются.
+- прямой вызов helper на новом in-memory DuckDB без схемы;
+- endpoint `meta_filters()` до подготовки dataset;
+- пустые contacts и одна open-сделка с `closed_at = NULL`;
+- nullable older-local-schema таблицы с `NULL` в distinct metadata columns;
+- synthetic dataset после локального sync.
 
-Bitrix extraction, normalization, contact selection, currency loading,
-manual refresh, ABC/RFM/concentration/type-region reports не менялись.
+Report APIs продолжают читать только локальные DuckDB-backed таблицы. Bitrix и
+NBRB вызовы в metadata/report path не добавлялись.
 
 ## Frontend
 
-Persisted state:
+Dropdown metadata:
 
-- storage key: `bitrix-sales.contacts.v1`;
-- fields: `search`, `contactId`, `contactType`, `region`, `status`,
-  `dealCreatedFrom`, `dealCreatedTo`, `sort`, `order`, `limit`, `offset`;
-- persisted values are validated/coerced before use;
-- invalid or incompatible storage falls back to defaults;
-- search and contact ID drafts are initialized from restored filters;
-- `Сбросить` clears in-memory state and removes the storage key.
-
-Background refetch behavior:
-
-- TanStack Query defaults now use `staleTime: Infinity`;
-- `refetchOnMount`, `refetchOnReconnect`, and `refetchOnWindowFocus` are
+- добавлен `lastFilterMetadata`;
+- при успешном metadata fetch последнее значение сохраняется в state;
+- select options берутся из `filterQuery.data ?? lastFilterMetadata`;
+- metadata error по-прежнему показывает alert с retry;
+- если успешной metadata загрузки еще не было, dropdowns остаются пустыми и
   disabled;
-- manual `Обновить из Bitrix` still invalidates dataset status, filters, and
-  contacts;
-- explicit retry buttons, filter/sort/date/pagination changes still fetch via
-  their query key changes or explicit `refetch()`.
+- если успешная metadata уже была, transient error больше не очищает options и
+  не сбрасывает выбранные `contactType`, `region`, `status`.
 
-Deal creation date UI:
+Deal creation dates:
 
-- added native date inputs labeled `Создана с` and `Создана по`;
-- frontend sends `deal_created_from` and `deal_created_to` only when non-empty;
-- date changes reset `offset` to `0`;
-- invalid range (`from > to`) shows a local validation alert and prevents the
-  contacts request until fixed;
-- date filters persist across reload and clear on reset.
+- добавлены draft values для `dealCreatedFrom` и `dealCreatedTo`;
+- `onChange` date inputs меняет только drafts;
+- активные `filters.dealCreatedFrom` / `filters.dealCreatedTo` меняются только
+  кнопкой `Применить даты`;
+- кнопка активна только когда draft отличается от active filters, даты пустые
+  или полные `YYYY-MM-DD`, и диапазон не инвертирован;
+- применение дат сбрасывает `offset` в `0`;
+- `Сбросить` очищает drafts, active filters, persisted state и invalidates
+  contacts query;
+- applied dates продолжают сохраняться в `localStorage`.
 
 Frontend still calls only local backend endpoints:
 
@@ -72,43 +79,45 @@ GET /api/datasets/status
 POST /api/local/refresh-data
 ```
 
-No frontend Bitrix calls were added.
+## Root Causes / Diagnosis
 
-## Changed Files
+Empty dropdowns:
 
-- `backend/app/reports/analytics.py`
-- `backend/app/main.py`
-- `backend/tests/test_analytics.py`
-- `backend/tests/test_api_local.py`
-- `frontend/src/api.ts`
-- `frontend/src/App.tsx`
-- `frontend/src/main.tsx`
-- `frontend/src/styles.css`
-- `frontend/README.md`
-- `docs/development.md`
-- `.ai/report.md`
+- frontend used `filterQuery.data?.contact_types ?? []`,
+  `filterQuery.data?.regions ?? []`, and `filterQuery.data?.statuses ?? []`
+  directly;
+- when metadata refetch failed without usable current data, options collapsed to
+  empty arrays and dropdowns were disabled on `filterQuery.isError`.
 
-Pre-existing unstaged local changes in `.ai/task.md`, `AGENTS.md`, and
-`WORKFLOW.md` were not made by Codex for this task and were not intentionally
-modified.
+`/api/meta/filters` 500:
 
-## Checks
+- direct helper calls were not self-contained and relied on callers to
+  initialize DuckDB schema first;
+- a second realistic failure mode was response validation when older or
+  partially prepared local normalized tables contained `NULL` distinct values
+  for metadata option columns, while `FilterMetadataResponse` requires strings.
+
+Date input refetches:
+
+- date inputs wrote directly into active `filters.dealCreatedFrom` and
+  `filters.dealCreatedTo` on every `onChange`;
+- those fields are part of the Contacts query key, so in-progress date edits
+  could trigger backend table requests.
+
+## Запущенные проверки
 
 Before implementation:
 
-- `git log --oneline -5` — latest relevant commit was
-  `f1b930d planner: TASK-2026-06-22-15 Persist Contacts UI state and add deal creation date filter`.
-- `git status --short --branch` — showed pre-existing modified `.ai/task.md`,
-  `AGENTS.md`, and `WORKFLOW.md`.
+- `git log --oneline -5`
+- `git status --short`
 
-Focused backend:
+Backend:
 
-- `cd backend && /tmp/bitrix-backend-venv/bin/pytest tests/test_analytics.py tests/test_api_local.py`
-  — passed, `25 passed`.
-
-Full backend:
-
-- `cd backend && /tmp/bitrix-backend-venv/bin/pytest` — passed, `85 passed`.
+- `cd backend && python -m pytest tests/test_api_local.py` — не запустился,
+  system `python` отсутствует.
+- `cd backend && /tmp/bitrix-backend-venv/bin/pytest tests/test_api_local.py`
+  — passed, `10 passed`.
+- `cd backend && /tmp/bitrix-backend-venv/bin/pytest` — passed, `89 passed`.
 
 Frontend:
 
@@ -120,32 +129,28 @@ Safety:
   — found only existing negative test `crm.deal.update`; no Bitrix write method
   was added.
 
-Compose/operator startup:
+## Факты
 
-- Not run. Docker startup behavior was not changed. Docker Compose still starts
-  services only and does not automatically call Bitrix or refresh local data.
+- No Bitrix calls were added.
+- No Bitrix write methods were added or called.
+- No extraction, normalization, manual refresh, contact selection, currency
+  conversion, or report metric semantics were changed.
+- `ui-kits/` was not changed.
+- Docker/operator startup was not changed, so Compose flow was not run.
 
-## Facts
+## Предположения
 
-- Deal creation date filtering uses local `normalized_deals.created_at` through
-  `_DealFact.created_at.date()`, not closed date and not `_reporting_date()`.
-- Existing `date_from` / `date_to` behavior remains report-date based.
-- Persisted UI state stores only filter/sort/page settings, not backend rows,
-  secrets, raw payloads, or personal fields.
-- No `ui-kits/` files were changed.
+- User-reported periodic metadata 500 is covered by the now-tested local
+  metadata edge cases: unprepared/direct helper state and `NULL` metadata
+  values from older/dirty local normalized tables.
 
-## Unknowns
+## Неизвестное
 
-- Browser-level visual verification with a live backend dataset was not run in
-  this task. TypeScript/Vite build passed.
-- The original source of the user's perceived self-refresh was not isolated;
-  the implemented fix disables the disruptive TanStack Query auto-refetch paths
-  and persists workspace state across browser reload.
+- Browser-level manual verification was not run. TypeScript/Vite build passed,
+  and the date behavior is implemented at React state/query-key level.
 
-## Risks Or Next Step
+## Риски или следующий шаг
 
-If operators later need shareable filter links, the next step should be a
-router/query-string state layer. This task intentionally used local storage only
-to keep scope focused on the current single-screen app.
-
-No Bitrix calls or write methods were added or called.
+If operators want date picker selection to apply without a button, the next
+iteration should add browser-level tests for target browsers first. This task
+uses explicit apply to avoid native `type="date"` partial-input differences.
