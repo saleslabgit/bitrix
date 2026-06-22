@@ -1,105 +1,60 @@
-# Отчет: TASK-2026-06-22-04
+# Отчет: TASK-2026-06-22-05
 
 Статус: done
 
 ## Кратко
 
-Реализован первый frontend milestone: `frontend/` теперь содержит React/TypeScript/Vite приложение с одним экраном `Contacts`.
+Добавлен full-stack local Compose запуск:
 
-Экран работает с существующим локальным backend API и поддерживает:
+```bash
+docker compose up --build
+```
 
-- таблицу контактов;
-- поиск по названию контакта;
-- фильтры по нормализованному типу, региону и статусу сделки;
-- пагинацию через `limit`/`offset`;
-- loading, error и empty states;
-- компактный индикатор статуса активного dataset.
+Теперь Compose поднимает:
 
-Backend не менялся.
+- `backend` на `http://localhost:8000`;
+- `frontend` на `http://localhost:5173`.
+
+Frontend service использует официальный `node:20-slim`, запускает существующий Vite dev server на `0.0.0.0:5173`, проксирует `/api` и `/health` на `http://backend:8000` через Compose service networking и не пишет `node_modules` в рабочее дерево благодаря anonymous volume `/app/node_modules`.
+
+Backend business logic и frontend report behavior не менялись.
 
 ## Измененные файлы
 
-- `frontend/package.json` — npm scripts, React/Vite/TypeScript/TanStack Query/Lucide dependencies.
-- `frontend/package-lock.json` — lockfile после `npm install`.
-- `frontend/index.html` — Vite HTML entry.
-- `frontend/tsconfig.json` — strict TypeScript config.
-- `frontend/vite.config.ts` — React plugin and dev proxy `/api`/`/health` to local backend.
-- `frontend/src/main.tsx` — React entry and `QueryClientProvider`.
-- `frontend/src/api.ts` — typed client for existing backend endpoints.
-- `frontend/src/App.tsx` — Contacts screen, filters, table, pagination, states, dataset badge.
-- `frontend/src/styles.css` — app styles based on `ui-kits` tokens.
-- `frontend/src/vite-env.d.ts` — Vite env typing.
-- `frontend/README.md` — frontend commands, backend URL, design-system note.
-- `.gitignore` — ignores TypeScript build info cache (`*.tsbuildinfo`).
-- `docs/development.md` — frontend install/run/build and API config.
-- `docs/project-status.md` — current frontend milestone status.
+- `docker-compose.yml` — добавлен `frontend` service, `VITE_BACKEND_URL=http://backend:8000`, port `5173:5173`, bind mount `./frontend:/app`, anonymous `/app/node_modules`, `depends_on: backend`.
+- `frontend/vite.config.ts` — Compose/runtime `process.env.VITE_BACKEND_URL` теперь имеет приоритет над default `http://localhost:8000`.
+- `docs/development.md` — описан one-command full-stack запуск, URLs, Compose proxy и verification checklist.
+- `frontend/README.md` — добавлен Compose запуск, ручной frontend flow и verification checklist.
 - `.ai/report.md` — this report.
 
-`.ai/task.md` remains a pre-existing unstaged planner change and was not modified by Codex. `ui-kits/`, generated data, DuckDB files, Parquet snapshots, CSV exports, `.env`, logs, caches, and `node_modules` were not staged.
+`.ai/task.md` остается pre-existing unstaged planner change and was not staged by Codex. `.env`, generated data, DuckDB files, Parquet snapshots, CSV exports, logs, caches, `node_modules`, `frontend/dist`, `ui-kits/`, and Docker volumes/images were not staged.
 
-## Endpoints Used
+## User Verification Checklist
 
-```text
-GET /api/reports/contacts
-GET /api/meta/filters
-GET /api/datasets/status
-```
-
-No new backend report endpoint was created.
-
-## Response Shape Notes
-
-The Contacts table follows the actual `ContactSummaryResponse` shape from `backend/app/api/models.py`.
-
-Displayed fields:
-
-- `contact_name`;
-- `contact_id`;
-- `contact_type_raw`;
-- `contact_type_normalized`;
-- `region_normalized`;
-- `total_deals_count`;
-- `won_deals_count`;
-- `open_deals_count`;
-- `lost_deals_count`;
-- `total_amount_original`.
-
-No forbidden personal fields are displayed. The endpoint response does not include phone, email, address, messenger, comments, files, requisites, or arbitrary non-allowlisted Bitrix fields.
-
-## Design System Files Inspected
-
-Inspected and used:
-
-- `ui-kits/readme.md` — product direction, Manrope typography, SaaS web-app layout, color/radius/spacing rules, icon guidance.
-- `ui-kits/SKILL.md` — instruction to use README and available files for production code.
-- `ui-kits/styles.css` — global import entry.
-- `ui-kits/tokens/colors.css` — primary blue, neutral palette, semantic surface/text/border aliases.
-- `ui-kits/tokens/typography.css` — Manrope and type tokens.
-- `ui-kits/tokens/spacing.css` — 2px/8px spacing scale and desktop max-width.
-- `ui-kits/tokens/effects.css` — 8px/12px radii, shadows, focus rings, transitions.
-- `ui-kits/components/core/Button.jsx` — button sizes, variants, hover/active behavior.
-- `ui-kits/components/core/Input.jsx` — label-above-input pattern and focus ring behavior.
-- `ui-kits/components/core/Badge.jsx` — badge variants and compact sizing.
-- `ui-kits/components/core/Card.jsx` — surface, border, radius, shadow pattern.
-- `ui-kits/components/feedback/Alert.jsx` — alert styling and semantic colors.
-- `ui-kits/components/navigation/Sidebar.jsx` — left navigation shell and active item styling.
-- `ui-kits/ui_kits/webapp/README.md` — web-app prototype composition.
-- `ui-kits/ui_kits/webapp/index.html` — dashboard shell reference.
-
-Applied design-system direction:
-
-- imported `../../ui-kits/styles.css` from the frontend CSS;
-- used Manrope, primary blue `#3040CC`, blue-grey neutrals, white cards, subtle borders, `8px` controls, `12px` cards, and compact data-table density;
-- used Lucide icons as the documented substitute for Untitled UI icons.
-
-`ui-kits/` files were not modified.
+- Open `http://localhost:8000/health` and confirm backend health responds.
+- Open `http://localhost:5173` and confirm the frontend loads.
+- Confirm the Contacts table loads.
+- Confirm search, filters, and pagination work.
+- If the frontend shows an API error, check `http://localhost:8000/api/datasets/status` and confirm an active dataset is available.
 
 ## Architecture Notes
 
-- TanStack Query is used for server state because the screen has three independent backend reads, cacheable filters/status data, and explicit loading/error refetch states.
-- The table is plain React for this milestone. TanStack Table was not added because the required table behavior is limited to rendering, filtering via backend query parameters, and simple pagination.
-- Backend CORS was not changed. Vite dev proxy handles local frontend-to-backend calls during development.
-- `VITE_BACKEND_URL` controls the dev proxy target. `VITE_API_BASE_URL` can be used for built/static deployments when the API is not same-origin.
+- No `frontend/Dockerfile` was added. The Compose service uses the official Node image directly because this is the smallest maintainable development setup.
+- The manual frontend flow still defaults to `http://localhost:8000`:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+- Compose overrides only the proxy target:
+
+```text
+VITE_BACKEND_URL=http://backend:8000
+```
+
+- `docker compose config` reads local `.env` when present. The command passed, but no local secret/env values are copied into this report.
 
 ## Bitrix Calls
 
@@ -115,47 +70,51 @@ No Bitrix sync was run. No Bitrix row-listing methods were called. No Bitrix wri
 
 Before implementation:
 
-- `git log --oneline -5` — passed. Latest relevant commit was `17035a9 planner: TASK-2026-06-22-04 Build contacts frontend`.
-- `git status --short` — passed. Showed only pre-existing modified `.ai/task.md`.
+- `git log --oneline -5` — passed. Latest relevant commit was `b45ecfd planner: TASK-2026-06-22-05 Run full stack with Compose`.
+- `git status --short --branch` — passed. Showed only pre-existing modified `.ai/task.md`.
 
 Documentation/library checks:
 
-- Context7 docs queried for Vite, React, and TanStack Query.
+- Context7 docs queried for Docker Compose service configuration.
 
-Frontend checks from `frontend/`:
+Implementation checks:
 
-- `npm install` — passed. Created `package-lock.json`. npm reported 1 low severity vulnerability.
-- `npm run build` — initially failed because `vite.config.ts` needed Node typings.
-- `npm install --save-dev @types/node` — passed.
-- `npm run build` — passed:
+- `npm run build` from `frontend/` — passed:
   - `tsc -b`;
-  - `vite build`;
-  - output under ignored `frontend/dist/`.
+  - `vite build`.
+- `docker compose config` from repository root — passed.
+- `docker compose build` from repository root — passed. Built the backend image.
+- `docker compose up --build -d` from repository root — passed. Started backend and frontend containers.
+- Host HTTP checks with escalated network access — passed:
+  - `curl http://localhost:8000/health` returned HTTP `200`;
+  - `curl http://localhost:5173/` returned HTTP `200`.
+- Compose-internal frontend proxy checks — passed:
+  - `http://localhost:5173/health` from the frontend container returned HTTP `200`;
+  - `http://localhost:5173/api/datasets/status` from the frontend container returned HTTP `200`;
+  - direct `http://backend:8000/health` from the frontend container returned HTTP `200`.
+- `docker compose down -v` — passed. Containers/network were stopped and removed, including the anonymous node_modules volume.
 
-Repository/root checks:
-
-- `docker compose config` — not run successfully: Docker CLI is not available in this WSL distro (`The command 'docker' could not be found in this WSL 2 distro.`).
+Backend tests were not run because backend code did not change.
 
 Pre-staging checks:
 
-- `git status --short --branch` — passed. Showed TASK-2026-06-22-04 files plus pre-existing unstaged `.ai/task.md`.
-- `git diff --stat HEAD` — passed. Included tracked task docs/report changes plus pre-existing `.ai/task.md`; untracked frontend files are not included by this command before staging.
+- `git status --short --branch` — passed. Showed TASK-2026-06-22-05 files plus pre-existing unstaged `.ai/task.md`.
+- `git diff --stat HEAD` — passed. Included tracked task files plus pre-existing `.ai/task.md`.
 - `git diff --name-only --cached` — passed with no output.
 - `git diff --check -- ':!AGENTS.md' ':!.ai/task.md'` — passed with no output.
-- `git status --short --ignored frontend backend/data data ui-kits` — passed. Showed ignored `frontend/node_modules/`, `frontend/dist/`, `frontend/tsconfig.tsbuildinfo`, and `backend/data/`.
+- `git status --short --ignored frontend backend/data data ui-kits .env` — passed. `.env`, generated data, `frontend/dist/`, `frontend/node_modules/`, and `frontend/tsconfig.tsbuildinfo` were ignored and not staged.
 
 Final staged checks:
 
 - `git status --short --branch` — passed. `.ai/task.md` remained unstaged.
-- `git diff --stat HEAD` — passed. Included staged TASK-2026-06-22-04 files plus pre-existing unstaged `.ai/task.md`.
-- `git diff --name-only --cached` — passed. Listed only `.ai/report.md`, `.gitignore`, docs, and `frontend/` task files.
+- `git diff --stat HEAD` — passed. Included staged TASK-2026-06-22-05 files plus pre-existing unstaged `.ai/task.md`.
+- `git diff --name-only --cached` — passed. Listed only `.ai/report.md`, `docker-compose.yml`, `docs/development.md`, `frontend/README.md`, and `frontend/vite.config.ts`.
 - `git diff --check -- ':!AGENTS.md' ':!.ai/task.md'` — passed with no output.
-- `git status --short --ignored frontend backend/data data ui-kits` — passed. `ui-kits/`, generated data, `node_modules`, `dist`, and `tsbuildinfo` were not staged.
-- `git log --oneline -1` — passed. Latest relevant commit remained `17035a9 planner: TASK-2026-06-22-04 Build contacts frontend`.
+- `git status --short --ignored frontend backend/data data ui-kits .env` — passed. `.env`, generated data, `frontend/dist/`, `frontend/node_modules/`, `frontend/tsconfig.tsbuildinfo`, and `ui-kits/` were not staged.
+- `git log --oneline -1` — passed. Latest relevant commit remained `b45ecfd planner: TASK-2026-06-22-05 Run full stack with Compose`.
 
 ## Known Limitations
 
-- Only the Contacts screen is implemented.
-- No dashboard, ABC, RFM, stale deals, concentration, type/region analytics, authentication, production deployment, or CI was added.
-- The frontend assumes the backend is running separately at `http://localhost:8000` for local development unless `VITE_BACKEND_URL` is set.
-- `npm install` reported 1 low severity vulnerability; no automatic `npm audit fix` was run to avoid unplanned dependency changes.
+- Compose runs the Vite development server, not a production frontend build.
+- No Nginx, HTTPS, production deployment, CI, authentication, new screens, or new backend endpoints were added.
+- `npm install`/`npm ci` still reports 1 low severity npm vulnerability from the current dependency tree; no `npm audit fix` was run to avoid unplanned dependency changes.

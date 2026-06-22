@@ -37,7 +37,24 @@ Validate Compose configuration:
 docker compose config
 ```
 
-Run the backend:
+Run the full local stack:
+
+```bash
+docker compose up --build
+```
+
+Local URLs:
+
+```text
+Backend:  http://localhost:8000
+Frontend: http://localhost:5173
+```
+
+The Compose frontend service runs the Vite dev server on `0.0.0.0:5173` and
+sets `VITE_BACKEND_URL=http://backend:8000`, so frontend `/api` and `/health`
+requests are proxied to the backend service over the Compose network.
+
+Run only the backend when needed:
 
 ```bash
 docker compose up --build backend
@@ -48,6 +65,14 @@ Backend health endpoint:
 ```text
 GET http://localhost:8000/health
 ```
+
+Full-stack verification checklist:
+
+- `http://localhost:8000/health` returns backend health.
+- `http://localhost:5173` opens the frontend.
+- The Contacts table loads.
+- Search, filters, and pagination respond.
+- If the frontend shows an API error, check `GET http://localhost:8000/api/datasets/status` and confirm an active dataset is available.
 
 ## Frontend
 
@@ -84,6 +109,12 @@ Override the dev proxy target when needed:
 
 ```bash
 VITE_BACKEND_URL=http://localhost:8000 npm run dev
+```
+
+In Docker Compose this same setting is overridden to:
+
+```text
+VITE_BACKEND_URL=http://backend:8000
 ```
 
 The app can also call a non-same-origin API in built/static mode by setting:
@@ -192,7 +223,7 @@ as `CONTACT_ID` and `CONTACT_IDS`. It must not mass-call
 Safe local operator flow:
 
 ```text
-configure .env -> docker compose up --build backend -> run discovery -> set BITRIX_CONTACT_TYPE_FIELD -> run manual Bitrix sync -> read /api/datasets/status and reports
+configure .env -> docker compose up --build -> run discovery -> set BITRIX_CONTACT_TYPE_FIELD -> run manual Bitrix sync -> read /api/datasets/status and reports
 ```
 
 ## Backend Tests
@@ -222,4 +253,4 @@ If Docker commands print a WSL integration error, enable Docker Desktop integrat
 - NBRB rate loading is implemented for local backend readiness, but no scheduler or automatic refresh exists.
 - No persisted analytics tables, authentication, scheduler, or production frontend deployment is implemented.
 - Frontend is intentionally limited to the Contacts report screen.
-- Docker Compose currently runs only the backend service.
+- Docker Compose runs backend and the Vite frontend dev server for local testing.
