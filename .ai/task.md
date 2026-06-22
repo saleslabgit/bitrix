@@ -1,260 +1,203 @@
-# Task: TASK-2026-06-22-30
+# Task: TASK-2026-06-22-31
 
 Status: planned
-Created from: current `main` after accepted `TASK-2026-06-22-29`
+Created from: current `main` after accepted `TASK-2026-06-22-30`
 
 ## Title
 
-Add single-user login
+Prepare production deployment
 
 ## Goal
 
-Add a simple internal login gate before deployment preparation.
+Prepare the project for a simple VPS deployment while preserving the existing local development flow.
 
-The app needs exactly one configured username and password, stored only in environment variables, with an authenticated browser session protecting local analytics API access.
+The production setup should run the backend and a built frontend behind a reverse proxy with HTTPS-ready configuration. The current development `docker-compose.yml` must continue to work for local development with the Vite dev server.
 
 ## User Request
 
-The user said:
+The user asked how to deploy the app quickly to a VPS, confirmed that local development must keep working, and then said:
 
 ```text
-Следующим этапом нужно сделать простой логин, чисто под один логин и пароль. После этого будем готовить к деплою
+тогда сделай задачу на подготовку
 ```
 
 ## Facts
 
-- Authentication is currently explicitly listed as not done in `docs/project-status.md`.
-- Backend is FastAPI/Pydantic v2 under `backend/`.
-- Frontend is React/Vite/TanStack Query under `frontend/`.
-- Docker Compose loads `.env.example` and optional local `.env`.
-- Real `.env` files are gitignored and must not be committed.
-- Current frontend stores report filter state in localStorage, but no auth state exists.
-- Current backend APIs expose local analytics data under `/api/*`.
-- Bitrix remains a read-only source and report page loads must not call Bitrix directly.
-- The app is not yet production deployed.
+- The current default `docker-compose.yml` is a local development setup.
+- Current `docker-compose.yml` starts:
+  - `backend` from `backend/Dockerfile` on port `8000`;
+  - `frontend` from `node:20-slim` running `npm ci && npm run dev -- --host 0.0.0.0` on port `5173`.
+- There is no `frontend/Dockerfile` in the current repository.
+- Frontend has `npm run build` and produces a Vite static build.
+- Backend is FastAPI and is already containerized.
+- Runtime data is stored under `APP_DATA_DIR`, normally `data/`, and mounted as `./data:/app/data` in dev compose.
+- Auth is implemented and controlled by env variables:
+  - `APP_AUTH_ENABLED`;
+  - `APP_AUTH_USERNAME`;
+  - `APP_AUTH_PASSWORD`;
+  - `APP_AUTH_SESSION_SECRET`;
+  - `APP_AUTH_SESSION_TTL_SECONDS`;
+  - `APP_AUTH_COOKIE_SECURE`.
+- For HTTPS deployment, `APP_AUTH_COOKIE_SECURE=true` should be supported by the deploy docs/config.
+- Docker Compose must not auto-refresh Bitrix data. Data refresh remains a manual UI action.
+- Bitrix webhook and auth credentials must stay in server-local `.env` or deployment secrets and must not be committed.
+- `docs/project-status.md` still lists CI and production deployment as intentionally not done.
 
-## Product Semantics
+## Assumptions
 
-Implement a minimal internal auth model:
+- The first deployment target is a single VPS running Docker Compose.
+- One public domain will point to the VPS.
+- A simple reverse proxy container is acceptable. Prefer Caddy for the first production deployment because it can manage Let's Encrypt certificates automatically with less configuration than manual Nginx/certbot.
+- Backend and frontend should be private inside the Docker network in production; only the reverse proxy should publish public ports.
+- The production compose file can be a separate file, for example `docker-compose.prod.yml`, so local development remains unchanged.
 
-- one username;
-- one password;
-- no registration;
-- no password reset;
-- no roles;
-- no user database;
-- no audit UI;
-- no multi-user permissions.
+## Unknowns
 
-The login should protect the internal analytics UI and API from casual unauthenticated access before deployment.
+- Final domain name.
+- VPS provider and OS image.
+- Backup destination and retention policy.
+- Whether production will later need CI/CD or manual SSH deploy is enough for the first release.
 
-## Security Semantics
+Do not block this task on those unknowns. Use placeholders and document what the operator must fill in on the VPS.
 
-Required:
+## Scope
 
-- Username/password must come from environment variables only.
-- Do not commit real credentials.
-- Do not log the password.
-- Do not return the password or auth secret in API responses.
-- Do not store the password or session token in browser localStorage.
-- Use an HttpOnly cookie for the browser session.
-- Use constant-time comparison for credential checks.
-- Session cookie must have `HttpOnly` and `SameSite=Lax` at minimum.
-- Support a configurable session signing secret from env.
-- Support a configurable session TTL.
-- Logout must clear the cookie.
+### 1. Preserve local development
 
-Recommended:
+Keep the current local development flow intact:
 
-- Use only Python standard library for the simple signed session token if that fits current stack.
-- Use HMAC signing with expiry timestamp for the cookie payload.
-- Add `APP_AUTH_COOKIE_SECURE` or equivalent so deployment can enable secure cookies behind HTTPS.
-
-## Auth Configuration
-
-Add env-driven settings.
-
-Recommended variables:
-
-```text
-APP_AUTH_ENABLED=false
-APP_AUTH_USERNAME=
-APP_AUTH_PASSWORD=
-APP_AUTH_SESSION_SECRET=
-APP_AUTH_SESSION_TTL_SECONDS=86400
-APP_AUTH_COOKIE_SECURE=false
+```bash
+docker compose up --build
 ```
 
-Behavior:
+The existing dev compose may be left as-is unless a tiny non-breaking improvement is required. Do not replace the Vite dev server in the default dev compose.
 
-- If `APP_AUTH_ENABLED=false`, local development remains open and the frontend should not show a login screen.
-- If `APP_AUTH_ENABLED=true`, backend must require all necessary auth settings.
-- If auth is enabled but username/password/session secret are missing, fail closed with an explicit safe error. Do not silently run open.
-- `.env.example` must contain only placeholder/empty values, not real credentials and not a reusable default password.
+### 2. Add production frontend image
 
-## Backend Scope
+Add a production frontend container build.
 
-### 1. Settings
+Requirements:
 
-Update `backend/app/core/config.py`:
+- Build frontend dependencies with Node.
+- Run `npm run build`.
+- Serve the built `dist` static files from a lightweight HTTP server image.
+- The static server must support SPA fallback to `index.html`.
+- The static server must proxy `/api/*` and `/health` to the backend service inside the Docker network, or the reverse proxy must do this clearly and safely.
+- Do not commit `frontend/dist`.
 
-- add auth settings;
-- validate required auth values when auth is enabled;
-- keep existing Bitrix/data settings behavior unchanged.
+Recommended implementation options:
 
-### 2. Auth helpers
+- `frontend/Dockerfile` multi-stage build using `node:20-slim` for build and `nginx:alpine` for serving static files.
+- Add an nginx config under `frontend/` or deploy config directory that serves static files and proxies API calls to `backend:8000`.
 
-Add a small backend auth module consistent with current project structure.
+Alternative acceptable implementation:
 
-Required helpers:
+- Caddy serves static frontend build and reverse proxies API if the structure stays simple and verified.
 
-- validate login credentials with constant-time comparison;
-- create signed session cookie value with expiry;
-- validate signed session cookie;
-- detect expired/invalid cookie safely;
-- build safe auth status response.
+### 3. Add production compose
 
-Do not store sessions in DuckDB.
+Add `docker-compose.prod.yml`.
 
-### 3. Auth endpoints
+Requirements:
 
-Add typed endpoints:
+- Services should include backend, production frontend/static server, and reverse proxy if needed.
+- Only public HTTP/HTTPS ports should be exposed from the production stack, normally `80:80` and `443:443`.
+- Backend must not publish `8000` publicly in production.
+- Frontend/internal static server should not publish its dev port publicly in production unless it is the reverse proxy itself.
+- Backend data must persist via a bind mount or named volume. Prefer preserving the current operator-visible `./data:/app/data` mount for simplicity.
+- Add restart policies suitable for VPS use, for example `restart: unless-stopped`.
+- Compose must load `.env.example` plus optional `.env`, same as dev, without committing real values.
+- Compose startup must not call Bitrix or refresh local data.
 
-```text
-GET  /api/auth/session
-POST /api/auth/login
-POST /api/auth/logout
+### 4. Add reverse proxy / HTTPS-ready config
+
+Add the simplest production reverse proxy configuration.
+
+Preferred Caddy approach:
+
+- Add a `Caddyfile` or deploy Caddy config with a placeholder domain.
+- Reverse proxy app traffic to the production frontend/static service.
+- Ensure `/api/*` and `/health` reach the backend, either via frontend nginx proxy or directly in Caddy.
+- Use an environment variable or documented placeholder for the domain where practical.
+- Persist Caddy data/certs with volumes if Caddy is used.
+
+If using Nginx instead:
+
+- Include clear HTTPS/certbot notes or keep it HTTP-only behind an external TLS proxy, but document the tradeoff.
+
+### 5. Add production environment template
+
+Add a safe production env template, for example `.env.production.example` or `deploy/.env.production.example`.
+
+Requirements:
+
+- Include placeholders only.
+- Include auth variables with `APP_AUTH_ENABLED=true` and `APP_AUTH_COOKIE_SECURE=true` as production guidance.
+- Include `BITRIX_WEBHOOK_URL=` placeholder only, never a real URL.
+- Include `BITRIX_CONTACT_TYPE_FIELD=` placeholder.
+- Include `APP_DATA_DIR=data`.
+- Do not create or commit a real `.env`.
+
+### 6. Add deploy documentation
+
+Update docs so the user can deploy manually to a VPS.
+
+Required docs:
+
+- `docs/development.md` or a new `docs/deployment.md` if clearer.
+- `docs/project-status.md`.
+- `frontend/README.md` and/or `backend/README.md` only if relevant to explain production behavior.
+
+The deploy docs must include:
+
+- VPS prerequisites: Docker, Docker Compose plugin, Git, domain DNS A record.
+- Clone/update commands.
+- How to create the server-local `.env` from the production example.
+- How to generate a strong `APP_AUTH_SESSION_SECRET`.
+- How to start production:
+
+```bash
+docker compose -f docker-compose.prod.yml up --build -d
 ```
 
-Required behavior:
+- How to check status/logs:
 
-- `GET /api/auth/session` returns whether auth is enabled and whether the current request is authenticated.
-- `POST /api/auth/login` accepts username/password JSON and sets the session cookie on success.
-- Invalid login returns `401` with a generic message, not which field failed.
-- `POST /api/auth/logout` clears the cookie.
-- Do not expose password, secret, or raw cookie token.
-
-Suggested response shape:
-
-```json
-{
-  "auth_enabled": true,
-  "authenticated": true,
-  "username": "..."
-}
+```bash
+docker compose -f docker-compose.prod.yml ps
+docker compose -f docker-compose.prod.yml logs -f
 ```
 
-When auth is disabled, `authenticated` can be `true` and `username` can be `null` or a safe local label.
+- How to verify health and app URL.
+- How to update after new commits:
 
-### 4. Protect API routes
+```bash
+git pull
+docker compose -f docker-compose.prod.yml up --build -d
+```
 
-Protect backend routes when auth is enabled.
-
-Required:
-
-- `/health` remains public.
-- `/api/auth/*` remains public enough to login/session/logout.
-- All other `/api/*` routes require a valid session cookie when auth is enabled.
-- Protected unauthenticated requests return `401` JSON.
-- No Bitrix calls are added by auth checks.
-- Manual refresh endpoint `/api/local/refresh-data` must be protected.
-- Internal diagnostics/reconciliation endpoints must be protected.
-
-Implementation may use FastAPI middleware or dependencies, but it must be centralized enough that new API routes are unlikely to be accidentally left open.
-
-### 5. Backend tests
-
-Add tests for:
-
-- auth disabled: existing route functions/tests continue to work;
-- auth enabled with missing config fails closed or returns safe explicit config error according to implementation;
-- unauthenticated `/api/meta/filters` or another representative `/api/*` endpoint returns `401` through HTTP client;
-- `GET /api/auth/session` works before login;
-- invalid login returns `401` and does not set a valid session;
-- valid login sets HttpOnly cookie;
-- authenticated request to protected endpoint succeeds;
-- logout clears session and protected endpoint returns `401` again;
-- password/secret are not included in JSON responses.
-
-Prefer HTTP-level tests with FastAPI `TestClient` for middleware behavior.
-
-## Frontend Scope
-
-### 1. API client
-
-Update `frontend/src/api.ts`:
-
-- add auth types and functions for session/login/logout;
-- include cookies in requests, e.g. `credentials: "include"`;
-- expose `401` in a way the app can route to login instead of showing a table error forever.
-
-### 2. Login screen
-
-Update `frontend/src/App.tsx` and styles:
-
-- on app start, query `/api/auth/session`;
-- if auth is disabled, render the existing app normally;
-- if auth is enabled and unauthenticated, show a compact login screen;
-- login form contains username, password, submit button;
-- show loading and generic invalid-credentials error;
-- do not store password or token in localStorage/sessionStorage;
-- after successful login, refetch session and normal app data;
-- add logout action in compact top area when authenticated and auth is enabled;
-- logout should clear cookie and return to login screen.
-
-UI requirements:
-
-- Use existing design tokens/style direction.
-- Keep it simple; no marketing page.
-- Login screen should be usable on desktop and narrow screens.
-- Do not expose auth settings or secrets.
-
-### 3. Existing report behavior
-
-Do not regress:
-
-- Contacts, Deals, ABC report screens;
-- right-side filter drawer;
-- table width/height fix from `TASK-2026-06-22-29`;
-- contact revenue chart modal;
-- manual refresh UX;
-- localStorage report filters.
-
-When session expires or an API returns `401`, the frontend should move back to login or clearly require re-login, without clearing saved report filters.
-
-## Documentation Scope
-
-Update:
-
-- `.env.example` with auth variables and safe comments/placeholders;
-- `docs/development.md` with local auth configuration and operator flow;
-- `docs/project-status.md` to move authentication out of not-done state;
-- `frontend/README.md` with login behavior and verification steps;
-- backend README if one exists and is relevant.
-
-Document:
-
-- auth disabled by default for local dev if that is the chosen implementation;
-- how to enable auth in local `.env`;
-- never commit real auth credentials or secrets;
-- deployment must set auth env variables and use a strong session secret.
+- How to stop production safely.
+- How to back up and restore at least the `data/` directory at a high level.
+- State clearly that Bitrix refresh remains manual through the UI after login.
+- State clearly that local dev still uses `docker compose up --build`.
 
 ## Out Of Scope
 
-- Multi-user accounts.
-- Roles/permissions.
-- Password reset.
-- User management UI.
-- Persistent session table in DuckDB.
-- OAuth/SSO.
-- Rate limiting/brute-force protection beyond generic error responses.
-- Full deployment/Nginx/HTTPS setup.
-- Changing Bitrix refresh behavior.
-- Calling Bitrix from auth flow.
+- CI/CD pipeline.
+- GitHub Actions deployment.
+- Cloud-managed database.
+- Kubernetes.
+- Multi-server deployment.
+- Complex secret managers.
+- Automated scheduled Bitrix refresh.
+- New product features or reports.
+- Changing analytics logic.
+- Changing auth semantics beyond production env guidance.
+- Implementing full backup automation with retention unless it is trivial and well isolated.
 
 ## Constraints
 
 - Work only from current GitHub repository files.
+- Preserve default local development behavior.
 - Keep Bitrix read-only.
 - Do not add CRM write methods matching:
 
@@ -266,39 +209,47 @@ crm.*.set
 ```
 
 - Do not commit real `.env`, credentials, webhook URLs, auth passwords, session secrets, DuckDB files, Parquet, CSV, raw data, generated data, logs, caches, `node_modules`, `frontend/dist`, or `ui-kits/` changes.
-- Do not store password/session token in browser localStorage.
-- Do not use `git add .`.
+- Do not change `ui-kits/`.
+- Docker Compose must not automatically refresh data from Bitrix.
+- Backend/frontend production API calls should remain same-origin from the browser, so HttpOnly auth cookies work cleanly.
 
 ## Acceptance Criteria
 
-### Backend
+### Local development
 
-- Auth can be enabled with one username/password/session secret from env.
-- Auth disabled mode preserves current local dev flow.
-- When auth is enabled, unauthenticated `/api/*` except `/api/auth/*` returns `401`.
-- Login with valid credentials sets an HttpOnly session cookie.
-- Login with invalid credentials returns generic `401`.
-- Logout clears session cookie.
-- Auth status endpoint returns safe auth status only.
-- Missing auth config when enabled fails closed with a safe explicit error.
-- No Bitrix calls are added.
+- `docker compose up --build` remains the local dev command.
+- Local dev frontend still runs with Vite dev server and existing operator flow.
+- Existing local auth-disabled default remains possible with `.env.example`.
 
-### Frontend
+### Production compose
 
-- When auth is enabled and user is not logged in, login screen is shown instead of report data.
-- Valid login opens the existing report workspace.
-- Invalid login shows a generic error.
-- Logout returns to login screen.
-- Session expiry/`401` sends user back to login or shows re-login state.
-- Existing report filters/table state are not wiped by login/logout.
-- Existing Contacts/Deals/ABC UI still works after login.
+- A separate production compose file exists and builds/runs the stack for VPS deployment.
+- Backend is not publicly exposed in production compose.
+- Only reverse proxy/public web ports are exposed in production compose.
+- Production stack serves built frontend static files, not Vite dev server.
+- `/api/*` and `/health` are routed to backend successfully in production topology.
+- Production data persists under the configured data mount/volume.
+- Production compose does not call Bitrix on startup.
 
-### Safety and docs
+### HTTPS/auth readiness
 
-- `.env.example` has safe auth placeholders only.
-- Docs explain how to enable auth and that real credentials stay in local/deploy env.
+- Reverse proxy configuration is HTTPS-ready with clear domain placeholder/instructions.
+- Production env example enables auth and secure cookies by default as guidance, using placeholders only.
+- Same-origin browser access is preserved so the existing HttpOnly cookie auth works.
+
+### Documentation
+
+- Deployment docs are sufficient for a manual VPS deploy by the user.
+- Docs explain local dev vs production commands.
+- Docs explain server-local secrets and `.env` handling.
+- Docs include backup guidance for `data/`.
+- `docs/project-status.md` is updated to reflect that production deployment preparation exists, while actual deployment host and backup destination remain unknown.
+
+### Safety
+
 - No secrets or forbidden artifacts are committed.
-- No CRM write methods are added.
+- No `frontend/dist`, local DB, raw data, generated data, logs, caches, or `node_modules` are committed.
+- No Bitrix write methods are added.
 - `.ai/report.md` is updated.
 
 ## Checks
@@ -310,43 +261,35 @@ git log --oneline -5
 git status --short
 ```
 
-Backend checks:
+Suggested implementation checks:
 
 ```bash
-cd backend && python -m pytest tests/test_api_local.py
+docker compose config
+docker compose -f docker-compose.prod.yml config
 ```
 
-If auth helpers/tests are placed in new test files, run them explicitly too.
-
-If shared backend app/middleware behavior changes broadly, run full backend tests:
-
-```bash
-cd backend && python -m pytest
-```
-
-Frontend checks:
+Frontend build:
 
 ```bash
 cd frontend && npm run build
 ```
 
-Runtime/browser verification if practical:
+Production runtime smoke if Docker is available:
 
 ```bash
-docker compose up --build -d
-curl -f http://localhost:8000/health
-curl -i http://localhost:8000/api/auth/session
-curl -i http://localhost:8000/api/meta/filters
-curl -f http://localhost:5173/
+docker compose -f docker-compose.prod.yml up --build -d
+curl -f http://localhost/health
+curl -f http://localhost/
+docker compose -f docker-compose.prod.yml down
 ```
 
-If auth is enabled for runtime smoke, verify:
+If the production proxy requires a real domain for HTTPS, test HTTP/local routing as far as practical and document the limitation in `.ai/report.md`.
 
-- unauthenticated report API returns `401`;
-- login succeeds with configured test credentials;
-- protected API works after login cookie;
-- logout clears access;
-- frontend login screen appears before login and report workspace appears after login.
+Backend tests if backend code is changed:
+
+```bash
+cd backend && python -m pytest
+```
 
 Safety search:
 
@@ -365,16 +308,17 @@ git status --short
 Before committing, verify:
 
 - only task-related files are staged;
+- `.ai/report.md` is updated;
 - no real credentials or secrets are staged;
 - no `.env`, local DB, raw/generated data, logs, caches, `node_modules`, `frontend/dist`, or `ui-kits/` changes are staged;
-- `.ai/report.md` is updated;
-- backend tests are recorded;
+- default dev compose still exists and remains the local command;
+- production compose config validates;
 - frontend build is recorded;
-- auth runtime/browser verification is recorded or explicitly marked unavailable;
+- runtime smoke is recorded or a concrete limitation is documented;
 - no Bitrix write methods were added.
 
 Commit message:
 
 ```text
-codex: TASK-2026-06-22-30 Add single-user login
+codex: TASK-2026-06-22-31 Prepare production deployment
 ```
