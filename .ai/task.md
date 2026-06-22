@@ -1,116 +1,256 @@
-# Task: TASK-2026-06-22-29
+# Task: TASK-2026-06-22-30
 
 Status: planned
-Created from: current `main` after `TASK-2026-06-22-28`
+Created from: current `main` after accepted `TASK-2026-06-22-29`
 
 ## Title
 
-Fix report workspace width
+Add single-user login
 
 ## Goal
 
-Fix the frontend layout regression after `TASK-2026-06-22-28`:
+Add a simple internal login gate before deployment preparation.
 
-- during loading, the table card collapses into a narrow centered card;
-- after loading, the table card does not use the full available workspace width.
-
-The report workspace must use the full width and height available to the main content area.
+The app needs exactly one configured username and password, stored only in environment variables, with an authenticated browser session protecting local analytics API access.
 
 ## User Request
 
-The user reported two visual issues with screenshots:
+The user said:
 
-1. Loading state renders as a narrow centered table card instead of a full-width workspace table.
-2. After data loads, the table is still not full-width.
+```text
+Следующим этапом нужно сделать простой логин, чисто под один логин и пароль. После этого будем готовить к деплою
+```
 
 ## Facts
 
-- `TASK-2026-06-22-28` introduced the dense report workspace, right filter drawer, and full-height table card.
-- Current `frontend/src/styles.css` still has shared styles:
+- Authentication is currently explicitly listed as not done in `docs/project-status.md`.
+- Backend is FastAPI/Pydantic v2 under `backend/`.
+- Frontend is React/Vite/TanStack Query under `frontend/`.
+- Docker Compose loads `.env.example` and optional local `.env`.
+- Real `.env` files are gitignored and must not be committed.
+- Current frontend stores report filter state in localStorage, but no auth state exists.
+- Current backend APIs expose local analytics data under `/api/*`.
+- Bitrix remains a read-only source and report page loads must not call Bitrix directly.
+- The app is not yet production deployed.
 
-```css
-.toolbar,
-.table-card {
-  margin: 0 auto;
-  ...
+## Product Semantics
+
+Implement a minimal internal auth model:
+
+- one username;
+- one password;
+- no registration;
+- no password reset;
+- no roles;
+- no user database;
+- no audit UI;
+- no multi-user permissions.
+
+The login should protect the internal analytics UI and API from casual unauthenticated access before deployment.
+
+## Security Semantics
+
+Required:
+
+- Username/password must come from environment variables only.
+- Do not commit real credentials.
+- Do not log the password.
+- Do not return the password or auth secret in API responses.
+- Do not store the password or session token in browser localStorage.
+- Use an HttpOnly cookie for the browser session.
+- Use constant-time comparison for credential checks.
+- Session cookie must have `HttpOnly` and `SameSite=Lax` at minimum.
+- Support a configurable session signing secret from env.
+- Support a configurable session TTL.
+- Logout must clear the cookie.
+
+Recommended:
+
+- Use only Python standard library for the simple signed session token if that fits current stack.
+- Use HMAC signing with expiry timestamp for the cookie payload.
+- Add `APP_AUTH_COOKIE_SECURE` or equivalent so deployment can enable secure cookies behind HTTPS.
+
+## Auth Configuration
+
+Add env-driven settings.
+
+Recommended variables:
+
+```text
+APP_AUTH_ENABLED=false
+APP_AUTH_USERNAME=
+APP_AUTH_PASSWORD=
+APP_AUTH_SESSION_SECRET=
+APP_AUTH_SESSION_TTL_SECONDS=86400
+APP_AUTH_COOKIE_SECURE=false
+```
+
+Behavior:
+
+- If `APP_AUTH_ENABLED=false`, local development remains open and the frontend should not show a login screen.
+- If `APP_AUTH_ENABLED=true`, backend must require all necessary auth settings.
+- If auth is enabled but username/password/session secret are missing, fail closed with an explicit safe error. Do not silently run open.
+- `.env.example` must contain only placeholder/empty values, not real credentials and not a reusable default password.
+
+## Backend Scope
+
+### 1. Settings
+
+Update `backend/app/core/config.py`:
+
+- add auth settings;
+- validate required auth values when auth is enabled;
+- keep existing Bitrix/data settings behavior unchanged.
+
+### 2. Auth helpers
+
+Add a small backend auth module consistent with current project structure.
+
+Required helpers:
+
+- validate login credentials with constant-time comparison;
+- create signed session cookie value with expiry;
+- validate signed session cookie;
+- detect expired/invalid cookie safely;
+- build safe auth status response.
+
+Do not store sessions in DuckDB.
+
+### 3. Auth endpoints
+
+Add typed endpoints:
+
+```text
+GET  /api/auth/session
+POST /api/auth/login
+POST /api/auth/logout
+```
+
+Required behavior:
+
+- `GET /api/auth/session` returns whether auth is enabled and whether the current request is authenticated.
+- `POST /api/auth/login` accepts username/password JSON and sets the session cookie on success.
+- Invalid login returns `401` with a generic message, not which field failed.
+- `POST /api/auth/logout` clears the cookie.
+- Do not expose password, secret, or raw cookie token.
+
+Suggested response shape:
+
+```json
+{
+  "auth_enabled": true,
+  "authenticated": true,
+  "username": "..."
 }
 ```
 
-- `.table-card` is a flex item inside `.main-panel`.
-- In a column flex layout, `margin: 0 auto` on the cross axis can prevent the card from stretching to full available width.
-- Current `.table-card` has flex/height behavior but does not explicitly force `width: 100%`.
-- Loading state uses `ContactsSkeleton` inside the same `.table-card`, so the card width can collapse around skeleton content.
-- Current screenshots show:
-  - loading: narrow centered card;
-  - loaded: table card centered and not using the available main panel width.
-- Backend/data behavior is not part of this bug.
-- Bitrix must remain read-only and report page loads must stay local-only.
+When auth is disabled, `authenticated` can be `true` and `username` can be `null` or a safe local label.
 
-## Scope
+### 4. Protect API routes
 
-### 1. Fix table card width in all report states
+Protect backend routes when auth is enabled.
 
-Update `frontend/src/styles.css` and `frontend/src/App.tsx` only if needed.
+Required:
 
-Required behavior:
+- `/health` remains public.
+- `/api/auth/*` remains public enough to login/session/logout.
+- All other `/api/*` routes require a valid session cookie when auth is enabled.
+- Protected unauthenticated requests return `401` JSON.
+- No Bitrix calls are added by auth checks.
+- Manual refresh endpoint `/api/local/refresh-data` must be protected.
+- Internal diagnostics/reconciliation endpoints must be protected.
 
-- `.table-card` must fill the available width of `.main-panel` in Contacts, Deals, and ABC.
-- Loading, refreshing, empty, error, and loaded states must use the same full-width table card shell.
-- The table card must not center itself by content width.
-- The table card must preserve current viewport-bounded height behavior.
-- The table card must keep horizontal table scrolling for wide tables.
-- The table card must not overflow under the sidebar.
-- The table card should respect the main panel padding, but should otherwise span from left to right inside that panel.
+Implementation may use FastAPI middleware or dependencies, but it must be centralized enough that new API routes are unlikely to be accidentally left open.
 
-Expected CSS direction:
+### 5. Backend tests
 
-- Remove or override `margin: 0 auto` for `.table-card`.
-- Add explicit `width: 100%` and `max-width: none` where needed.
-- Keep `.toolbar` behavior unaffected if no inline toolbars remain visible, but avoid broad changes that could break drawer controls.
-- Ensure `.table-scroll`, `table`, skeleton, and state panels do not force shrink-to-content width.
+Add tests for:
 
-### 2. Fix loading state presentation
+- auth disabled: existing route functions/tests continue to work;
+- auth enabled with missing config fails closed or returns safe explicit config error according to implementation;
+- unauthenticated `/api/meta/filters` or another representative `/api/*` endpoint returns `401` through HTTP client;
+- `GET /api/auth/session` works before login;
+- invalid login returns `401` and does not set a valid session;
+- valid login sets HttpOnly cookie;
+- authenticated request to protected endpoint succeeds;
+- logout clears session and protected endpoint returns `401` again;
+- password/secret are not included in JSON responses.
 
-Required behavior:
+Prefer HTTP-level tests with FastAPI `TestClient` for middleware behavior.
 
-- When table data is pending, the loading/skeleton state appears inside a full-width, full-height table card.
-- Loading state should not show a narrow standalone card in the center of the page.
-- Pagination should not show misleading `Страница 1 из 1` if there is no loaded table data yet, unless existing behavior intentionally keeps pagination visible; prefer hiding pagination while active table query is pending.
+## Frontend Scope
 
-### 3. Preserve TASK-28 behavior
+### 1. API client
+
+Update `frontend/src/api.ts`:
+
+- add auth types and functions for session/login/logout;
+- include cookies in requests, e.g. `credentials: "include"`;
+- expose `401` in a way the app can route to login instead of showing a table error forever.
+
+### 2. Login screen
+
+Update `frontend/src/App.tsx` and styles:
+
+- on app start, query `/api/auth/session`;
+- if auth is disabled, render the existing app normally;
+- if auth is enabled and unauthenticated, show a compact login screen;
+- login form contains username, password, submit button;
+- show loading and generic invalid-credentials error;
+- do not store password or token in localStorage/sessionStorage;
+- after successful login, refetch session and normal app data;
+- add logout action in compact top area when authenticated and auth is enabled;
+- logout should clear cookie and return to login screen.
+
+UI requirements:
+
+- Use existing design tokens/style direction.
+- Keep it simple; no marketing page.
+- Login screen should be usable on desktop and narrow screens.
+- Do not expose auth settings or secrets.
+
+### 3. Existing report behavior
 
 Do not regress:
 
-- compact top action row;
+- Contacts, Deals, ABC report screens;
 - right-side filter drawer;
-- full-height workspace;
-- sticky table headers;
-- visible bottom pagination when data is loaded;
+- table width/height fix from `TASK-2026-06-22-29`;
 - contact revenue chart modal;
-- Contacts/Deals/ABC sorting and pagination;
-- region filters/columns remain hidden.
+- manual refresh UX;
+- localStorage report filters.
 
-### 4. Documentation and report
+When session expires or an API returns `401`, the frontend should move back to login or clearly require re-login, without clearing saved report filters.
 
-Update docs only if the layout behavior documentation materially changes.
+## Documentation Scope
 
-Update `.ai/report.md` with:
+Update:
 
-- root cause;
-- changed files;
-- checks run;
-- browser/visual verification result;
-- any remaining risk.
+- `.env.example` with auth variables and safe comments/placeholders;
+- `docs/development.md` with local auth configuration and operator flow;
+- `docs/project-status.md` to move authentication out of not-done state;
+- `frontend/README.md` with login behavior and verification steps;
+- backend README if one exists and is relevant.
+
+Document:
+
+- auth disabled by default for local dev if that is the chosen implementation;
+- how to enable auth in local `.env`;
+- never commit real auth credentials or secrets;
+- deployment must set auth env variables and use a strong session secret.
 
 ## Out Of Scope
 
-- Backend changes.
-- Data calculation changes.
-- New filters or columns.
-- Changing chart endpoint/modal behavior unless it is required by layout fix.
-- Re-enabling region filters/columns.
-- Editing `ui-kits/`.
-- Calling Bitrix from report pages.
+- Multi-user accounts.
+- Roles/permissions.
+- Password reset.
+- User management UI.
+- Persistent session table in DuckDB.
+- OAuth/SSO.
+- Rate limiting/brute-force protection beyond generic error responses.
+- Full deployment/Nginx/HTTPS setup.
+- Changing Bitrix refresh behavior.
+- Calling Bitrix from auth flow.
 
 ## Constraints
 
@@ -125,21 +265,40 @@ crm.*.delete
 crm.*.set
 ```
 
-- Do not commit `.env`, DuckDB, Parquet, CSV, raw data, generated data, logs, caches, `node_modules`, `frontend/dist`, or `ui-kits/` changes.
+- Do not commit real `.env`, credentials, webhook URLs, auth passwords, session secrets, DuckDB files, Parquet, CSV, raw data, generated data, logs, caches, `node_modules`, `frontend/dist`, or `ui-kits/` changes.
+- Do not store password/session token in browser localStorage.
 - Do not use `git add .`.
 
 ## Acceptance Criteria
 
-- In loading state, Contacts table card is full-width inside the main workspace, not a narrow centered card.
-- After loading, Contacts table card is full-width inside the main workspace.
-- Deals and ABC table cards also remain full-width.
-- Table card still extends to the bottom of the viewport.
-- Table rows still scroll inside the card.
-- Table headers remain sticky while scrolling rows.
-- Pagination remains visible at the bottom when data is loaded.
-- There is no large unused horizontal space caused by the card being centered/narrow.
-- Existing drawer filters and contact revenue modal still work.
-- No Bitrix calls or CRM write methods are added.
+### Backend
+
+- Auth can be enabled with one username/password/session secret from env.
+- Auth disabled mode preserves current local dev flow.
+- When auth is enabled, unauthenticated `/api/*` except `/api/auth/*` returns `401`.
+- Login with valid credentials sets an HttpOnly session cookie.
+- Login with invalid credentials returns generic `401`.
+- Logout clears session cookie.
+- Auth status endpoint returns safe auth status only.
+- Missing auth config when enabled fails closed with a safe explicit error.
+- No Bitrix calls are added.
+
+### Frontend
+
+- When auth is enabled and user is not logged in, login screen is shown instead of report data.
+- Valid login opens the existing report workspace.
+- Invalid login shows a generic error.
+- Logout returns to login screen.
+- Session expiry/`401` sends user back to login or shows re-login state.
+- Existing report filters/table state are not wiped by login/logout.
+- Existing Contacts/Deals/ABC UI still works after login.
+
+### Safety and docs
+
+- `.env.example` has safe auth placeholders only.
+- Docs explain how to enable auth and that real credentials stay in local/deploy env.
+- No secrets or forbidden artifacts are committed.
+- No CRM write methods are added.
 - `.ai/report.md` is updated.
 
 ## Checks
@@ -149,6 +308,20 @@ Required before implementation:
 ```bash
 git log --oneline -5
 git status --short
+```
+
+Backend checks:
+
+```bash
+cd backend && python -m pytest tests/test_api_local.py
+```
+
+If auth helpers/tests are placed in new test files, run them explicitly too.
+
+If shared backend app/middleware behavior changes broadly, run full backend tests:
+
+```bash
+cd backend && python -m pytest
 ```
 
 Frontend checks:
@@ -162,15 +335,18 @@ Runtime/browser verification if practical:
 ```bash
 docker compose up --build -d
 curl -f http://localhost:8000/health
+curl -i http://localhost:8000/api/auth/session
+curl -i http://localhost:8000/api/meta/filters
 curl -f http://localhost:5173/
 ```
 
-Browser verification must include:
+If auth is enabled for runtime smoke, verify:
 
-- a loading or simulated pending state screenshot/measurement, if practical;
-- loaded Contacts screen at a wide desktop viewport similar to the user screenshot;
-- verify `.table-card` width is approximately the `.main-panel` content width, not shrink-to-content;
-- verify the card reaches the bottom of the viewport.
+- unauthenticated report API returns `401`;
+- login succeeds with configured test credentials;
+- protected API works after login cookie;
+- logout clears access;
+- frontend login screen appears before login and report workspace appears after login.
 
 Safety search:
 
@@ -178,21 +354,27 @@ Safety search:
 rg "crm\.[A-Za-z0-9_.]*(add|update|delete|set)" backend/app backend/tests frontend/src
 ```
 
+Secret/artifact check before commit:
+
+```bash
+git status --short
+```
+
 ## Hard Workflow Gate
 
 Before committing, verify:
 
 - only task-related files are staged;
-- no forbidden artifacts are staged;
-- `ui-kits/` is not staged;
-- `node_modules` and `frontend/dist` are not staged;
+- no real credentials or secrets are staged;
+- no `.env`, local DB, raw/generated data, logs, caches, `node_modules`, `frontend/dist`, or `ui-kits/` changes are staged;
 - `.ai/report.md` is updated;
+- backend tests are recorded;
 - frontend build is recorded;
-- browser/runtime verification is recorded or explicitly marked unavailable;
+- auth runtime/browser verification is recorded or explicitly marked unavailable;
 - no Bitrix write methods were added.
 
 Commit message:
 
 ```text
-codex: TASK-2026-06-22-29 Fix report workspace width
+codex: TASK-2026-06-22-30 Add single-user login
 ```
