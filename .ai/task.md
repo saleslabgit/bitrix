@@ -1,111 +1,191 @@
-# Task: TASK-2026-06-22-06
+# Task: TASK-2026-06-22-07
 
 Status: planned
-Created from: current `main` after user reported frontend Compose runtime error
+Created from: current `main` after accepted `TASK-2026-06-22-06`
 
 ## Title
 
-Fix Compose ui-kits mount
-
-## Problem
-
-When running the full stack through Docker Compose, the frontend Vite dev server fails with:
-
-```text
-[plugin:vite:css] [postcss] ENOENT: no such file or directory, open '../../ui-kits/styles.css'
-/app/src/styles.css
-```
-
-Root cause: the frontend container mounts only `./frontend` to `/app`, while `frontend/src/styles.css` imports `../../ui-kits/styles.css`. Inside the container, that relative path resolves outside `/app` to `/ui-kits/styles.css`, but `ui-kits/` is not mounted there.
+Add manual data refresh flow
 
 ## Goal
 
-Fix the full-stack Compose startup so this command works and the Contacts screen opens:
+Make the project usable like a real local app after `docker compose up --build` without requiring the user to know backend internals or run hidden helper scripts.
+
+Docker must only start services. It must not automatically call Bitrix or refresh data. The user should control data refresh explicitly from the UI.
+
+Required user flow:
+
+1. User runs:
 
 ```bash
 docker compose up --build
 ```
 
-The fix must keep the manual frontend flow working:
+2. User opens:
 
-```bash
-cd frontend
-npm install
-npm run dev
+```text
+http://localhost:5173
 ```
 
-## Scope
+3. If local `data/analytics.duckdb` has an active dataset, Contacts table loads normally.
+4. If local database is empty/not prepared, frontend shows a clear empty-state panel:
 
-### 1. Fix design-system asset availability in Compose
-
-Implement the smallest maintainable fix. Expected solution:
-
-- mount repository `./ui-kits` into the frontend container at the path expected by the existing import, likely `/ui-kits:ro`.
-
-Alternative solutions are acceptable only if they preserve both:
-
-- Compose launch;
-- manual local frontend launch.
-
-Do not copy or duplicate the `ui-kits/` files into `frontend/`.
-
-### 2. Verify frontend startup, not just build
-
-`npm run build` alone is insufficient because the reported failure happens in Vite dev server under Compose.
-
-Run and document checks that prove the browser-visible dev server no longer shows the Vite CSS ENOENT overlay:
-
-```bash
-docker compose config
-docker compose up --build -d
-curl -f http://localhost:8000/health
-curl -f http://localhost:5173/
-curl -f http://localhost:5173/health
-curl -f http://localhost:5173/api/datasets/status
+```text
+Локальная база не подготовлена.
+Нажмите «Обновить из Bitrix», чтобы загрузить данные.
 ```
 
-Also inspect frontend container logs for absence of the `ui-kits/styles.css` ENOENT error.
+5. User clicks `Обновить из Bitrix`.
+6. Backend runs the existing read-only Bitrix manual sync, then applies approved contact type rules, reruns local normalization, and loads NBRB rates.
+7. Frontend shows progress/status and then refreshes dataset status, filters, and Contacts table.
+8. If sync/preparation fails, frontend shows a clear error from the safe backend status/message.
 
-Stop services afterward:
+## Important Product Rules
 
-```bash
-docker compose down -v
+- Bitrix remains read-only.
+- No Bitrix write methods are allowed.
+- Docker startup must not automatically call Bitrix.
+- User must explicitly start refresh from UI.
+- Existing local database must be reused if present.
+- Generated local data, DuckDB, Parquet, `.env`, logs, caches, and secrets must not be staged or committed.
+
+## Backend Scope
+
+### 1. Add one safe operator endpoint
+
+Add a backend endpoint for the full manual refresh flow, for example:
+
+```text
+POST /api/local/refresh-data
 ```
 
-If Docker cannot be run in the environment, document the exact reason in `.ai/report.md` and still make the config fix.
+The endpoint should:
 
-### 3. Documentation and report
+- build the existing Bitrix client from env settings;
+- call existing manual read-only Bitrix sync;
+- if sync succeeds, apply approved contact type rules and rerun normalization from the new raw tables;
+- if sync succeeds, load NBRB currency rates for raw deals;
+- return a typed safe response with status, counts, and safe messages;
+- never return secrets, webhook URL, raw rows, contact/deal row samples, local absolute paths, or generated file contents.
+
+If naming should be different to match existing conventions, choose the cleanest local/operator naming and document it.
+
+### 2. Keep existing endpoints
+
+Do not remove existing endpoints:
+
+- `POST /api/bitrix/sync/run`;
+- `GET /api/bitrix/sync/status`;
+- `GET /api/datasets/status`;
+- `GET /api/reports/contacts`.
+
+If possible, reuse existing code instead of duplicating sync logic.
+
+### 3. Error handling
+
+Handle these cases safely:
+
+- missing `BITRIX_WEBHOOK_URL`;
+- invalid webhook or Bitrix request error;
+- sync succeeds but local preparation fails;
+- NBRB rate loading fails or unsupported currency appears.
+
+A failed refresh must not leave the UI pretending the dataset is ready. Return enough safe status for the frontend to display a useful message.
+
+### 4. No async job system unless necessary
+
+This can be a synchronous MVP endpoint even if the request takes several minutes. Frontend should show a blocking loading state with clear text.
+
+Do not add Celery/RQ/background workers/scheduler in this task.
+
+## Frontend Scope
+
+Update the existing Contacts screen only.
+
+### 1. Dataset-not-ready state
+
+When `/api/datasets/status` says there is no active successful dataset, show a prominent empty-state panel instead of just an empty Contacts table.
+
+Panel content should explain:
+
+- local database is not prepared;
+- user can start a manual read-only refresh from Bitrix;
+- refresh can take several minutes.
+
+### 2. Refresh action
+
+Add a button:
+
+```text
+Обновить из Bitrix
+```
+
+On click:
+
+- call the new backend refresh endpoint;
+- show loading/progress text such as `Загрузка данных из Bitrix... Это может занять несколько минут.`;
+- disable duplicate refresh clicks while request is running;
+- after success, refetch dataset status, filter metadata, and Contacts table;
+- after failure, show a clear error message and keep the refresh button available.
+
+### 3. Existing Contacts behavior
+
+If dataset is ready, keep existing Contacts behavior:
+
+- search;
+- filters;
+- pagination;
+- loading/error/empty states.
+
+Do not add new report screens in this task.
+
+## Documentation And Report
 
 Update:
 
-- `.ai/report.md` — root cause, changed files, exact checks, and user verification command;
-- `docs/development.md` and/or `frontend/README.md` only if the launch instructions or Compose behavior materially change.
+- `.ai/report.md` — changed files, endpoint added, UI behavior, checks, limitations;
+- `docs/development.md` — simple user flow: run Docker, open frontend, click refresh if data is not ready;
+- `frontend/README.md` — same short flow;
+- `docs/project-status.md` — app now has manual data refresh flow for local testing.
+
+Mention explicitly that local databases are intentionally not committed and Docker does not auto-refresh data.
 
 ## Out Of Scope
 
-- New screens.
-- Frontend redesign.
-- Backend API changes.
-- Bitrix calls.
-- Bitrix sync.
-- Bitrix write methods.
-- Production Docker/Nginx/HTTPS.
+- Automatic refresh on Docker startup.
+- Scheduled refresh.
+- Background job queue.
+- New report screens.
+- Dashboard.
+- Auth/roles.
+- Production deployment/Nginx/HTTPS.
 - CI.
-- Authentication.
+- Changing contact type business mapping.
+- Changing currency conversion formulas.
+- CSV export.
+- Any Bitrix write method.
 
 ## Acceptance Criteria
 
-- Compose frontend container can read `ui-kits/styles.css`.
-- `docker compose up --build` starts backend and frontend without the Vite CSS ENOENT overlay.
-- `http://localhost:5173` returns the frontend page.
-- Proxy checks for `/health` and `/api/datasets/status` still work through frontend/Vite.
-- Manual local frontend flow remains valid.
-- No `ui-kits/` files are modified or staged.
-- No generated artifacts, secrets, `.env`, DuckDB files, Parquet snapshots, CSV exports, logs, caches, `node_modules`, or `frontend/dist` are staged.
+- `docker compose up --build` starts the app without auto-calling Bitrix.
+- With no active dataset, frontend shows a clear “database not prepared” state and `Обновить из Bitrix` button.
+- Clicking refresh calls a backend endpoint that runs the full manual data preparation sequence:
+  - read-only Bitrix sync;
+  - approved contact type rules;
+  - local renormalization;
+  - NBRB currency rates.
+- After successful refresh, Contacts table loads without manual curl/helper commands.
+- Existing local active dataset still loads without forcing refresh.
+- No secrets, raw rows, forbidden personal fields, local absolute paths, generated data, or Bitrix webhook values are exposed.
+- No Bitrix write methods are added or called.
+- Tests cover backend refresh orchestration with mocks and frontend/API behavior where practical.
+- `npm run build` passes from `frontend/`.
+- Backend tests run if backend code changes.
+- Docs describe the simple user flow.
 - The implementation commit uses the exact required message:
 
 ```text
-codex: TASK-2026-06-22-06 Fix Compose ui-kits mount
+codex: TASK-2026-06-22-07 Add manual data refresh flow
 ```
 
 ## Checks
@@ -117,25 +197,33 @@ git log --oneline -5
 git status --short
 ```
 
-Run after implementation:
+Run after implementation as applicable:
+
+```bash
+cd backend
+python -m pytest
+```
+
+If system Python lacks pytest, use the existing backend dev environment and document the command.
+
+Run frontend checks:
+
+```bash
+cd frontend
+npm run build
+```
+
+Run Compose checks if Docker is available:
 
 ```bash
 docker compose config
 docker compose up --build -d
 curl -f http://localhost:8000/health
 curl -f http://localhost:5173/
-curl -f http://localhost:5173/health
-curl -f http://localhost:5173/api/datasets/status
-docker compose logs frontend
 docker compose down -v
 ```
 
-Run frontend build if frontend files beyond Compose/docs are changed:
-
-```bash
-cd frontend
-npm run build
-```
+Do not run live Bitrix refresh in tests unless the user explicitly asks. Use mocked backend tests for refresh orchestration. If a live/manual refresh is run for verification, document it clearly and never print secrets or row-level data.
 
 Before committing:
 
@@ -155,8 +243,9 @@ Codex must not commit until all conditions below are true:
 - the latest relevant commit is this planner commit;
 - `.ai/report.md` is updated;
 - every required check is either run and reported, or explicitly documented as not run with reason;
-- `.ai/report.md` explicitly states that no Bitrix calls were added or run;
-- staged files are only files intentionally changed for `TASK-2026-06-22-06` plus `.ai/report.md`;
+- `.ai/report.md` explicitly states whether any live Bitrix refresh was or was not run;
+- `.ai/report.md` explicitly states that no Bitrix write methods were added or called;
+- staged files are only files intentionally changed for `TASK-2026-06-22-07` plus `.ai/report.md`;
 - `.env`, generated data, DuckDB files, Parquet snapshots, CSV exports, logs, caches, `node_modules`, `frontend/dist`, and `ui-kits/` are not staged;
 - `.ai/task.md` is not staged by Codex unless the user explicitly requested changing the task;
 - the final commit message exactly matches the required `codex:` message above.
