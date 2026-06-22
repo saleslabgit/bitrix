@@ -1,191 +1,191 @@
-# Task: TASK-2026-06-22-07
+# Task: TASK-2026-06-22-08
 
 Status: planned
-Created from: current `main` after accepted `TASK-2026-06-22-06`
+Created from: current `main` after accepted `TASK-2026-06-22-07`
 
 ## Title
 
-Add manual data refresh flow
+Improve contacts USD and refresh UX
 
 ## Goal
 
-Make the project usable like a real local app after `docker compose up --build` without requiring the user to know backend internals or run hidden helper scripts.
+Improve the first real Contacts screen after user testing:
 
-Docker must only start services. It must not automatically call Bitrix or refresh data. The user should control data refresh explicitly from the UI.
+- avoid misleading original-currency totals as the main financial metric;
+- show USD revenue/profit metrics already calculated by the backend;
+- make manual data refresh progress and completion states clear for the user.
 
-Required user flow:
+Keep scope narrow: this is still the Contacts screen only. Do not add dashboard, ABC, RFM, deal-cycle, stale-deal, concentration, or type/region screens.
 
-1. User runs:
+## Current Problem
 
-```bash
-docker compose up --build
-```
-
-2. User opens:
+The Contacts screen currently displays `total_amount_original` from:
 
 ```text
-http://localhost:5173
+GET /api/reports/contacts
 ```
 
-3. If local `data/analytics.duckdb` has an active dataset, Contacts table loads normally.
-4. If local database is empty/not prepared, frontend shows a clear empty-state panel:
+That field is a sum of original deal amounts and is not converted to USD. Because contacts can have deals in different currencies, this is not a reliable financial metric.
+
+The backend already has converted metrics in:
 
 ```text
-Локальная база не подготовлена.
-Нажмите «Обновить из Bitrix», чтобы загрузить данные.
+GET /api/reports/contacts/analytics
 ```
 
-5. User clicks `Обновить из Bitrix`.
-6. Backend runs the existing read-only Bitrix manual sync, then applies approved contact type rules, reruns local normalization, and loads NBRB rates.
-7. Frontend shows progress/status and then refreshes dataset status, filters, and Contacts table.
-8. If sync/preparation fails, frontend shows a clear error from the safe backend status/message.
+Relevant fields include:
 
-## Important Product Rules
+- `revenue_usd`;
+- `estimated_profit_usd`;
+- `first_won_date`;
+- `last_won_date`;
+- `latest_deal_date`;
+- `has_sales`.
 
-- Bitrix remains read-only.
-- No Bitrix write methods are allowed.
-- Docker startup must not automatically call Bitrix.
-- User must explicitly start refresh from UI.
-- Existing local database must be reused if present.
-- Generated local data, DuckDB, Parquet, `.env`, logs, caches, and secrets must not be staged or committed.
+Also, the current refresh UI can temporarily show confusing text such as `Manual Bitrix refresh completed.` while the panel still says the local database is not prepared. The user needs clearer loading/progress/result indicators.
+
+## Product Scope
+
+### 1. Contacts table financial columns
+
+Update the Contacts screen to use USD analytics as the primary financial data.
+
+Expected table columns after the change:
+
+- contact name;
+- raw type, if still useful;
+- normalized type;
+- region;
+- total deals count;
+- won/open/lost deals count;
+- `Выручка USD` from `revenue_usd`;
+- `Расчетная прибыль USD` from `estimated_profit_usd`;
+- optional sales/date fields if they fit cleanly, e.g. latest deal date.
+
+Do not present `total_amount_original` as the main financial metric. If kept, label it clearly as diagnostic/original and do not imply it is converted.
+
+### 2. API usage
+
+Prefer using existing backend endpoints:
+
+- `GET /api/reports/contacts/analytics` for table data;
+- `GET /api/meta/filters`;
+- `GET /api/datasets/status`;
+- `POST /api/local/refresh-data`.
+
+Do not create a new report endpoint unless there is a strong reason. If a tiny backend fix is required for parity of filters/pagination, keep it scoped and covered by tests.
+
+The existing analytics endpoint supports `limit`, `offset`, `search`, `contact_type`, `region`, and date filters. If status filtering is not available there, either:
+
+- remove/disable the status filter on this screen with a clear reason in `.ai/report.md`; or
+- add status support to the analytics endpoint if it is small, consistent with the existing contacts endpoint, and tested.
+
+Do not silently keep a status filter that no longer affects results.
+
+### 3. Refresh UX
+
+Improve manual refresh UX on the Contacts screen:
+
+- while refresh is running, show a clear blocking/progress state:
+
+```text
+Загрузка данных из Bitrix...
+Это может занять несколько минут.
+```
+
+- disable duplicate refresh clicks;
+- after successful refresh, show a concise success state/counts before or while refetching table data, for example:
+
+```text
+Обновление завершено: 14216 контактов, 9142 сделок, курсы загружены.
+```
+
+- avoid displaying backend technical text like `Manual Bitrix refresh completed.` as the main user message;
+- after success, refetch dataset status, filters, and Contacts table;
+- after failure, show a clear error and keep the refresh button available.
+
+### 4. Preserve existing behavior
+
+Keep:
+
+- Docker starts services only, no auto-refresh;
+- user explicitly triggers refresh;
+- existing local active dataset loads immediately;
+- no Bitrix calls except when user clicks `Обновить из Bitrix`;
+- no Bitrix write methods;
+- no forbidden personal fields displayed.
 
 ## Backend Scope
 
-### 1. Add one safe operator endpoint
+Backend changes are allowed only if needed to support the improved Contacts table cleanly.
 
-Add a backend endpoint for the full manual refresh flow, for example:
+Possible acceptable backend changes:
 
-```text
-POST /api/local/refresh-data
-```
+- add status filter support to `GET /api/reports/contacts/analytics`, matching existing `GET /api/reports/contacts` behavior;
+- add/adjust tests for analytics pagination/filter behavior;
+- keep response safe and typed.
 
-The endpoint should:
+Forbidden backend changes:
 
-- build the existing Bitrix client from env settings;
-- call existing manual read-only Bitrix sync;
-- if sync succeeds, apply approved contact type rules and rerun normalization from the new raw tables;
-- if sync succeeds, load NBRB currency rates for raw deals;
-- return a typed safe response with status, counts, and safe messages;
-- never return secrets, webhook URL, raw rows, contact/deal row samples, local absolute paths, or generated file contents.
-
-If naming should be different to match existing conventions, choose the cleanest local/operator naming and document it.
-
-### 2. Keep existing endpoints
-
-Do not remove existing endpoints:
-
-- `POST /api/bitrix/sync/run`;
-- `GET /api/bitrix/sync/status`;
-- `GET /api/datasets/status`;
-- `GET /api/reports/contacts`.
-
-If possible, reuse existing code instead of duplicating sync logic.
-
-### 3. Error handling
-
-Handle these cases safely:
-
-- missing `BITRIX_WEBHOOK_URL`;
-- invalid webhook or Bitrix request error;
-- sync succeeds but local preparation fails;
-- NBRB rate loading fails or unsupported currency appears.
-
-A failed refresh must not leave the UI pretending the dataset is ready. Return enough safe status for the frontend to display a useful message.
-
-### 4. No async job system unless necessary
-
-This can be a synchronous MVP endpoint even if the request takes several minutes. Frontend should show a blocking loading state with clear text.
-
-Do not add Celery/RQ/background workers/scheduler in this task.
+- new report family;
+- new Bitrix methods;
+- Bitrix write methods;
+- changed currency conversion formula;
+- changed contact type mapping/priority rules.
 
 ## Frontend Scope
 
-Update the existing Contacts screen only.
+Update only the existing frontend Contacts screen and API client types.
 
-### 1. Dataset-not-ready state
+Requirements:
 
-When `/api/datasets/status` says there is no active successful dataset, show a prominent empty-state panel instead of just an empty Contacts table.
-
-Panel content should explain:
-
-- local database is not prepared;
-- user can start a manual read-only refresh from Bitrix;
-- refresh can take several minutes.
-
-### 2. Refresh action
-
-Add a button:
-
-```text
-Обновить из Bitrix
-```
-
-On click:
-
-- call the new backend refresh endpoint;
-- show loading/progress text such as `Загрузка данных из Bitrix... Это может занять несколько минут.`;
-- disable duplicate refresh clicks while request is running;
-- after success, refetch dataset status, filter metadata, and Contacts table;
-- after failure, show a clear error message and keep the refresh button available.
-
-### 3. Existing Contacts behavior
-
-If dataset is ready, keep existing Contacts behavior:
-
-- search;
-- filters;
-- pagination;
-- loading/error/empty states.
-
-Do not add new report screens in this task.
+- use `ContactAnalyticsPageResponse` shape if switching to `/api/reports/contacts/analytics`;
+- format USD money clearly, e.g. `$12,345.67` or `12 345,67 USD` consistently;
+- keep loading/error/empty states;
+- keep pagination;
+- keep search/type/region filters;
+- handle status filter correctly as described above;
+- keep design-system styling.
 
 ## Documentation And Report
 
 Update:
 
-- `.ai/report.md` — changed files, endpoint added, UI behavior, checks, limitations;
-- `docs/development.md` — simple user flow: run Docker, open frontend, click refresh if data is not ready;
-- `frontend/README.md` — same short flow;
-- `docs/project-status.md` — app now has manual data refresh flow for local testing.
-
-Mention explicitly that local databases are intentionally not committed and Docker does not auto-refresh data.
+- `.ai/report.md` — what changed, endpoint used, financial metric behavior, refresh UX, checks;
+- `frontend/README.md` and/or `docs/development.md` only if user flow changed materially;
+- `docs/project-status.md` — Contacts screen now uses USD analytics metrics.
 
 ## Out Of Scope
 
-- Automatic refresh on Docker startup.
-- Scheduled refresh.
-- Background job queue.
-- New report screens.
 - Dashboard.
-- Auth/roles.
-- Production deployment/Nginx/HTTPS.
-- CI.
-- Changing contact type business mapping.
-- Changing currency conversion formulas.
+- ABC/RFM screens.
+- Deal reconciliation screen.
+- Stale deals/cycle/concentration/type-region screens.
+- Automatic refresh.
+- Background queue.
+- Auth.
+- Production deployment.
+- UI redesign.
+- Design-system restructuring.
 - CSV export.
-- Any Bitrix write method.
 
 ## Acceptance Criteria
 
-- `docker compose up --build` starts the app without auto-calling Bitrix.
-- With no active dataset, frontend shows a clear “database not prepared” state and `Обновить из Bitrix` button.
-- Clicking refresh calls a backend endpoint that runs the full manual data preparation sequence:
-  - read-only Bitrix sync;
-  - approved contact type rules;
-  - local renormalization;
-  - NBRB currency rates.
-- After successful refresh, Contacts table loads without manual curl/helper commands.
-- Existing local active dataset still loads without forcing refresh.
-- No secrets, raw rows, forbidden personal fields, local absolute paths, generated data, or Bitrix webhook values are exposed.
+- Contacts screen no longer uses original-currency sum as the primary financial metric.
+- Contacts screen displays USD revenue and estimated profit from backend analytics.
+- Search/type/region filters and pagination still work.
+- Status filter is either supported correctly or removed/disabled with explicit report note.
+- Manual refresh running state is clear and blocks duplicate clicks.
+- Manual refresh success state shows useful user-facing counts/status, not only backend technical text.
+- No forbidden personal fields are displayed.
+- No Bitrix calls happen unless the user triggers refresh.
 - No Bitrix write methods are added or called.
-- Tests cover backend refresh orchestration with mocks and frontend/API behavior where practical.
 - `npm run build` passes from `frontend/`.
 - Backend tests run if backend code changes.
-- Docs describe the simple user flow.
 - The implementation commit uses the exact required message:
 
 ```text
-codex: TASK-2026-06-22-07 Add manual data refresh flow
+codex: TASK-2026-06-22-08 Improve contacts USD and refresh UX
 ```
 
 ## Checks
@@ -197,15 +197,6 @@ git log --oneline -5
 git status --short
 ```
 
-Run after implementation as applicable:
-
-```bash
-cd backend
-python -m pytest
-```
-
-If system Python lacks pytest, use the existing backend dev environment and document the command.
-
 Run frontend checks:
 
 ```bash
@@ -213,7 +204,16 @@ cd frontend
 npm run build
 ```
 
-Run Compose checks if Docker is available:
+Run backend tests if backend code changes:
+
+```bash
+cd backend
+python -m pytest
+```
+
+Use the existing backend dev environment if system Python lacks pytest and document the exact command.
+
+Run Compose smoke checks if Docker is available:
 
 ```bash
 docker compose config
@@ -223,7 +223,7 @@ curl -f http://localhost:5173/
 docker compose down -v
 ```
 
-Do not run live Bitrix refresh in tests unless the user explicitly asks. Use mocked backend tests for refresh orchestration. If a live/manual refresh is run for verification, document it clearly and never print secrets or row-level data.
+Do not run live Bitrix refresh unless the user explicitly asks. Use mocked tests for refresh UX/API changes where practical.
 
 Before committing:
 
@@ -245,7 +245,7 @@ Codex must not commit until all conditions below are true:
 - every required check is either run and reported, or explicitly documented as not run with reason;
 - `.ai/report.md` explicitly states whether any live Bitrix refresh was or was not run;
 - `.ai/report.md` explicitly states that no Bitrix write methods were added or called;
-- staged files are only files intentionally changed for `TASK-2026-06-22-07` plus `.ai/report.md`;
+- staged files are only files intentionally changed for `TASK-2026-06-22-08` plus `.ai/report.md`;
 - `.env`, generated data, DuckDB files, Parquet snapshots, CSV exports, logs, caches, `node_modules`, `frontend/dist`, and `ui-kits/` are not staged;
 - `.ai/task.md` is not staged by Codex unless the user explicitly requested changing the task;
 - the final commit message exactly matches the required `codex:` message above.
