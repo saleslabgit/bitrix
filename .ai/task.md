@@ -1,135 +1,163 @@
-# Task: TASK-2026-06-22-20
+# Task: TASK-2026-06-22-21
 
 Status: planned
-Created from: current `main` after accepted review of `TASK-2026-06-22-19`
+Created from: current `main` after `TASK-2026-06-22-20` was cancelled by the user before Codex implementation
 
 ## Title
 
-Stabilize filter metadata endpoint
+Link contact deal counts and hide regions
 
 ## Goal
 
-Fix the remaining runtime console error from the frontend:
+Improve the Contacts-to-Deals verification workflow and temporarily hide region UI until region logic is ready.
 
-```text
-GET http://localhost:5173/api/meta/filters 503 (Service Unavailable)
-```
+The user wants to click deal counters in the Contacts table and jump directly to the Deals report with matching client and status filters applied.
 
-The app must keep filter dropdowns stable without relying on a normal `503` response from `/api/meta/filters`.
+The user also wants all region filters and region columns hidden from the frontend for now because region detection is not finished.
 
 ## User Request
 
-The user reported the current browser console output:
+From the Contacts table:
 
-```text
-Download the React DevTools for a better development experience: https://react.dev/link/react-devtools
-api.ts:239 GET http://localhost:5173/api/meta/filters 503 (Service Unavailable)
-```
+- clicking `Всего сделок` should open Deals filtered by that contact/client;
+- clicking `Успешные` should open Deals filtered by that contact/client and `won` status;
+- clicking `Открытые` should open Deals filtered by that contact/client and `open` status;
+- clicking `Проигранные` should open Deals filtered by that contact/client and `lost` status.
+
+Additionally:
+
+- hide region filters and region columns everywhere in the frontend for now.
+
+The previously planned `TASK-2026-06-22-20 Stabilize filter metadata endpoint` is cancelled by the user as not currently needed. Do not implement it in this task.
 
 ## Facts
 
-- The React DevTools line is a normal React/Vite development-mode informational message. It is not an application bug and should not be suppressed.
-- Current `/api/meta/filters` calls `get_filter_metadata(connection)` and then checks active dataset status.
-- Current backend intentionally raises `503` when:
-  - an active successful dataset exists;
-  - `normalized_contacts_count > 0`;
-  - `filters.contact_types` is empty.
-- That guard was added to prevent transient/invalid empty metadata from wiping frontend dropdown options.
-- In real UI usage this produces a visible network error in the browser console.
-- Current `get_filter_metadata()` reads:
-  - contact types from `normalized_contacts.contact_type_normalized`;
-  - regions from `normalized_contacts.region_normalized`;
-  - statuses and date ranges from `normalized_deals`.
-- Current data model also has normalized deal type/region fields and active `contact_type_rules` with configured normalized types/regions.
-- Frontend already keeps a cached copy of the last valid filter metadata under `bitrix-sales.filter-metadata.v1`.
+- Current frontend has Contacts and Deals reports in `frontend/src/App.tsx`.
+- Current Contacts rows contain:
+  - `contact_id`;
+  - `contact_name`;
+  - `total_deals_count`;
+  - `won_deals_count`;
+  - `open_deals_count`;
+  - `lost_deals_count`.
+- Current Deals report already has a client text search filter `clientSearch` backed by `client_search` over local analytical contact/client name.
+- Current normalized deals contain `analytical_contact_id` and `analytical_contact_name` according to `docs/data-model.md`.
+- Current Deals backend endpoint supports deal ID, client search, status, type, region, date, sorting, pagination, and filtered totals.
+- Current frontend Contacts and Deals filters still include region UI and region state.
+- Backend reports must read local DuckDB-backed data only.
 - Frontend must call only local backend endpoints.
-- Report/filter APIs must not call Bitrix, NBRB, or external services.
+- Bitrix is read-only and must not be called from report page loads.
 
 ## Assumptions
 
-- `503` from `/api/meta/filters` is not acceptable as normal behavior for an active local dataset because it creates noisy console errors and can leave the UI without filter options when no cache exists.
-- The correct fix is backend-first: make `/api/meta/filters` return a safe stable `200` metadata response for prepared local datasets, rather than making the frontend hide an expected failure.
-- A stable metadata response may use safe local fallback sources when normalized contact metadata is temporarily incomplete:
-  - distinct non-empty normalized type/region values from `normalized_contacts`;
-  - distinct non-empty normalized type/region values from `normalized_deals`;
-  - distinct non-empty active configured values from `contact_type_rules`.
-- Fallback metadata must not expose raw Bitrix option IDs, raw contact rows, secrets, local paths, phones, emails, addresses, messengers, comments, files, requisites, or arbitrary custom fields.
-- If no active/prepared dataset exists, empty filter metadata can still be returned safely as `200`.
+- For the Contacts-to-Deals jump, exact `contact_id` filtering is safer than name-only filtering because two clients can share the same display name.
+- The Deals UI may still show the selected client name in the `Клиент` filter input, but the actual jump filter should be exact by local analytical contact ID when available.
+- When the user manually edits the Deals `Клиент` search input, it should behave as normal fuzzy text search and clear any hidden exact contact ID filter.
+- Clicking a non-zero counter should reset unrelated Deals filters so the result is easy to understand: only client, status, default dates, default pagination, and default sort should remain unless there is a strong existing pattern to preserve more.
+- Clicking a zero counter should either do nothing or render as a disabled/non-link value; it should not navigate to a confusing empty filtered view.
+- `Hide region filters and columns everywhere in frontend` means hide/remove region controls and columns from Contacts and Deals UI, and stop sending frontend `region` query params from these reports. Backend region fields and backend API support may remain for later use.
 
 ## Unknowns
 
-- The exact live local dataset shape that caused empty `contact_types` is unknown. Codex must reproduce the behavior with a minimal local fixture and document the root cause in `.ai/report.md`.
-- Browser click-through may depend on the execution environment. If unavailable, document the limitation in `.ai/report.md`.
+- Browser click-through verification depends on the execution environment. If unavailable, document the limitation in `.ai/report.md`.
 
 ## Scope
 
-### 1. Diagnose `/api/meta/filters` 503
+### 1. Backend exact client filter for Deals
 
-Investigate the current backend metadata path and identify why the active dataset can produce empty `contact_types`.
+Add exact client/contact filtering to the Deals analytics backend.
 
-Requirements:
+Recommended query parameter:
 
-- reproduce the current `503` behavior with a focused backend/API test before or during the fix;
-- document the root cause in `.ai/report.md`;
-- do not use live Bitrix calls for diagnosis;
-- do not expose raw rows, secrets, local paths, webhook values, or forbidden personal fields.
-
-### 2. Make metadata stable without normal 503
-
-Change backend metadata generation so `/api/meta/filters` returns `200` for normal prepared local dataset states.
+```text
+client_id
+```
 
 Requirements:
 
-- remove the current normal-path `503` guard for empty `contact_types`;
-- prevent dropdowns from collapsing to empty when safe local fallback metadata exists;
-- build `contact_types` and `regions` from safe local sources, recommended priority/union:
-  1. distinct normalized contact values from `normalized_contacts`;
-  2. distinct normalized deal values from `normalized_deals`;
-  3. distinct active configured values from `contact_type_rules`;
-- filter out `NULL` and blank values;
-- de-duplicate and sort deterministically;
-- keep statuses/date ranges from local normalized deals;
-- do not return raw type IDs or raw contact type strings in `/api/meta/filters`;
-- keep empty `200` metadata allowed only when no active/prepared dataset exists or the local database is genuinely empty.
+- `GET /api/reports/deals/analytics` should accept `client_id` as a positive integer query parameter.
+- It should filter local deals by `normalized_deals.analytical_contact_id` through the existing deal facts path.
+- It must remain local-only: no Bitrix, NBRB, or external calls from the report endpoint.
+- It must not expose forbidden personal fields.
+- It must compose correctly with status, type, created-date, sorting, pagination, and filtered totals.
+- If both `client_id` and `client_search` are supplied, prefer exact `client_id` for filtering. `client_search` can remain a frontend display/search value, but it must not accidentally exclude exact-client rows when `client_id` is present.
 
-If the chosen implementation differs from the recommended source union, explain why in `.ai/report.md` and cover it with tests.
+Add backend tests covering:
 
-### 3. Preserve frontend cache protection
+- exact `client_id` returns only that analytical client's deals;
+- exact `client_id` plus `status` returns only matching status deals;
+- filtered budget/profit totals respect exact `client_id` and status before pagination;
+- `client_id` does not use Bitrix or external calls.
 
-Review the frontend metadata handling and keep the useful cache behavior:
+### 2. Contacts table counter links
 
-- do not clear `bitrix-sales.filter-metadata.v1` when metadata fetch fails unexpectedly;
-- do not wipe dropdown options if a transient invalid metadata response is received;
-- do not add frontend Bitrix calls;
-- avoid noisy expected errors in normal operation.
+Make the Contacts deal-count cells clickable where useful.
 
-If backend no longer returns normal-path `503`, frontend changes may be minimal or unnecessary. Do not refactor the whole frontend.
+Required behavior:
 
-### 4. Documentation and report
+- `Всего сделок` click opens/switches to the Deals report with exact client filter and no status filter.
+- `Успешные` click opens/switches to Deals with exact client filter and `status = won`.
+- `Открытые` click opens/switches to Deals with exact client filter and `status = open`.
+- `Проигранные` click opens/switches to Deals with exact client filter and `status = lost`.
+- The Deals client input should visibly show the clicked contact/client name.
+- The actual Deals fetch should use exact `client_id` when the navigation came from a Contacts row.
+- The Deals page should reset to first page (`offset = 0`) after navigation.
+- Unrelated old Deals filters should be cleared on navigation unless keeping one is clearly necessary and documented.
+- Counters with `0` should not behave like active links.
+- Links/buttons must be keyboard-accessible and not break table sorting.
+- Existing contact ID Bitrix link behavior must remain unchanged.
+
+Implementation guidance:
+
+- Add a small helper such as `openDealsForContact(contact, status?)` in `App.tsx` rather than introducing a full router.
+- Reuse existing report state and storage patterns.
+- Keep the UI dense. A number-styled button/link is enough; avoid large new controls.
+
+### 3. Hide region UI in frontend
+
+Temporarily hide region filters and columns from the frontend.
+
+Requirements:
+
+- Remove/hide Region filter from Contacts toolbar.
+- Remove/hide Region filter from Deals toolbar.
+- Remove/hide Region column from Contacts table.
+- Remove/hide Region column from Deals table.
+- Remove region from frontend selected-filter counts.
+- Stop sending `region` query params from frontend report fetches.
+- Make persisted frontend state safe: old `region` values in localStorage must not continue to affect current frontend queries.
+- Make persisted sort state safe: old `region_normalized` sort values in localStorage should fall back to a valid visible default sort.
+- Do not remove backend region fields, backend region query support, storage columns, or docs about data model unless a small doc note is useful. This is a frontend hiding task, not a data-model rewrite.
+
+### 4. Frontend docs/report
 
 Update relevant docs if behavior changes, at minimum consider:
 
-- `docs/development.md` for stable metadata behavior;
-- `docs/data-model.md` if metadata fallback sources are documented;
-- `frontend/README.md` if frontend cache behavior wording changes;
+- `frontend/README.md` for Contacts counter navigation and temporarily hidden region UI;
+- `docs/development.md` if operator verification steps change;
 - `docs/project-status.md` if useful.
 
 Update `.ai/report.md` with:
 
-- actual root cause of the `/api/meta/filters 503`;
-- implementation details;
+- note that `TASK-2026-06-22-20` was cancelled and not implemented;
+- backend/client filter changes;
+- frontend Contacts-to-Deals navigation behavior;
+- hidden region UI details;
 - checks run;
-- note that the React DevTools console line is expected in dev mode;
 - confirmation that no Bitrix calls/write methods were added.
 
 ## Out Of Scope
 
+- Implementing/correcting region normalization logic.
+- Removing region data from backend, storage, reports, or database schema.
 - New report screens.
+- URL routing/query-string routing.
 - Changing Bitrix ingestion, extraction, contact-deal link logic, reconciliation, or manual refresh behavior.
 - Any live Bitrix diagnostic call.
 - Any Bitrix write operation.
 - Displaying forbidden personal fields or raw Bitrix rows.
 - Changing contact priority rules, type normalization semantics, currency loading, report metric formulas, or manual refresh semantics.
+- Implementing the cancelled `TASK-2026-06-22-20` metadata stabilization.
 - Adding CSV/export, authentication, scheduler, or automatic refresh.
 - Modifying `ui-kits/`.
 
@@ -138,7 +166,7 @@ Update `.ai/report.md` with:
 - Work only from current repository files.
 - Keep Bitrix read-only.
 - Frontend must call only local backend endpoints.
-- Metadata/report APIs must read local DuckDB-backed data only.
+- Report APIs must read local DuckDB-backed data only.
 - Do not add or call methods matching:
 
 ```text
@@ -150,26 +178,35 @@ crm.*.set
 
 - Do not commit `.env`, DuckDB files, Parquet snapshots, raw exports, generated data, logs, caches, `node_modules`, `frontend/dist`, or `ui-kits/` changes.
 - Do not expose webhook values, raw rows, local absolute paths, stack traces, or forbidden personal fields.
+- Do not change backend financial semantics: deal profit remains won-only; contact profit remains revenue-based.
 
 ## Acceptance Criteria
 
-- `/api/meta/filters` no longer returns `503` for the current normal active-dataset case where contact type metadata can be recovered from safe local fallback sources.
-- A regression test covers the previous `503` shape: active successful dataset, contacts present, `normalized_contacts.contact_type_normalized` empty or unavailable, and safe fallback values available.
-- The response contains stable non-empty `contact_types` and `regions` when fallback local sources have values.
-- The response remains deterministic: values are de-duplicated and sorted.
-- Empty `200` metadata remains allowed for an unprepared or genuinely empty local database.
-- Frontend dropdown cache protection remains intact.
-- The browser should not show an expected `GET /api/meta/filters 503` during normal active-dataset operation.
-- React DevTools console line is documented as expected dev-mode behavior, not treated as a bug.
-- No frontend Bitrix calls are added.
-- No backend metadata/report endpoint calls Bitrix, NBRB, or external services.
+- Latest relevant task is this planner commit, not cancelled `TASK-2026-06-22-20`.
+- Deals backend supports exact local `client_id` filtering by analytical contact ID.
+- Deals exact client filter composes with status and totals before pagination.
+- In Contacts table, non-zero deal count cells are clickable/keyboard-accessible.
+- Clicking `Всего сделок` opens Deals filtered by the clicked contact/client, with no status filter.
+- Clicking `Успешные` opens Deals filtered by clicked contact/client and `won`.
+- Clicking `Открытые` opens Deals filtered by clicked contact/client and `open`.
+- Clicking `Проигранные` opens Deals filtered by clicked contact/client and `lost`.
+- Deals client input shows the clicked contact name, while backend filtering uses exact `client_id`.
+- Manual editing of Deals client search clears hidden exact `client_id` and uses fuzzy `client_search` behavior.
+- Old unrelated Deals filters do not accidentally remain after clicking a Contacts counter.
+- Zero counters are not misleading clickable actions.
+- Region filters and columns are hidden from Contacts and Deals frontend.
+- Frontend no longer sends region query params for Contacts or Deals.
+- Old persisted region filters/sorts do not affect current frontend reports.
+- Contacts/Deals existing sorting, pagination, reset, loading, empty, and error states remain usable.
+- Frontend still calls only local backend endpoints.
+- Backend report endpoints do not call Bitrix, NBRB, or external services.
 - No Bitrix write methods are added.
 - Relevant backend tests and frontend build pass, or any inability is explicitly documented with reason.
 - Documentation and `.ai/report.md` are updated.
 - Commit message exactly:
 
 ```text
-codex: TASK-2026-06-22-20 Stabilize filter metadata endpoint
+codex: TASK-2026-06-22-21 Link contact deal counts and hide regions
 ```
 
 ## Checks
@@ -190,7 +227,7 @@ python -m pytest
 
 Use the existing backend dev environment if system Python lacks pytest and document the exact command.
 
-Run frontend build if frontend code changes:
+Run frontend build after frontend changes:
 
 ```bash
 cd frontend
@@ -219,7 +256,6 @@ docker compose config
 docker compose up --build -d
 curl -f http://localhost:8000/health
 curl -f http://localhost:5173/
-curl -f http://localhost:8000/api/meta/filters
 docker compose down
 ```
 
@@ -229,14 +265,14 @@ If Docker/browser checks cannot be run, document the reason in `.ai/report.md`.
 
 Codex must not commit until all conditions below are true:
 
-- latest relevant commit is this planner commit;
-- `/api/meta/filters 503` root cause is understood and documented;
-- metadata fallback is local-only, safe, deterministic, and tested;
-- the endpoint no longer uses `503` as the expected normal protection against empty dropdowns;
-- frontend metadata cache protection is preserved;
+- cancelled `TASK-2026-06-22-20` was not implemented;
+- exact Deals `client_id` filtering is implemented and tested;
+- Contacts counter click-to-Deals behavior works for all four count columns;
+- region UI is hidden from frontend filters and tables;
+- old persisted region state no longer affects frontend queries;
 - no frontend Bitrix calls are added;
 - no Bitrix write methods are added anywhere;
-- required backend tests and frontend build if applicable are run, or inability is explicitly documented;
+- required backend tests and frontend build are run, or inability is explicitly documented;
 - `.ai/report.md` describes implementation, checks, facts, unknowns, and risks;
 - staged files are only task files plus `.ai/report.md` and relevant docs;
 - forbidden artifacts are not staged;
