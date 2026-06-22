@@ -32,6 +32,66 @@ button {
   color: var(--color-text-primary);
 }
 
+.auth-shell {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: var(--space-6);
+  background: var(--color-bg-grey);
+  color: var(--color-text-primary);
+}
+
+.auth-card {
+  display: flex;
+  width: min(380px, 100%);
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-7);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-base);
+  box-shadow: var(--shadow-md);
+}
+
+.auth-mark {
+  display: inline-flex;
+  width: 44px;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  background: var(--color-primary-50);
+  color: var(--color-primary-600);
+}
+
+.auth-mark-danger {
+  background: var(--color-red-50);
+  color: var(--color-red-700);
+}
+
+.auth-card h1 {
+  color: var(--color-text-primary);
+  font-size: 24px;
+  line-height: 1.2;
+}
+
+.auth-card p {
+  color: var(--color-text-secondary);
+  font-size: 14px;
+}
+
+.auth-card .button {
+  width: 100%;
+}
+
+.auth-error {
+  padding: 10px 12px;
+  border: 1px solid var(--color-red-200);
+  border-radius: var(--radius-md);
+  background: var(--color-red-50);
+  color: var(--color-red-700) !important;
+}
+
 .sidebar {
   width: 240px;
   flex: 0 0 240px;
@@ -293,7 +353,8 @@ h1 {
 
 .input-shell,
 .field select,
-.date-input {
+.date-input,
+.auth-input {
   width: 100%;
   height: 40px;
   border: 1px solid var(--color-border-default);
@@ -328,14 +389,16 @@ h1 {
 
 .input-shell:focus-within,
 .field select:focus,
-.date-input:focus {
+.date-input:focus,
+.auth-input:focus {
   border-color: var(--color-border-focus);
   box-shadow: var(--focus-ring);
   outline: 0;
 }
 
 .field select,
-.date-input {
+.date-input,
+.auth-input {
   padding: 0 12px;
 }
 
@@ -1064,6 +1127,16 @@ tbody tr:hover {
 @media (max-width: 720px) {
   .main-panel {
     padding: var(--space-5);
+  }
+
+  .auth-shell {
+    align-items: stretch;
+    padding: var(--space-4);
+  }
+
+  .auth-card {
+    align-self: center;
+    padding: var(--space-6);
   }
 
   .workspace-header,

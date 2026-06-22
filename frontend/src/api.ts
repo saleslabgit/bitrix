@@ -176,6 +176,17 @@ export type LocalDataRefreshResponse = {
   currency_rate_currencies: string[];
 };
 
+export type AuthSession = {
+  auth_enabled: boolean;
+  authenticated: boolean;
+  username: string | null;
+};
+
+export type AuthLoginPayload = {
+  username: string;
+  password: string;
+};
+
 export type ContactFilters = {
   search: string;
   contactId: string;
@@ -221,6 +232,37 @@ export type AbcFilters = {
 };
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
+
+export class ApiAuthError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ApiAuthError";
+  }
+}
+
+export function isApiAuthError(error: unknown): error is ApiAuthError {
+  return error instanceof ApiAuthError;
+}
+
+export function fetchAuthSession(): Promise<AuthSession> {
+  return request<AuthSession>("/api/auth/session");
+}
+
+export function login(payload: AuthLoginPayload): Promise<AuthSession> {
+  return request<AuthSession>("/api/auth/login", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function logout(): Promise<AuthSession> {
+  return request<AuthSession>("/api/auth/logout", {
+    method: "POST"
+  });
+}
 
 export async function fetchContactAnalytics(
   filters: ContactFilters
@@ -372,6 +414,7 @@ export async function refreshLocalData(): Promise<LocalDataRefreshResponse> {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`, {
     ...init,
+    credentials: "include",
     headers: {
       Accept: "application/json",
       ...init?.headers
@@ -380,6 +423,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const detail = await readError(response);
+    if (response.status === 401) {
+      throw new ApiAuthError(detail || "Требуется вход в систему.");
+    }
     throw new Error(detail || `Request failed with HTTP ${response.status}`);
   }
 

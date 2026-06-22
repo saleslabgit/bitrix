@@ -20,6 +20,12 @@ Implemented screen:
 - Local Vite serves `/favicon.ico` from `frontend/public/favicon.ico`.
 - Region filters and columns are temporarily hidden in Contacts, Deals, and ABC while region detection is unfinished. Existing backend region support remains available for later use.
 - Contacts, Deals, and ABC use a dense full-height workspace without a large page title/subtitle block. Table cards fill the available viewport height; rows scroll inside the card with sticky table headers, while pagination remains visible at the bottom. Deals and ABC totals remain outside the row scroll area.
+- Optional single-user login is driven by backend auth settings. When
+  `APP_AUTH_ENABLED=true`, the app checks `/api/auth/session`, shows a compact
+  username/password form before the analytics workspace, uses the backend
+  HttpOnly cookie session, and exposes a logout action in the top workspace
+  area. Passwords and session tokens are not stored in localStorage or
+  sessionStorage.
 
 The app reads only the local backend API. It does not call Bitrix.
 
@@ -44,6 +50,11 @@ click `Обновить из Bitrix`; the backend runs the manual read-only refr
 applies approved contact type rules, reruns local normalization, loads NBRB
 rates, and then the screen reloads status, filters, and report rows. Local
 databases and generated data are intentionally not committed.
+
+Auth is disabled by default in `.env.example`. To test the login flow locally,
+create a real `.env` with `APP_AUTH_ENABLED=true`, `APP_AUTH_USERNAME`,
+`APP_AUTH_PASSWORD`, and `APP_AUTH_SESSION_SECRET`. Do not commit real
+credentials or reusable secrets.
 
 The Compose frontend service proxies API calls to `http://backend:8000` inside
 the Compose network and mounts the repository `ui-kits/` directory read-only for
@@ -76,6 +87,9 @@ For built/static deployments, set `VITE_API_BASE_URL` if the API is not served f
 
 - Backend health opens at `http://localhost:8000/health`.
 - Frontend opens at `http://localhost:5173`.
+- With `APP_AUTH_ENABLED=true`, the login screen appears before reports,
+  invalid credentials show a generic error, valid credentials open the report
+  workspace, and logout returns to login.
 - Contacts, Deals, and ABC tables load when a local active dataset exists.
 - With no active dataset, the manual `Обновить из Bitrix` panel appears.
 - The `Фильтры` button opens the right drawer for the active report; backdrop, close button, and Escape close it without resetting filters.

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
@@ -8,6 +8,8 @@ import {
   ChevronRight,
   Database,
   Filter,
+  LockKeyhole,
+  LogOut,
   PieChart,
   RefreshCcw,
   Search,
@@ -26,9 +28,13 @@ import {
   fetchAbcAnalytics,
   fetchContactAnalytics,
   fetchContactWonRevenueSeries,
+  fetchAuthSession,
   fetchDatasetStatus,
   fetchDealAnalytics,
   fetchFilterMetadata,
+  isApiAuthError,
+  login as authLogin,
+  logout as authLogout,
   refreshLocalData,
   type AbcAnalytics,
   type AbcAnalyticsPage,
@@ -161,6 +167,8 @@ export function App() {
   const [dealClientSearchDraft, setDealClientSearchDraft] = useState(dealFilters.clientSearch);
   const [abcSearchDraft, setAbcSearchDraft] = useState(abcFilters.search);
   const [abcContactIdDraft, setAbcContactIdDraft] = useState(abcFilters.contactId);
+  const [loginUsername, setLoginUsername] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
   const [dealCreatedDrafts, setDealCreatedDrafts] = useState({
     from: filters.dealCreatedFrom,
     to: filters.dealCreatedTo
@@ -294,9 +302,18 @@ export function App() {
     storeAbcFilters(abcFilters);
   }, [abcFilters]);
 
+  const authQuery = useQuery({
+    queryKey: ["auth-session"],
+    queryFn: fetchAuthSession,
+    retry: false
+  });
+  const canUseApi = authQuery.data?.authenticated === true;
+  const isAuthEnabled = authQuery.data?.auth_enabled === true;
+
   const statusQuery = useQuery({
     queryKey: ["dataset-status"],
-    queryFn: fetchDatasetStatus
+    queryFn: fetchDatasetStatus,
+    enabled: canUseApi
   });
 
   const activeDataset = statusQuery.data?.active_dataset;
@@ -306,7 +323,7 @@ export function App() {
   const filterQuery = useQuery({
     queryKey: ["filter-metadata"],
     queryFn: fetchFilterMetadata,
-    enabled: isDatasetReady
+    enabled: canUseApi && isDatasetReady
   });
   const isFreshFilterMetadataValid = isFilterMetadataValidForDataset(
     filterQuery.data,
@@ -326,19 +343,22 @@ export function App() {
   const contactsQuery = useQuery({
     queryKey: ["contacts", filters],
     queryFn: () => fetchContactAnalytics(filters),
-    enabled: activeReport === "contacts" && isDatasetReady && !isDealCreatedRangeInvalid
+    enabled:
+      canUseApi && activeReport === "contacts" && isDatasetReady && !isDealCreatedRangeInvalid
   });
 
   const dealsQuery = useQuery({
     queryKey: ["deals", dealFilters],
     queryFn: () => fetchDealAnalytics(dealFilters),
-    enabled: activeReport === "deals" && isDatasetReady && !isDealReportCreatedRangeInvalid
+    enabled:
+      canUseApi && activeReport === "deals" && isDatasetReady && !isDealReportCreatedRangeInvalid
   });
 
   const abcQuery = useQuery({
     queryKey: ["abc", abcFilters],
     queryFn: () => fetchAbcAnalytics(abcFilters),
     enabled:
+      canUseApi &&
       activeReport === "abc" &&
       isDatasetReady &&
       !isAbcDateRangeInvalid &&
@@ -359,7 +379,29 @@ export function App() {
         dateFrom: filters.dealCreatedFrom,
         dateTo: filters.dealCreatedTo
       }),
-    enabled: Boolean(revenueChartContact) && isDatasetReady
+    enabled: canUseApi && Boolean(revenueChartContact) && isDatasetReady
+  });
+
+  const loginMutation = useMutation({
+    mutationFn: authLogin,
+    onSuccess: async () => {
+      setLoginPassword("");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["auth-session"] }),
+        queryClient.invalidateQueries({ queryKey: ["dataset-status"] }),
+        queryClient.invalidateQueries({ queryKey: ["filter-metadata"] })
+      ]);
+    }
+  });
+
+  const logoutMutation = useMutation({
+    mutationFn: authLogout,
+    onSuccess: async (result) => {
+      setRevenueChartContact(null);
+      setIsFilterDrawerOpen(false);
+      queryClient.setQueryData(["auth-session"], result);
+      await queryClient.invalidateQueries({ queryKey: ["auth-session"] });
+    }
   });
 
   const refreshMutation = useMutation({
@@ -421,6 +463,14 @@ export function App() {
 
   const activeQuery =
     activeReport === "contacts" ? contactsQuery : activeReport === "deals" ? dealsQuery : abcQuery;
+  const hasSessionExpired =
+    isApiAuthError(statusQuery.error) ||
+    isApiAuthError(filterQuery.error) ||
+    isApiAuthError(contactsQuery.error) ||
+    isApiAuthError(dealsQuery.error) ||
+    isApiAuthError(abcQuery.error) ||
+    isApiAuthError(revenueSeriesQuery.error) ||
+    isApiAuthError(refreshMutation.error);
   const activeFilters =
     activeReport === "contacts" ? filters : activeReport === "deals" ? dealFilters : abcFilters;
   const activeRangeInvalid =
@@ -506,6 +556,27 @@ export function App() {
       : activeReport === "deals"
         ? selectedDealFilterCount
         : selectedAbcFilterCount;
+
+  useEffect(() => {
+    if (!canUseApi || !hasSessionExpired) {
+      return;
+    }
+
+    setRevenueChartContact(null);
+    setIsFilterDrawerOpen(false);
+    void authQuery.refetch();
+  }, [authQuery.refetch, canUseApi, hasSessionExpired]);
+
+  function submitLogin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!loginUsername.trim() || !loginPassword) {
+      return;
+    }
+    loginMutation.mutate({
+      username: loginUsername.trim(),
+      password: loginPassword
+    });
+  }
 
   function updateFilter(name: keyof ContactFilters, value: string) {
     setFilters((current) => ({
@@ -742,6 +813,34 @@ export function App() {
     }));
   }
 
+  if (authQuery.isPending) {
+    return <AuthLoadingScreen />;
+  }
+
+  if (authQuery.isError) {
+    return (
+      <AuthMessageScreen
+        title="Не удалось проверить сессию"
+        message={authQuery.error.message}
+        onRetry={() => void authQuery.refetch()}
+      />
+    );
+  }
+
+  if (isAuthEnabled && !canUseApi) {
+    return (
+      <LoginScreen
+        username={loginUsername}
+        password={loginPassword}
+        isSubmitting={loginMutation.isPending}
+        errorMessage={loginMutation.isError ? "Неверный логин или пароль." : null}
+        onUsernameChange={setLoginUsername}
+        onPasswordChange={setLoginPassword}
+        onSubmit={submitLogin}
+      />
+    );
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar" aria-label="Основная навигация">
@@ -816,6 +915,17 @@ export function App() {
               >
                 <RefreshCcw size={16} strokeWidth={1.5} />
                 {isRefreshing ? "Обновление..." : "Обновить из Bitrix"}
+              </button>
+            )}
+            {isAuthEnabled && (
+              <button
+                className="button button-secondary"
+                type="button"
+                disabled={logoutMutation.isPending}
+                onClick={() => logoutMutation.mutate()}
+              >
+                <LogOut size={16} strokeWidth={1.5} />
+                {logoutMutation.isPending ? "Выход..." : "Выйти"}
               </button>
             )}
           </div>
@@ -1353,6 +1463,114 @@ export function App() {
           onClose={() => setRevenueChartContact(null)}
         />
       )}
+    </div>
+  );
+}
+
+function AuthLoadingScreen() {
+  return (
+    <div className="auth-shell">
+      <section className="auth-card" aria-live="polite">
+        <div className="auth-mark">
+          <LockKeyhole size={22} strokeWidth={1.5} />
+        </div>
+        <h1>Bitrix Sales</h1>
+        <p>Проверка сессии...</p>
+      </section>
+    </div>
+  );
+}
+
+function AuthMessageScreen({
+  title,
+  message,
+  onRetry
+}: {
+  title: string;
+  message: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="auth-shell">
+      <section className="auth-card" role="alert">
+        <div className="auth-mark auth-mark-danger">
+          <AlertCircle size={22} strokeWidth={1.5} />
+        </div>
+        <h1>{title}</h1>
+        <p>{message}</p>
+        <button className="button button-primary" type="button" onClick={onRetry}>
+          <RefreshCcw size={16} strokeWidth={1.5} />
+          Повторить
+        </button>
+      </section>
+    </div>
+  );
+}
+
+function LoginScreen({
+  username,
+  password,
+  isSubmitting,
+  errorMessage,
+  onUsernameChange,
+  onPasswordChange,
+  onSubmit
+}: {
+  username: string;
+  password: string;
+  isSubmitting: boolean;
+  errorMessage: string | null;
+  onUsernameChange: (value: string) => void;
+  onPasswordChange: (value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <div className="auth-shell">
+      <form className="auth-card" onSubmit={onSubmit}>
+        <div className="auth-mark">
+          <LockKeyhole size={22} strokeWidth={1.5} />
+        </div>
+        <h1>Bitrix Sales</h1>
+        <p>Вход во внутреннюю аналитику</p>
+
+        <label className="field">
+          <span>Логин</span>
+          <input
+            className="auth-input"
+            value={username}
+            onChange={(event) => onUsernameChange(event.target.value)}
+            autoComplete="username"
+            autoFocus
+            type="text"
+          />
+        </label>
+
+        <label className="field">
+          <span>Пароль</span>
+          <input
+            className="auth-input"
+            value={password}
+            onChange={(event) => onPasswordChange(event.target.value)}
+            autoComplete="current-password"
+            type="password"
+          />
+        </label>
+
+        {errorMessage && (
+          <p className="auth-error" role="alert">
+            {errorMessage}
+          </p>
+        )}
+
+        <button
+          className="button button-primary"
+          type="submit"
+          disabled={isSubmitting || !username.trim() || !password}
+        >
+          <LockKeyhole size={16} strokeWidth={1.5} />
+          {isSubmitting ? "Проверка..." : "Войти"}
+        </button>
+      </form>
     </div>
   );
 }

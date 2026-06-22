@@ -49,7 +49,7 @@ tests/
     synthetic_dataset.py     # Compatibility re-export for test fixture imports
 ```
 
-Manual read-only Bitrix ingestion is implemented as a backend/data boundary with mocked tests. Runtime uses a configured local DuckDB store, successful synthetic/Bitrix runs activate the local dataset, and allowlisted raw Parquet snapshots can be written under the local data directory. NBRB integration, persisted analytics tables, production storage migrations, authentication, and frontend-facing report API hardening are intentionally not implemented yet.
+Manual read-only Bitrix ingestion is implemented as a backend/data boundary with mocked tests. Runtime uses a configured local DuckDB store, successful synthetic/Bitrix runs activate the local dataset, and allowlisted raw Parquet snapshots can be written under the local data directory. A simple env-configured single-user auth gate protects `/api/*` routes when enabled. NBRB integration, persisted analytics tables, production storage migrations, and frontend-facing report API hardening are intentionally not implemented yet.
 
 ## Local Commands
 
@@ -74,6 +74,9 @@ uvicorn app.main:app --reload
 Local synthetic pipeline endpoints after starting the backend:
 
 ```text
+GET /api/auth/session
+POST /api/auth/login
+POST /api/auth/logout
 POST /api/sync/run
 GET /api/sync/status
 GET /api/datasets/status
@@ -89,7 +92,13 @@ GET /api/reports/type-region
 GET /api/reports/types-regions
 ```
 
-These endpoints use the configured local DuckDB dataset. `POST /api/sync/run` loads the synthetic fixture, writes allowlisted raw snapshots under `APP_DATA_DIR`, and activates it as the local dataset. It is not a real Bitrix sync. Report endpoints calculate local analytics on demand and do not call Bitrix, NBRB, or external APIs.
+When `APP_AUTH_ENABLED=true`, every `/api/*` endpoint except `/api/auth/*`
+requires the signed HttpOnly browser session cookie. `/health` remains public.
+These endpoints use the configured local DuckDB dataset. `POST /api/sync/run`
+loads the synthetic fixture, writes allowlisted raw snapshots under
+`APP_DATA_DIR`, and activates it as the local dataset. It is not a real Bitrix
+sync. Report endpoints calculate local analytics on demand and do not call
+Bitrix, NBRB, or external APIs.
 
 Manual Bitrix endpoints after starting the backend:
 
@@ -131,3 +140,21 @@ BITRIX_PAGE_SIZE=50
 ```
 
 Real Bitrix webhook URLs and secrets must stay in local environment files or deployment secrets and must not be committed.
+
+Auth environment variables:
+
+```text
+APP_AUTH_ENABLED=false
+APP_AUTH_USERNAME=
+APP_AUTH_PASSWORD=
+APP_AUTH_SESSION_SECRET=
+APP_AUTH_SESSION_TTL_SECONDS=86400
+APP_AUTH_COOKIE_SECURE=false
+```
+
+Auth is disabled by default. If `APP_AUTH_ENABLED=true`, username, password,
+and session secret are required; missing values fail closed at settings load.
+The password and session secret must come from local environment or deployment
+secrets only. The backend validates credentials with constant-time comparison,
+sets an HttpOnly SameSite=Lax signed session cookie, and clears it on logout.
+Set `APP_AUTH_COOKIE_SECURE=true` for HTTPS deployments.

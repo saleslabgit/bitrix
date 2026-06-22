@@ -80,6 +80,7 @@ Frontend reporting milestone for the Bitrix sales analytics MVP: local analytics
 - Added an ABC frontend report with local-only filters, applied `Было`/`Стало` date ranges, changed-only mode, separate browser state under `bitrix-sales.abc.v1`, transition badges, and target columns shown only when `Стало` is enabled.
 - Corrected ABC transition direction to always mean `ABC было -> ABC стало`, so loss cases such as `A -> Нет продаж` are not treated as growth priorities.
 - Added a compact full-height report workspace: Contacts, Deals, and ABC filters open in a right-side drawer, table cards fill the available viewport height with sticky headers and visible bottom controls, and Contacts names open a local won-revenue chart modal.
+- Added a simple single-user auth gate controlled by environment variables. When enabled, `/api/auth/session`, `/api/auth/login`, and `/api/auth/logout` manage an HttpOnly SameSite=Lax signed session cookie, while all other `/api/*` routes require a valid session. Local development remains open by default with `APP_AUTH_ENABLED=false`.
 
 ## Intentionally Not Done
 
@@ -87,7 +88,6 @@ Frontend reporting milestone for the Bitrix sales analytics MVP: local analytics
 - Persisted analytics output tables.
 - Full staging-table swap mechanics beyond the current transaction-backed single active table set.
 - Production migration tooling.
-- Authentication.
 - Frontend screens beyond Contacts, Deals, and ABC.
 - Background refresh queues, schedulers, and automatic refresh on Docker startup.
 - Storybook.

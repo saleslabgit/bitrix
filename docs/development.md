@@ -20,6 +20,12 @@ Bitrix settings:
 ```text
 APP_DATA_DIR=data                  # local generated storage directory
 APP_DUCKDB_PATH=                   # optional override; blank uses APP_DATA_DIR/analytics.duckdb
+APP_AUTH_ENABLED=false             # false keeps local development open
+APP_AUTH_USERNAME=                 # required only when auth is enabled
+APP_AUTH_PASSWORD=                 # required only when auth is enabled
+APP_AUTH_SESSION_SECRET=           # required only when auth is enabled; use a strong secret
+APP_AUTH_SESSION_TTL_SECONDS=86400 # signed browser session lifetime
+APP_AUTH_COOKIE_SECURE=false       # set true behind HTTPS for deployment
 BITRIX_WEBHOOK_URL=              # secret read-only webhook base URL; blank disables live calls
 BITRIX_CONTACT_TYPE_FIELD=       # optional discovered contact type field code
 BITRIX_PAGE_SIZE=50              # optional Bitrix list page size, max 50
@@ -28,6 +34,15 @@ BITRIX_PAGE_SIZE=50              # optional Bitrix list page size, max 50
 Tests and regular local development do not require live Bitrix credentials.
 Generated DuckDB files and Parquet snapshots live under `APP_DATA_DIR` by
 default and are gitignored.
+
+Auth is disabled by default for local development. To enable the internal
+single-user login locally, create a real `.env` file that sets
+`APP_AUTH_ENABLED=true`, `APP_AUTH_USERNAME`, `APP_AUTH_PASSWORD`, and
+`APP_AUTH_SESSION_SECRET`. Do not commit real credentials or reusable secrets.
+When auth is enabled and a required auth value is missing, the backend fails
+closed during startup instead of serving APIs open. Deployment must set a strong
+session secret and should set `APP_AUTH_COOKIE_SECURE=true` when served over
+HTTPS.
 
 ## Docker Compose
 
@@ -59,10 +74,11 @@ Simple local app flow:
 
 1. Run `docker compose up --build`.
 2. Open `http://localhost:5173`.
-3. If an active local dataset exists, the Contacts, Deals, and ABC tables load normally.
-4. If the frontend says `Локальная база не подготовлена.`, click
+3. If `APP_AUTH_ENABLED=true`, sign in with the configured username and password.
+4. If an active local dataset exists, the Contacts, Deals, and ABC tables load normally.
+5. If the frontend says `Локальная база не подготовлена.`, click
    `Обновить из Bitrix`.
-5. Wait for the manual read-only refresh to finish; it can take several
+6. Wait for the manual read-only refresh to finish; it can take several
    minutes. The backend syncs allowed Bitrix data, applies approved contact
    type rules, reruns local normalization, loads NBRB rates, and then the
    frontend refetches dataset status, filters, and report rows.
@@ -146,6 +162,9 @@ VITE_API_BASE_URL=http://localhost:8000
 Frontend endpoints used by the report screens:
 
 ```text
+GET /api/auth/session
+POST /api/auth/login
+POST /api/auth/logout
 GET /api/reports/contacts/analytics
 GET /api/reports/contacts/{contact_id}/won-revenue-series
 GET /api/reports/deals/analytics
@@ -154,6 +173,11 @@ GET /api/meta/filters
 GET /api/datasets/status
 POST /api/local/refresh-data
 ```
+
+When auth is enabled, the frontend uses the HttpOnly browser session cookie set
+by `POST /api/auth/login`. It does not store passwords or session tokens in
+browser storage. If a protected API call returns `401`, the app returns to the
+login flow without clearing saved report filter state.
 
 The backend serializes access to its process-local DuckDB connection for these
 local read and refresh endpoints. Concurrent frontend requests can overlap at

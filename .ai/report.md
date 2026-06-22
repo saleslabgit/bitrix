@@ -1,114 +1,124 @@
-# Отчет: TASK-2026-06-22-29
+# Отчет: TASK-2026-06-22-30
 
 Статус: done
 
 ## Кратко
 
-Исправил regression report workspace width после TASK-28: table card больше не
-сжимается в узкую centered card в loading/pending state и занимает всю доступную
-ширину main content в loaded state. Пагинация скрыта, пока активный table query
-ожидает данные.
+Добавил простой single-user login gate для backend API и frontend workspace.
+Auth выключена по умолчанию для локальной разработки. При включении через env
+backend требует username, password и session secret, выдает подписанную
+HttpOnly SameSite=Lax cookie-сессию и защищает все `/api/*` маршруты кроме
+`/api/auth/*`. Frontend показывает форму входа, не хранит пароль или token в
+browser storage, возвращается к login при `401` и сохраняет report filters.
 
 ## Измененные файлы
 
+- `.env.example`
+- `backend/README.md`
+- `backend/app/api/models.py`
+- `backend/app/core/auth.py`
+- `backend/app/core/config.py`
+- `backend/app/main.py`
+- `backend/tests/test_auth.py`
+- `docs/development.md`
+- `docs/project-status.md`
+- `frontend/README.md`
 - `frontend/src/App.tsx`
+- `frontend/src/api.ts`
 - `frontend/src/styles.css`
 - `.ai/report.md`
 
-## Root Cause
+## Backend
 
-- `.table-card` наследовала shared rule с `.toolbar`: `margin: 0 auto`.
-- В flex column auto horizontal margins и отсутствие явной ширины мешали card
-  растягиваться по cross axis.
-- Loading skeleton/state content мог задавать визуальную ширину shell.
-- Пагинация показывалась при готовом dataset даже во время pending table query,
-  поэтому на loading screen появлялась misleading page строка.
+- Добавлены env settings:
+  `APP_AUTH_ENABLED`, `APP_AUTH_USERNAME`, `APP_AUTH_PASSWORD`,
+  `APP_AUTH_SESSION_SECRET`, `APP_AUTH_SESSION_TTL_SECONDS`,
+  `APP_AUTH_COOKIE_SECURE`.
+- Если `APP_AUTH_ENABLED=true`, но username/password/session secret пустые,
+  settings validation падает с safe explicit error.
+- Добавлен `backend/app/core/auth.py`:
+  - constant-time credential comparison;
+  - HMAC SHA-256 signed cookie token;
+  - expiry validation;
+  - invalid/expired cookie rejection;
+  - safe auth status response without password, secret, or raw token.
+- Добавлены endpoints:
+  - `GET /api/auth/session`;
+  - `POST /api/auth/login`;
+  - `POST /api/auth/logout`.
+- Logout clears the session cookie.
+- Central ASGI middleware protects all non-auth `/api/*` routes when auth is
+  enabled. `/health` remains public.
+- No DuckDB session storage was added.
+- No Bitrix calls were added by auth checks.
 
 ## Frontend
 
-- `.table-card` теперь явно растягивается по main panel content width:
-  `align-self: stretch`, `width: 100%`, `max-width: none`, `margin: 0`.
-- `.table-card` сохранила full-height flex behavior, internal overflow и
-  bottom pagination layout.
-- `.table-scroll` получил explicit `width: 100%` и продолжает быть внутренней
-  vertical/horizontal scroll area.
-- `.state-panel` и `.skeleton-table` занимают full-width/full-height available
-  area внутри card.
-- Pagination теперь показывается только когда dataset готов, refresh не идет,
-  status/table queries не pending, table query не в error, и active range валиден.
+- API client now sends cookies with requests and exposes `401` as auth state.
+- App startup checks `/api/auth/session`.
+- If auth is disabled, existing report workspace opens normally.
+- If auth is enabled and unauthenticated, a compact login form is shown.
+- Valid login refetches session/status/filter data.
+- Logout clears backend cookie and returns to login.
+- Existing report filter localStorage keys are preserved and are not cleared on
+  login/logout/session expiry.
 
-## Сохраненное поведение TASK-28
+## Documentation
 
-- Compact top action row сохранен.
-- Right filter drawer открывается.
-- Sticky headers сохранены.
-- Bottom pagination сохранена в loaded state.
-- Contact revenue chart modal открывается и рендерит SVG chart.
+- Documented auth env values in `.env.example`, `docs/development.md`,
+  `backend/README.md`, and `frontend/README.md`.
+- Updated `docs/project-status.md` to move authentication out of not-done state.
+- Documentation uses placeholders only and says not to commit real credentials
+  or reusable secrets.
 
 ## Запущенные проверки
 
-Frontend:
-
-- `cd frontend && npm run build` — passed.
-  Vite reported the existing Recharts-related bundle-size warning; build
-  succeeded.
-
-Runtime / browser:
-
+- `npm run build` from `frontend/` — passed. Vite reported the existing
+  Recharts-related bundle-size warning; build succeeded.
+- `/tmp/bitrix-backend-venv/bin/pytest backend/tests/test_auth.py` — passed,
+  9 tests.
+- `/tmp/bitrix-backend-venv/bin/pytest backend/tests` — passed, 124 tests.
+- `docker compose config` — passed.
 - `docker compose up --build -d` — passed.
-- `curl -f http://127.0.0.1:8000/health` — passed.
-- `curl -f http://127.0.0.1:5173/` — passed.
-- Playwright desktop smoke at `1366x768`, pending/loading state:
-  - skeleton visible;
-  - pagination hidden;
-  - main panel width `1126px`;
-  - table card width `1086px`, matching content width after panel padding;
-  - card no longer centered by skeleton content.
-- Playwright desktop smoke at `1366x768`, loaded state:
-  - 25 table rows rendered;
-  - main panel width `1126px`;
-  - table card width `1086px`, matching content width after panel padding;
-  - card height `676px`, bottom near viewport bottom;
-  - `.table-scroll` kept internal vertical overflow;
-  - table header `position: sticky`;
-  - pagination visible;
-  - filter drawer opened.
-- Playwright chart smoke:
-  - contact modal opened with `aria-modal="true"`;
-  - close button present;
-  - revenue chart SVG rendered;
-  - chart summary rendered;
-  - table rows still present behind modal.
+- `curl -f http://127.0.0.1:8000/health` — passed when run with unsandboxed
+  localhost access.
+- `curl -f http://127.0.0.1:5173/` — passed when run with unsandboxed
+  localhost access.
 - `docker compose down -v` — passed.
-
-Safety:
-
-- `rg "crm\.[A-Za-z0-9_.]*(add|update|delete|set)" backend/app backend/tests frontend/src`
-  — found only existing negative test `crm.deal.update`; no Bitrix write method
-  was added.
+- `rg "crm\\.[A-Za-z0-9_.]*(add|update|delete|set)" backend/app backend/tests frontend/src`
+  — found only the existing negative test `crm.deal.update`; no Bitrix write
+  method was added.
 
 ## Факты
 
-- Backend code was not changed.
-- No Bitrix calls were added.
-- No CRM write methods were added.
-- No documentation files needed changes because this is a CSS/layout regression
-  fix, not a material workflow or architecture change.
-- No `node_modules`, `frontend/dist`, `.playwright-mcp`, local DB files,
-  snapshots, logs, raw data, generated data, `.env`, or secrets are staged.
+- Docker Compose still starts services only and does not refresh Bitrix data.
+- Current local `.env` keeps auth disabled, so local report workspace remains
+  open by default.
+- Auth-enabled behavior is covered by backend HTTP-level tests over ASGI
+  transport.
+- The project test venv has a broken/deprecated `fastapi.testclient.TestClient`
+  path for sync FastAPI endpoints; auth tests use `httpx.ASGITransport`
+  instead. Existing direct-call endpoint tests remain unchanged.
+- Compose config loaded local `.env`; real values were not copied into docs or
+  committed files.
 
 ## Предположения
 
-- Treating `.main-panel` padding as available content inset is correct; the card
-  fills the content area inside that padding, not the full viewport.
+- A stateless signed cookie is sufficient for this single-user internal gate
+  until deployment planning decides whether a reverse proxy or stronger auth
+  boundary is needed.
+- `SameSite=Lax` plus optional `APP_AUTH_COOKIE_SECURE=true` is the intended
+  deployment baseline for HTTPS.
 
 ## Неизвестное
 
-- Mobile browser visual verification was not run; the regression and acceptance
-  criteria targeted the report workspace width on the desktop operator flow.
+- Final deployment host, HTTPS/proxy behavior, and production secret management
+  are still unknown.
+- Browser visual verification with Playwright was not run for the login screen;
+  build and HTTP/operator checks passed.
 
 ## Риски или следующий шаг
 
-- The report shell still shares some visual base rules with `.toolbar`. If more
-  workspace-specific card behavior is needed later, separating the shared rule
-  into explicit component classes would reduce accidental coupling.
+- Before deployment, set `APP_AUTH_ENABLED=true`, strong non-reused
+  `APP_AUTH_SESSION_SECRET`, real username/password, and
+  `APP_AUTH_COOKIE_SECURE=true` behind HTTPS.

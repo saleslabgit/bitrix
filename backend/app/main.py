@@ -1,11 +1,15 @@
 from datetime import date
+from http.cookies import SimpleCookie
 from typing import Annotated, Literal
 
-from fastapi import FastAPI, HTTPException, Path, Query, status as http_status
+from fastapi import FastAPI, HTTPException, Path, Query, Request, Response, status as http_status
+from fastapi.responses import JSONResponse
 
 from app.api.models import (
     AbcAnalyticsPageResponse,
     AbcResponse,
+    AuthLoginRequest,
+    AuthSessionResponse,
     BitrixItemDealContactVerificationResponse,
     BitrixContactDealVerificationResponse,
     BitrixDiscoveryResponse,
@@ -37,6 +41,13 @@ from app.bitrix.ingestion import (
     store_bitrix_ingestion_error,
 )
 from app.core.config import get_settings
+from app.core.auth import (
+    AUTH_COOKIE_NAME,
+    build_auth_status,
+    create_session_cookie_value,
+    validate_credentials,
+    validate_session_cookie,
+)
 from app.local_database import connection_scope
 from app.pipeline.currency_rates import NbrbRateClient
 from app.pipeline.manual_refresh import run_full_bitrix_manual_refresh
@@ -118,9 +129,100 @@ AbcAnalyticsSortQuery = Literal[
 SortOrderQuery = Literal["asc", "desc"]
 
 
+class ApiAuthMiddleware:
+    def __init__(self, asgi_app):
+        self.asgi_app = asgi_app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or not _path_requires_auth(scope["path"]):
+            await self.asgi_app(scope, receive, send)
+            return
+
+        cookie_value = _read_cookie(scope.get("headers", []), AUTH_COOKIE_NAME)
+        session = validate_session_cookie(settings, cookie_value)
+        if session is None:
+            response = JSONResponse(
+                status_code=http_status.HTTP_401_UNAUTHORIZED,
+                content={"detail": "Authentication required."},
+            )
+            await response(scope, receive, send)
+            return
+
+        await self.asgi_app(scope, receive, send)
+
+
+app.add_middleware(ApiAuthMiddleware)
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "environment": settings.env}
+
+
+@app.get("/api/auth/session", response_model=AuthSessionResponse)
+async def auth_session(request: Request) -> AuthSessionResponse:
+    session = validate_session_cookie(settings, request.cookies.get(AUTH_COOKIE_NAME))
+    return AuthSessionResponse.model_validate(build_auth_status(settings, session))
+
+
+@app.post("/api/auth/login", response_model=AuthSessionResponse)
+async def auth_login(
+    payload: AuthLoginRequest,
+    response: Response,
+) -> AuthSessionResponse:
+    if not settings.auth_enabled:
+        return AuthSessionResponse.model_validate(build_auth_status(settings, None))
+
+    if not validate_credentials(settings, payload.username, payload.password):
+        raise HTTPException(
+            status_code=http_status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password.",
+        )
+
+    cookie_value = create_session_cookie_value(settings, payload.username)
+    response.set_cookie(
+        key=AUTH_COOKIE_NAME,
+        value=cookie_value,
+        max_age=settings.auth_session_ttl_seconds,
+        httponly=True,
+        secure=settings.auth_cookie_secure,
+        samesite="lax",
+        path="/",
+    )
+    session = validate_session_cookie(settings, cookie_value)
+    return AuthSessionResponse.model_validate(build_auth_status(settings, session))
+
+
+@app.post("/api/auth/logout", response_model=AuthSessionResponse)
+async def auth_logout(response: Response) -> AuthSessionResponse:
+    response.delete_cookie(
+        key=AUTH_COOKIE_NAME,
+        path="/",
+        httponly=True,
+        secure=settings.auth_cookie_secure,
+        samesite="lax",
+    )
+    return AuthSessionResponse.model_validate(build_auth_status(settings, None))
+
+
+def _path_requires_auth(path: str) -> bool:
+    return settings.auth_enabled and path.startswith("/api/") and not path.startswith("/api/auth/")
+
+
+def _read_cookie(headers: list[tuple[bytes, bytes]], name: str) -> str | None:
+    cookie_header = None
+    for header_name, header_value in headers:
+        if header_name.lower() == b"cookie":
+            cookie_header = header_value.decode("latin-1")
+            break
+
+    if not cookie_header:
+        return None
+
+    cookies = SimpleCookie()
+    cookies.load(cookie_header)
+    morsel = cookies.get(name)
+    return morsel.value if morsel is not None else None
 
 
 @app.get("/api/sync/status", response_model=PipelineStatusResponse)

@@ -4,6 +4,17 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class AuthLoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class AuthSessionResponse(BaseModel):
+    auth_enabled: bool
+    authenticated: bool
+    username: str | None
+
+
 class ApiModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
