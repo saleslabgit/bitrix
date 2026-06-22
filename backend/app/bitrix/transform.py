@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
+import re
 from typing import Any
 
 from app.domain import ContactSnapshot, DealContactLink, DealSnapshot, StageSnapshot
@@ -190,17 +191,34 @@ def _optional_int(value: Any) -> int | None:
 def _contact_ids(value: Any) -> list[int]:
     if value in (None, ""):
         return []
-    if isinstance(value, (list, tuple)):
-        values = value
-    else:
-        values = str(value).replace(";", ",").split(",")
 
     contact_ids: list[int] = []
-    for item in values:
+    for item in _contact_id_values(value):
         contact_id = _optional_positive_int(item)
         if contact_id is not None:
             contact_ids.append(contact_id)
     return contact_ids
+
+
+def _contact_id_values(value: Any) -> list[Any]:
+    if value in (None, ""):
+        return []
+    if isinstance(value, dict):
+        for key in ("CONTACT_ID", "contactId", "ID", "id", "VALUE", "value"):
+            if key in value:
+                return [value[key]]
+        values: list[Any] = []
+        for item in value.values():
+            values.extend(_contact_id_values(item))
+        return values
+    if isinstance(value, (list, tuple)):
+        values: list[Any] = []
+        for item in value:
+            values.extend(_contact_id_values(item))
+        return values
+    if isinstance(value, str):
+        return re.findall(r"\d+", value)
+    return [value]
 
 
 def _optional_positive_int(value: Any) -> int | None:

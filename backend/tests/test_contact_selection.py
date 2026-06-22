@@ -48,6 +48,35 @@ def test_best_type_priority_wins() -> None:
     assert selected == 2
 
 
+def test_designer_priority_one_wins_over_primary_lower_priority_contact() -> None:
+    contacts = {
+        661: contact(661, "[61]"),
+        900: contact(900, "[67]"),
+    }
+    rules = [
+        ContactTypeRule(
+            raw_value="61",
+            normalized_type="Дизайнер",
+            priority=1,
+            region="Беларусь",
+        ),
+        ContactTypeRule(
+            raw_value="67",
+            normalized_type="Дилер",
+            priority=3,
+            region="Беларусь",
+        ),
+    ]
+
+    selected = select_analytical_contact(
+        links=[link(900, is_primary=True), link(661)],
+        contacts_by_id=contacts,
+        type_rules=rules,
+    )
+
+    assert selected == 661
+
+
 def test_primary_flag_breaks_equal_priority_ties() -> None:
     contacts = {
         1: contact(1, "type-a"),

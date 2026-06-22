@@ -4,8 +4,10 @@ from fastapi import FastAPI, Query
 
 from app.api.models import (
     AbcResponse,
+    BitrixContactDealVerificationResponse,
     BitrixDiscoveryResponse,
     ConcentrationReportResponse,
+    ContactDealDiagnosticResponse,
     ContactAnalyticsPageResponse,
     ContactSummaryPageResponse,
     DatasetStorageStatusResponse,
@@ -40,6 +42,10 @@ from app.reports.analytics import (
     get_type_region_analytics,
     list_contact_analytics,
     list_stale_open_deals,
+)
+from app.reports.contact_deal_diagnostics import (
+    get_contact_deal_diagnostic,
+    verify_bitrix_contact_deals,
 )
 from app.reports.local import get_filter_metadata, list_contact_summaries
 from app.reports.profile import get_dataset_profile
@@ -124,6 +130,33 @@ def bitrix_discovery() -> BitrixDiscoveryResponse:
             missing_required_deal_fields=(),
         )
     return BitrixDiscoveryResponse.model_validate(result)
+
+
+@app.get(
+    "/api/internal/diagnostics/contacts/{contact_id}/deal-links",
+    response_model=ContactDealDiagnosticResponse,
+)
+def contact_deal_diagnostic(contact_id: int) -> ContactDealDiagnosticResponse:
+    diagnostic = get_contact_deal_diagnostic(get_connection(), contact_id)
+    return ContactDealDiagnosticResponse.model_validate(diagnostic)
+
+
+@app.post(
+    "/api/internal/diagnostics/contacts/{contact_id}/verify-bitrix-deals",
+    response_model=BitrixContactDealVerificationResponse,
+)
+def verify_contact_deals_in_bitrix(
+    contact_id: int,
+    apply_local_correction: bool = False,
+) -> BitrixContactDealVerificationResponse:
+    client = _build_bitrix_client()
+    verification = verify_bitrix_contact_deals(
+        get_connection(),
+        client=client,
+        contact_id=contact_id,
+        apply_local_correction=apply_local_correction,
+    )
+    return BitrixContactDealVerificationResponse.model_validate(verification)
 
 
 @app.get("/api/bitrix/sync/status", response_model=PipelineStatusResponse)

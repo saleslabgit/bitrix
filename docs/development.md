@@ -186,6 +186,8 @@ Manual Bitrix backend endpoints:
 ```text
 GET  http://localhost:8000/api/datasets/status
 GET  http://localhost:8000/api/datasets/profile
+GET  http://localhost:8000/api/internal/diagnostics/contacts/{contact_id}/deal-links
+POST http://localhost:8000/api/internal/diagnostics/contacts/{contact_id}/verify-bitrix-deals
 POST http://localhost:8000/api/local/refresh-data
 GET  http://localhost:8000/api/bitrix/discovery
 POST http://localhost:8000/api/bitrix/sync/run
@@ -213,6 +215,26 @@ date ranges, active contact type rule coverage, and undefined normalization
 counts. It does not call Bitrix and does not expose row samples, contact/deal
 names, contact/deal IDs, snapshot paths, local absolute paths, secrets, or raw
 personal fields.
+
+`GET /api/internal/diagnostics/contacts/{contact_id}/deal-links` is a
+backend-only diagnostic for one contact. It reads local DuckDB data only and
+returns safe ID-level/local-allowlisted facts: contact ID and name, raw contact
+type, normalized type, region, priority, local linked deal IDs, analytical deal
+IDs, per-linked-deal raw existence/status group, and an explanation of where
+local counts diverge. It does not call Bitrix and does not expose phones,
+emails, addresses, messengers, comments, files, requisites, webhook values,
+raw API payloads, or arbitrary custom fields.
+
+`POST /api/internal/diagnostics/contacts/{contact_id}/verify-bitrix-deals`
+is an explicitly invoked, targeted read-only Bitrix verification for one
+contact. It calls `crm.deal.list` with `filter: {"CONTACT_ID": contact_id}` and
+the existing safe deal select list, then compares Bitrix-visible deal IDs with
+local raw links and analytical deals. By default it does not change local data.
+When called with `apply_local_correction=true`, it can insert missing local
+deal-contact links for that supplied contact ID, insert any returned safe deal
+rows that are absent locally, and rerun local normalization. This endpoint is
+for operator/developer diagnostics only; it is not part of normal page load,
+Docker startup, or scheduled refresh.
 
 `GET /api/bitrix/discovery` reads Bitrix field metadata and reports whether
 `BITRIX_CONTACT_TYPE_FIELD` exists. Use it to choose the contact type field

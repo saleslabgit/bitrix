@@ -141,6 +141,48 @@ class BitrixDiscoveryResponse(ApiModel):
     missing_required_deal_fields: tuple[str, ...]
 
 
+class LocalLinkedDealDiagnosticResponse(ApiModel):
+    deal_id: int
+    raw_deal_exists: bool
+    status_group: str | None
+    is_primary: bool
+    analytical_contact_id: int | None
+    analytical_contact_name: str | None
+    analytical_contact_type: str | None
+
+
+class ContactDealDiagnosticResponse(ApiModel):
+    contact_id: int
+    contact_name: str | None
+    contact_type_raw: str | None
+    contact_type_normalized: str | None
+    region_normalized: str | None
+    priority: int | None
+    local_linked_deals_count: int
+    local_linked_deal_ids: tuple[int, ...]
+    local_analytical_deals_count: int
+    local_analytical_deal_ids: tuple[int, ...]
+    linked_deals: tuple[LocalLinkedDealDiagnosticResponse, ...]
+    explanation: str
+
+
+class BitrixContactDealVerificationResponse(ApiModel):
+    contact_id: int
+    bitrix_deals_count: int
+    bitrix_deal_ids: tuple[int, ...]
+    local_linked_deals_count: int
+    local_linked_deal_ids: tuple[int, ...]
+    local_analytical_deals_count: int
+    local_analytical_deal_ids: tuple[int, ...]
+    missing_local_link_deal_ids: tuple[int, ...]
+    missing_raw_deal_ids: tuple[int, ...]
+    correction_applied: bool
+    raw_links_inserted: int
+    raw_deals_inserted: int
+    methods_used: tuple[str, ...]
+    explanation: str
+
+
 class FilterMetadataResponse(ApiModel):
     contact_types: tuple[str, ...]
     regions: tuple[str, ...]

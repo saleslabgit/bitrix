@@ -95,6 +95,18 @@ class BitrixClient:
             )
         )
 
+    def list_deals_for_contact(self, contact_id: int) -> list[dict[str, Any]]:
+        return list(
+            self._list_method(
+                "crm.deal.list",
+                {
+                    "filter": {"CONTACT_ID": contact_id},
+                    "select": list(build_deal_select()),
+                    "order": {"ID": "ASC"},
+                },
+            )
+        )
+
     def get_deal_contact_links(self, deal_id: int) -> list[dict[str, Any]]:
         result = self._call("crm.deal.contact.items.get", {"id": deal_id})
         if isinstance(result, list):

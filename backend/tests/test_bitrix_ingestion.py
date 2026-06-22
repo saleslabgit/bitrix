@@ -164,6 +164,19 @@ def test_deal_contact_links_are_built_from_downloaded_deal_rows() -> None:
             {"ID": "1", "CONTACT_ID": "10", "CONTACT_IDS": ["10", "20", ""]},
             {"ID": "2", "CONTACT_ID": "0", "CONTACT_IDS": "30, 40,0"},
             {"ID": "3", "CONTACT_ID": None, "CONTACT_IDS": []},
+            {
+                "ID": "4",
+                "CONTACT_ID": None,
+                "CONTACT_IDS": {
+                    "n0": {"CONTACT_ID": "50"},
+                    "n1": {"VALUE": "60"},
+                },
+            },
+            {
+                "ID": "5",
+                "CONTACT_ID": None,
+                "CONTACT_IDS": "[70, 80]",
+            },
         ]
     )
 
@@ -183,6 +196,10 @@ def test_deal_contact_links_are_built_from_downloaded_deal_rows() -> None:
         (1, 20, False, None, None),
         (2, 30, False, None, None),
         (2, 40, False, None, None),
+        (4, 50, False, None, None),
+        (4, 60, False, None, None),
+        (5, 70, False, None, None),
+        (5, 80, False, None, None),
     ]
 
 

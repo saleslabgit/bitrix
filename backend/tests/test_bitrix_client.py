@@ -77,6 +77,35 @@ def test_client_uses_read_only_list_method_with_pagination() -> None:
     assert calls[1][1]["start"] == 1
 
 
+def test_client_lists_deals_for_one_contact_with_safe_select() -> None:
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def transport(method: str, params: dict[str, object]) -> dict[str, object]:
+        calls.append((method, params))
+        return {"result": [{"ID": "100"}]}
+
+    client = BitrixClient(
+        "https://example.bitrix24.com/rest/1/secret-token/",
+        transport=transport,
+    )
+
+    rows = client.list_deals_for_contact(661)
+
+    assert rows == [{"ID": "100"}]
+    assert calls == [
+        (
+            "crm.deal.list",
+            {
+                "filter": {"CONTACT_ID": 661},
+                "select": list(build_deal_select()),
+                "order": {"ID": "ASC"},
+                "start": 0,
+                "limit": 50,
+            },
+        )
+    ]
+
+
 def test_client_rejects_write_methods() -> None:
     client = BitrixClient(
         "https://example.bitrix24.com/rest/1/secret-token/",

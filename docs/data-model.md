@@ -56,6 +56,13 @@ they duplicate the primary link. Empty, zero, and missing contact IDs are
 skipped. Sort order and role are stored as `NULL` because the normal sync does
 not call the per-deal link API.
 
+The backend also has a targeted diagnostic/correction path for one supplied
+contact ID. It can compare local links with Bitrix `crm.deal.list` filtered by
+that contact and, only when explicitly invoked with correction enabled, insert
+missing local links for the supplied contact before rerunning normalization.
+This path is not part of Docker startup, normal page load, or broad scheduled
+sync.
+
 ### Stages
 
 Stage dictionaries define whether a deal is `won`, `open`, or `lost`, taking Bitrix pipelines into account.
