@@ -154,6 +154,8 @@ def replace_contact_type_rules(
     rules: tuple[ContactTypeRule, ...] = APPROVED_CONTACT_TYPE_RULES,
 ) -> int:
     connection.execute("DELETE FROM contact_type_rules")
+    if not rules:
+        return 0
     connection.executemany(
         """
         INSERT INTO contact_type_rules (

@@ -1,7 +1,13 @@
+from datetime import datetime, timezone
+from decimal import Decimal
+
 import duckdb
 
-from app.pipeline.normalization import NO_CONTACT_NAME, UNDEFINED_VALUE
+from app.domain import DealSnapshot, StageSnapshot
+from app.pipeline.normalization import NO_CONTACT_NAME, UNDEFINED_VALUE, normalize_local_data
 from app.pipeline.synthetic import run_synthetic_pipeline
+from app.storage import initialize_schema
+from app.storage.loaders import load_bitrix_raw_data
 from app.storage.snapshots import RAW_SNAPSHOT_COLUMNS
 from app.storage.status import get_active_dataset_run
 
@@ -108,6 +114,56 @@ def test_normalized_deals_have_one_row_per_deal_and_expected_contacts() -> None:
         UNDEFINED_VALUE,
         UNDEFINED_VALUE,
     )
+
+
+def test_normalize_local_data_with_empty_raw_tables_leaves_normalized_tables_empty() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        initialize_schema(connection)
+
+        normalize_local_data(connection)
+
+        counts = connection.execute(
+            """
+            SELECT
+                (SELECT COUNT(*) FROM normalized_contacts),
+                (SELECT COUNT(*) FROM normalized_deals)
+            """
+        ).fetchone()
+
+    assert counts == (0, 0)
+
+
+def test_normalize_local_data_keeps_deals_without_links() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        initialize_schema(connection)
+        load_bitrix_raw_data(
+            connection,
+            contacts=[],
+            deals=[
+                DealSnapshot(
+                    deal_id=1,
+                    deal_name="No link deal",
+                    amount_original=Decimal("10.00"),
+                    currency_original="USD",
+                    created_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+                    stage_id="WON",
+                    status_group="won",
+                )
+            ],
+            links=[],
+            stages=[StageSnapshot(stage_id="WON", status_group="won")],
+        )
+
+        normalize_local_data(connection)
+        row = connection.execute(
+            """
+            SELECT analytical_contact_id, analytical_contact_name, contact_type_normalized, region_normalized
+            FROM normalized_deals
+            WHERE deal_id = 1
+            """
+        ).fetchone()
+
+    assert row == (None, NO_CONTACT_NAME, UNDEFINED_VALUE, UNDEFINED_VALUE)
 
 
 def test_normalized_deals_represent_stage_statuses() -> None:

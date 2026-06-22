@@ -221,6 +221,11 @@ def load_currency_rates_for_raw_deals(
                 )
             )
 
+    if not rows:
+        raise ValueError(
+            "No currency rate rows were loaded for observed deal currencies/date range."
+        )
+
     if manage_transaction:
         connection.execute("BEGIN TRANSACTION")
     try:

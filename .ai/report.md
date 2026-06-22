@@ -1,144 +1,63 @@
-# Отчет: TASK-2026-06-22-11
+# Отчет: TASK-2026-06-22-12
 
 Статус: done
 
 ## Кратко
 
-Проверил `crm.item.list` как быстрый read-only источник полных связей
-deal-contact для normal manual refresh.
+Исправил класс ошибок DuckDB `executemany requires a non-empty list...` в
+manual refresh pipeline.
 
-Решение: normal manual Bitrix sync switched from `crm.deal.list` deal rows to
-`crm.item.fields` + `crm.item.list` deal items. Связи строятся из `contactId`
-and `contactIds`, поэтому secondary contacts вроде `661` для сделок `123`,
-`343`, `1239` больше не теряются без explicit reconciliation.
-
-Docker startup and frontend flow не изменены: refresh по-прежнему запускается
-только вручную оператором.
-
-## Official Docs Checked
-
-Context7 official Bitrix24 REST API docs were checked for:
-
-- `crm.item.fields` — fields for CRM entity type;
-- `crm.item.list` — list items with `entityTypeId=2`, explicit `select`, and
-  `filter`;
-- `crm.deal.list` — legacy/deprecated context from task;
-- `batch` — up to 50 requests per batch, fallback only.
-
-Docs also confirmed `contactId`, `contactIds`, and `fm` fields exist in the
-universal item model. The implementation never requests `*` or `fm`.
-
-## Live Bitrix Test
-
-Live Bitrix was called.
-
-Read-only methods used, bounded to exactly these deal IDs:
-
-```text
-crm.item.fields
-crm.item.list
-```
-
-Supplied deal IDs:
-
-```text
-123, 343, 1239, 14773, 19149, 23989, 24761
-```
-
-Safe selected fields discovered and used:
-
-```text
-id
-title
-opportunity
-currencyId
-createdTime
-closedate
-stageId
-categoryId
-contactId
-contactIds
-```
-
-Contact-related fields discovered and selected:
-
-```text
-contactId
-contactIds
-```
-
-`crm.item.list` returned all seven supplied deal IDs and included contact `661`
-for every deal:
-
-| Deal ID | returned linked contact IDs | has 661 |
-|---:|---|---|
-| 123 | 661, 1005, 1145, 2123, 30105 | yes |
-| 343 | 661, 1425, 4607 | yes |
-| 1239 | 661, 1005, 1145, 2123, 30105 | yes |
-| 14773 | 661, 19497 | yes |
-| 19149 | 661, 23973, 27875, 30313 | yes |
-| 23989 | 661, 29471 | yes |
-| 24761 | 661, 30313, 30315, 30317, 30319 | yes |
-
-This agrees with the TASK-10 `crm.deal.contact.items.get` result for the known
-case. Therefore `crm.item.list` is sufficient for normal refresh link
-extraction for this decision point.
-
-No raw Bitrix payloads, webhook values, tokens, phone, email, address,
-messengers, comments, files, requisites, activities, local paths, or generated
-data contents were printed or documented.
+Теперь пустые batch-вставки не вызываются для нормализации и замены approved
+contact type rules, а невозможность загрузить ни одной строки валютных курсов
+превращается в безопасную доменную ошибку `ValueError` без технического текста
+DuckDB. UI-facing manual refresh уже сохраняет такие ошибки как безопасный
+status message и не активирует неполный dataset.
 
 ## Implementation
 
-Changed normal manual ingestion:
+- `normalize_local_data()` больше не вызывает `executemany()` для пустых
+  `normalized_contacts` и `normalized_deals`.
+- `load_currency_rates_for_raw_deals()` теперь явно останавливается с безопасной
+  ошибкой, если raw deals есть, но после расчета нет ни одной строки
+  `currency_rates`.
+- `replace_contact_type_rules(connection, rules=())` очищает таблицу правил,
+  возвращает `0` и не вызывает пустой `executemany()`.
+- Manual refresh failure path покрыт тестом: предыдущий активный dataset
+  сохраняется, статус становится `error`, сообщение безопасное и не содержит
+  `executemany`.
 
-- `run_bitrix_manual_ingestion()` now calls `client.list_deal_items()` instead
-  of `client.list_deals()`.
-- `list_deal_items()` first calls `crm.item.fields` for `entityTypeId=2`, builds
-  an explicit safe select list, then calls `crm.item.list`.
-- Deal raw fields are still transformed into the same local `raw_deals`
-  columns.
-- Deal-contact links are still reconstructed locally, but now from item
-  `contactId` / `contactIds`.
-- `closedate` from item fields is now mapped to local `closed_at`.
-- `crm.deal.contact.items.get` is still not used in normal sync.
+## Production `executemany` Audit
 
-Added internal bounded diagnostic:
+Проверено через `rg "executemany" backend/app`.
 
-```text
-POST /api/internal/diagnostics/contacts/{contact_id}/verify-bitrix-item-deals?deal_ids=...
-```
+- `backend/app/storage/loaders.py` уже использует `_executemany_if_rows()`.
+- `backend/app/pipeline/normalization.py` исправлен guard-ами перед вставками.
+- `backend/app/pipeline/approved_contact_type_rules.py` исправлен для пустого
+  набора правил.
+- `backend/app/pipeline/currency_rates.py` теперь не доходит до пустого
+  `executemany()` и возвращает безопасную доменную ошибку.
+- `backend/app/reports/contact_deal_diagnostics.py` direct-вставки уже имеют
+  `if not deals/links: return` и не относятся к normal manual refresh path.
 
-It calls only `crm.item.fields` and `crm.item.list`, returns safe ID-level facts
-only, and does not mutate local data.
+## Tests Added
+
+- Empty raw contacts/deals normalization leaves normalized tables empty.
+- Deal without contact links still normalizes as no-contact deal.
+- Currency loader raises safe `ValueError` when raw deals exist but no rate rows
+  can be inserted.
+- Empty approved contact type rules clear the table and return `0`.
+- Manual refresh surfaces safe error status for empty currency rows and preserves
+  the previous active dataset.
 
 ## Changed Files
 
-- `backend/app/bitrix/allowlist.py` — added safe item field candidates and
-  `build_deal_item_select()`; fixed `IM` forbidden check so `createdTime` is not
-  falsely rejected.
-- `backend/app/bitrix/client.py` — added read-only `crm.item.fields` /
-  `crm.item.list` support.
-- `backend/app/bitrix/ingestion.py` — normal manual ingestion now loads deal
-  items via `crm.item.list`.
-- `backend/app/bitrix/transform.py` — added `closedate` fallback.
-- `backend/app/reports/contact_deal_diagnostics.py` — added bounded
-  `crm.item.list` verification helper.
-- `backend/app/api/models.py` — added item-list diagnostic response models.
-- `backend/app/main.py` — added internal item-list diagnostic endpoint.
-- `backend/tests/test_bitrix_client.py` — tests safe item select, read-only
-  item methods, and no `*`/`fm`.
-- `backend/tests/test_bitrix_ingestion.py` — tests normal ingestion preserves
-  secondary `contactIds` and designer priority wins.
-- `backend/tests/test_contact_deal_diagnostics.py` — tests bounded item-list
-  diagnostic and safe output.
-- `backend/tests/test_api_bitrix.py` — updated mocked refresh client to item
-  row shape.
-- `docs/data-model.md` — normal sync now documented as `crm.item.list` item
-  rows with `contactId` / `contactIds`.
-- `docs/development.md` — documented item-list diagnostic and normal sync
-  behavior.
-- `.ai/report.md` — this report.
+- `backend/app/pipeline/normalization.py`
+- `backend/app/pipeline/currency_rates.py`
+- `backend/app/pipeline/approved_contact_type_rules.py`
+- `backend/tests/test_pipeline.py`
+- `backend/tests/test_live_data_readiness.py`
+- `backend/tests/test_api_bitrix.py`
+- `.ai/report.md`
 
 Pre-existing unstaged local changes in `.ai/task.md`, `AGENTS.md`, and
 `WORKFLOW.md` were not made by Codex for this task and were not intentionally
@@ -146,69 +65,65 @@ modified.
 
 ## Checks
 
-Before implementation:
+Before continuing implementation:
 
-- `git log --oneline -5` — passed. Latest relevant commit:
-  `a540fdf planner: TASK-2026-06-22-11 Test crm.item.list deal contact links`.
-- `git status --short --branch` — passed. Showed pre-existing modified
-  `.ai/task.md`, `AGENTS.md`, and `WORKFLOW.md`.
+- `git status --short --branch` — showed pre-existing modified `.ai/task.md`,
+  `AGENTS.md`, and `WORKFLOW.md`, plus task files.
+
+Backend dependencies:
+
+- `python3 -m pip install -e '.[dev]'` — failed because system Python is
+  externally managed by PEP 668.
+- `python3 -m venv /tmp/bitrix-backend-venv` — passed.
+- `/tmp/bitrix-backend-venv/bin/pip install -e '.[dev]'` — passed.
 
 Focused backend:
 
-- `cd backend && /tmp/bitrix-backend-venv/bin/python3 -m py_compile app/bitrix/allowlist.py app/bitrix/client.py app/bitrix/ingestion.py app/reports/contact_deal_diagnostics.py app/api/models.py app/main.py`
-  — passed.
-- `cd backend && /tmp/bitrix-backend-venv/bin/python3 -m pytest tests/test_bitrix_client.py tests/test_bitrix_ingestion.py tests/test_contact_deal_diagnostics.py`
-  — passed, `23 passed`.
+- `cd backend && /tmp/bitrix-backend-venv/bin/pytest tests/test_pipeline.py tests/test_live_data_readiness.py tests/test_api_bitrix.py tests/test_bitrix_client.py`
+  — passed, `27 passed`.
 
 Full backend:
 
-- `cd backend && /tmp/bitrix-backend-venv/bin/python3 -m pytest` — passed,
-  `71 passed`.
+- `cd backend && /tmp/bitrix-backend-venv/bin/pytest` — passed, `76 passed`.
 
 Safety:
 
+- `rg "executemany" backend/app` — completed; production call sites audited as
+  listed above.
 - `rg "crm\.[A-Za-z0-9_.]*(add|update|delete|set)" backend/app backend/tests`
-  — passed for implementation scope. It found only the existing negative test
-  `crm.deal.update`.
-- `git diff --check -- ':!AGENTS.md' ':!.ai/task.md'` — not clean because of
-  pre-existing unstaged `WORKFLOW.md` whitespace/line-ending diff not made by
-  Codex in this task.
-- `git diff --check -- .ai/report.md backend/app backend/tests docs/data-model.md docs/development.md`
-  — passed for task files.
+  — found only existing negative test `crm.deal.update`; no Bitrix write method
+  was added.
 
 Frontend:
 
 - Not run. No frontend code changed.
 
-Compose:
+Compose/operator startup:
 
-- Not run. Docker/operator startup behavior was not changed. Manual refresh
-  internals changed, but Docker Compose still starts services only and does not
-  call Bitrix automatically.
+- Not run. Docker/frontend startup behavior was not changed; Docker Compose
+  still starts services only and does not trigger Bitrix refresh automatically.
 
 ## Facts
 
-- `crm.item.list` returned all seven known deals.
-- `crm.item.list` returned complete `contactIds` including `661` for every known
-  deal.
-- The selected item fields are safe and explicit; `*` and `fm` are not selected.
-- Normal manual sync now uses item list contact IDs for links and preserves
-  secondary contacts.
-- Designer priority `1` still wins when `661` is secondary and a lower-priority
-  contact is primary.
+- DuckDB rejects `executemany()` with an empty parameter list.
+- Normalization can legitimately produce no rows for empty raw tables.
+- Manual refresh can fail during preparation before activating a dataset; that
+  path now returns safe status while preserving the previous active dataset.
+- The original live UI failure was not reproduced against the user's real data
+  in this environment, but the empty-batch failure class and audited production
+  call sites are covered by tests.
 
 ## Unknowns
 
-- Whether every historical edge case in the portal is covered by `crm.item.list`.
-  The known `661` case that motivated this task is covered.
+- Which exact live input combination triggered the user's UI failure. The
+  observed DuckDB error class is covered for known manual refresh production
+  insertion points.
 
 ## Risks Or Next Step
 
-If future data quality checks find more relation gaps, the fallback design is a
-separate deep relation sync using Bitrix `batch` with up to 50
-`crm.deal.contact.items.get` sub-requests per HTTP call, explicit operator
-triggering, progress/status, and no Docker startup automation. That fallback was
-not implemented or run in this task because `crm.item.list` passed the bounded
-known-case test.
+If live refresh still fails, the next useful artifact is the safe
+`/api/datasets/status` or `/api/local/refresh-data` message after this commit.
+It should no longer expose raw DuckDB `executemany` text for these empty-row
+cases.
 
 No Bitrix write methods were added or called.

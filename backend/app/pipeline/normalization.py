@@ -34,28 +34,34 @@ def normalize_local_data(connection: duckdb.DuckDBPyConnection) -> None:
         for contact in contacts.values()
     }
 
-    connection.executemany(
-        """
-        INSERT INTO normalized_contacts (
+    normalized_contact_rows = [
+        (
             contact_id,
-            contact_name,
-            contact_type_raw,
-            contact_type_normalized,
-            region_normalized
+            contact.contact_name,
+            contact.contact_type_raw,
+            normalized_type,
+            normalized_region,
         )
-        VALUES (?, ?, ?, ?, ?)
-        """,
-        [
-            (
+        for contact_id, (
+            contact,
+            normalized_type,
+            normalized_region,
+        ) in normalized_contacts.items()
+    ]
+    if normalized_contact_rows:
+        connection.executemany(
+            """
+            INSERT INTO normalized_contacts (
                 contact_id,
-                contact.contact_name,
-                contact.contact_type_raw,
-                normalized_type,
-                normalized_region,
+                contact_name,
+                contact_type_raw,
+                contact_type_normalized,
+                region_normalized
             )
-            for contact_id, (contact, normalized_type, normalized_region) in normalized_contacts.items()
-        ],
-    )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            normalized_contact_rows,
+        )
 
     links_by_deal_id: dict[int, list[DealContactLink]] = defaultdict(list)
     for link in links:
@@ -104,27 +110,28 @@ def normalize_local_data(connection: duckdb.DuckDBPyConnection) -> None:
             )
         )
 
-    connection.executemany(
-        """
-        INSERT INTO normalized_deals (
-            deal_id,
-            deal_name,
-            amount_original,
-            currency_original,
-            created_at,
-            closed_at,
-            stage_id,
-            category_id,
-            status_group,
-            analytical_contact_id,
-            analytical_contact_name,
-            contact_type_normalized,
-            region_normalized
+    if normalized_deal_rows:
+        connection.executemany(
+            """
+            INSERT INTO normalized_deals (
+                deal_id,
+                deal_name,
+                amount_original,
+                currency_original,
+                created_at,
+                closed_at,
+                stage_id,
+                category_id,
+                status_group,
+                analytical_contact_id,
+                analytical_contact_name,
+                contact_type_normalized,
+                region_normalized
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            normalized_deal_rows,
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        normalized_deal_rows,
-    )
 
 
 def _normalize_contact(

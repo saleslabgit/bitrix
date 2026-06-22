@@ -2,9 +2,13 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 
 import duckdb
+import pytest
 
 from app.domain import ContactSnapshot, DealContactLink, DealSnapshot, StageSnapshot
-from app.pipeline.approved_contact_type_rules import APPROVED_CONTACT_TYPE_RULES
+from app.pipeline.approved_contact_type_rules import (
+    APPROVED_CONTACT_TYPE_RULES,
+    replace_contact_type_rules,
+)
 from app.pipeline.currency_rates import NbrbRateClient, load_currency_rates_for_raw_deals
 from app.pipeline.local_refresh import apply_approved_rules_and_renormalize
 from app.pipeline.normalization import NO_CONTACT_NAME, UNDEFINED_VALUE
@@ -178,6 +182,84 @@ def test_currency_rate_loader_uses_mocked_nbrb_dynamics() -> None:
         Decimal("0.03600000"),
         Decimal("3.40000000"),
     ) in rows
+
+
+def test_currency_rate_loader_raises_safe_error_when_raw_deals_have_no_rate_rows() -> None:
+    def transport(url: str) -> object:
+        if url.endswith("/currencies"):
+            return [
+                {
+                    "Cur_ID": 431,
+                    "Cur_Abbreviation": "USD",
+                    "Cur_Scale": 1,
+                    "Cur_DateStart": "2020-01-01T00:00:00",
+                    "Cur_DateEnd": "2050-01-01T00:00:00",
+                },
+                {
+                    "Cur_ID": 451,
+                    "Cur_Abbreviation": "EUR",
+                    "Cur_Scale": 1,
+                    "Cur_DateStart": "2020-01-01T00:00:00",
+                    "Cur_DateEnd": "2050-01-01T00:00:00",
+                },
+            ]
+        if "dynamics/431" in url:
+            return [{"Date": "2025-01-01T00:00:00", "Cur_OfficialRate": 3.3}]
+        if "dynamics/451" in url:
+            return [{"Date": "2025-01-02T00:00:00", "Cur_OfficialRate": 3.6}]
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    with duckdb.connect(database=":memory:") as connection:
+        initialize_schema(connection)
+        connection.execute(
+            """
+            INSERT INTO raw_deals (
+                deal_id,
+                deal_name,
+                amount_original,
+                currency_original,
+                created_at,
+                closed_at,
+                stage_id,
+                category_id,
+                status_group
+            )
+            VALUES (?, ?, ?, ?, ?, ?, 'SYN:WON', 1, 'won')
+            """,
+            (
+                1,
+                "Deal 1",
+                Decimal("10.00"),
+                "EUR",
+                datetime(2025, 1, 1, tzinfo=timezone.utc),
+                None,
+            ),
+        )
+
+        with pytest.raises(ValueError, match="No currency rate rows were loaded"):
+            load_currency_rates_for_raw_deals(
+                connection,
+                client=NbrbRateClient(transport=transport),
+                as_of_date=date(2025, 1, 1),
+            )
+        rate_count = connection.execute("SELECT COUNT(*) FROM currency_rates").fetchone()[0]
+
+    assert rate_count == 0
+
+
+def test_replace_contact_type_rules_accepts_empty_rules_and_clears_existing_rows() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        initialize_schema(connection)
+        initial_count = replace_contact_type_rules(connection)
+
+        empty_count = replace_contact_type_rules(connection, rules=())
+        stored_count = connection.execute("SELECT COUNT(*) FROM contact_type_rules").fetchone()[
+            0
+        ]
+
+    assert initial_count == len(APPROVED_CONTACT_TYPE_RULES)
+    assert empty_count == 0
+    assert stored_count == 0
 
 
 def _load_option_rule_dataset(connection: duckdb.DuckDBPyConnection) -> None:

@@ -1,6 +1,9 @@
+from datetime import date
+
+import duckdb
+
 from app import main
 from app.local_database import reset_connection
-import duckdb
 
 from app.main import (
     bitrix_discovery,
@@ -93,6 +96,30 @@ def test_full_manual_refresh_preparation_failure_keeps_previous_active_dataset()
     assert normalized_deal_count == previous_status.normalized_deals_count
 
 
+def test_full_manual_refresh_empty_currency_rows_returns_safe_error_status() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        previous_status = run_synthetic_pipeline(connection)
+
+        result = run_full_bitrix_manual_refresh(
+            connection,
+            client=NoCommonRateRowsBitrixClient(),
+            contact_type_field="UF_CRM_CONTACT_TYPE",
+            rate_client=NbrbRateClient(transport=_no_common_rate_transport),
+            rate_as_of_date=date(2025, 1, 1),
+        )
+        active_status = get_active_dataset_run(connection)
+        normalized_deal_count = connection.execute(
+            "SELECT COUNT(*) FROM normalized_deals"
+        ).fetchone()[0]
+
+    assert result.status.state == "error"
+    assert "No currency rate rows were loaded" in result.status.message
+    assert "executemany" not in result.status.message
+    assert result.status.is_active is False
+    assert active_status.run_id == previous_status.run_id
+    assert normalized_deal_count == previous_status.normalized_deals_count
+
+
 class RefreshBitrixClient:
     def list_stages(self) -> list[dict[str, object]]:
         return [
@@ -138,6 +165,14 @@ class UnsupportedCurrencyBitrixClient(RefreshBitrixClient):
         return rows
 
 
+class NoCommonRateRowsBitrixClient(RefreshBitrixClient):
+    def list_deal_items(self) -> list[dict[str, object]]:
+        rows = super().list_deal_items()
+        rows[0]["currencyId"] = "EUR"
+        rows[0]["closedTime"] = "2025-01-01T10:00:00+00:00"
+        return rows
+
+
 def _nbrb_transport(url: str) -> object:
     if url.endswith("/currencies"):
         return [
@@ -154,4 +189,29 @@ def _nbrb_transport(url: str) -> object:
             {"Date": "2025-01-01T00:00:00", "Cur_OfficialRate": 3.3},
             {"Date": "2025-01-02T00:00:00", "Cur_OfficialRate": 3.4},
         ]
+    raise AssertionError(f"Unexpected URL: {url}")
+
+
+def _no_common_rate_transport(url: str) -> object:
+    if url.endswith("/currencies"):
+        return [
+            {
+                "Cur_ID": 431,
+                "Cur_Abbreviation": "USD",
+                "Cur_Scale": 1,
+                "Cur_DateStart": "2020-01-01T00:00:00",
+                "Cur_DateEnd": "2050-01-01T00:00:00",
+            },
+            {
+                "Cur_ID": 451,
+                "Cur_Abbreviation": "EUR",
+                "Cur_Scale": 1,
+                "Cur_DateStart": "2020-01-01T00:00:00",
+                "Cur_DateEnd": "2050-01-01T00:00:00",
+            },
+        ]
+    if "rates/dynamics/431" in url:
+        return [{"Date": "2025-01-01T00:00:00", "Cur_OfficialRate": 3.3}]
+    if "rates/dynamics/451" in url:
+        return [{"Date": "2025-01-02T00:00:00", "Cur_OfficialRate": 3.6}]
     raise AssertionError(f"Unexpected URL: {url}")
