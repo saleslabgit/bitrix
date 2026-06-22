@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
   BarChart3,
@@ -14,6 +14,7 @@ import {
   fetchContacts,
   fetchDatasetStatus,
   fetchFilterMetadata,
+  refreshLocalData,
   type ContactFilters,
   type ContactSummary
 } from "./api";
@@ -30,6 +31,7 @@ const initialFilters: ContactFilters = {
 };
 
 export function App() {
+  const queryClient = useQueryClient();
   const [filters, setFilters] = useState<ContactFilters>(initialFilters);
   const [searchDraft, setSearchDraft] = useState("");
 
@@ -45,19 +47,38 @@ export function App() {
     return () => window.clearTimeout(timer);
   }, [searchDraft]);
 
-  const filterQuery = useQuery({
-    queryKey: ["filter-metadata"],
-    queryFn: fetchFilterMetadata
-  });
-
   const statusQuery = useQuery({
     queryKey: ["dataset-status"],
     queryFn: fetchDatasetStatus
   });
 
+  const activeDataset = statusQuery.data?.active_dataset;
+  const isDatasetReady = activeDataset?.state === "success" && activeDataset.is_active;
+
+  const filterQuery = useQuery({
+    queryKey: ["filter-metadata"],
+    queryFn: fetchFilterMetadata,
+    enabled: isDatasetReady
+  });
+
   const contactsQuery = useQuery({
     queryKey: ["contacts", filters],
-    queryFn: () => fetchContacts(filters)
+    queryFn: () => fetchContacts(filters),
+    enabled: isDatasetReady
+  });
+
+  const refreshMutation = useMutation({
+    mutationFn: refreshLocalData,
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["dataset-status"] }),
+        queryClient.invalidateQueries({ queryKey: ["filter-metadata"] }),
+        queryClient.invalidateQueries({ queryKey: ["contacts"] })
+      ]);
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["dataset-status"] });
+    }
   });
 
   const total = contactsQuery.data?.total ?? 0;
@@ -65,8 +86,13 @@ export function App() {
   const totalPages = Math.max(1, Math.ceil(total / filters.limit));
   const hasPreviousPage = filters.offset > 0;
   const hasNextPage = filters.offset + filters.limit < total;
-
-  const activeDataset = statusQuery.data?.active_dataset;
+  const tableSubtitle = statusQuery.isPending
+    ? "Проверка локального dataset"
+    : !isDatasetReady
+      ? "Локальная база не подготовлена"
+      : contactsQuery.isPending
+        ? "Загрузка данных"
+        : `${total.toLocaleString("ru-RU")} контактов найдено`;
 
   const selectedFilterCount = useMemo(
     () =>
@@ -119,49 +145,51 @@ export function App() {
           />
         </header>
 
-        <section className="toolbar" aria-label="Фильтры контактов">
-          <label className="field search-field">
-            <span>Поиск</span>
-            <div className="input-shell">
-              <Search size={16} strokeWidth={1.5} />
-              <input
-                value={searchDraft}
-                onChange={(event) => setSearchDraft(event.target.value)}
-                placeholder="Название контакта"
-                type="search"
-              />
-            </div>
-          </label>
+        {isDatasetReady && (
+          <section className="toolbar" aria-label="Фильтры контактов">
+            <label className="field search-field">
+              <span>Поиск</span>
+              <div className="input-shell">
+                <Search size={16} strokeWidth={1.5} />
+                <input
+                  value={searchDraft}
+                  onChange={(event) => setSearchDraft(event.target.value)}
+                  placeholder="Название контакта"
+                  type="search"
+                />
+              </div>
+            </label>
 
-          <SelectField
-            label="Тип"
-            value={filters.contactType}
-            onChange={(value) => updateFilter("contactType", value)}
-            options={filterQuery.data?.contact_types ?? []}
-            disabled={filterQuery.isPending || filterQuery.isError}
-          />
-          <SelectField
-            label="Регион"
-            value={filters.region}
-            onChange={(value) => updateFilter("region", value)}
-            options={filterQuery.data?.regions ?? []}
-            disabled={filterQuery.isPending || filterQuery.isError}
-          />
-          <SelectField
-            label="Статус сделки"
-            value={filters.status}
-            onChange={(value) => updateFilter("status", value)}
-            options={filterQuery.data?.statuses ?? []}
-            disabled={filterQuery.isPending || filterQuery.isError}
-          />
+            <SelectField
+              label="Тип"
+              value={filters.contactType}
+              onChange={(value) => updateFilter("contactType", value)}
+              options={filterQuery.data?.contact_types ?? []}
+              disabled={filterQuery.isPending || filterQuery.isError}
+            />
+            <SelectField
+              label="Регион"
+              value={filters.region}
+              onChange={(value) => updateFilter("region", value)}
+              options={filterQuery.data?.regions ?? []}
+              disabled={filterQuery.isPending || filterQuery.isError}
+            />
+            <SelectField
+              label="Статус сделки"
+              value={filters.status}
+              onChange={(value) => updateFilter("status", value)}
+              options={filterQuery.data?.statuses ?? []}
+              disabled={filterQuery.isPending || filterQuery.isError}
+            />
 
-          <button className="button button-secondary" type="button" onClick={resetFilters}>
-            <Filter size={16} strokeWidth={1.5} />
-            Сбросить
-          </button>
-        </section>
+            <button className="button button-secondary" type="button" onClick={resetFilters}>
+              <Filter size={16} strokeWidth={1.5} />
+              Сбросить
+            </button>
+          </section>
+        )}
 
-        {filterQuery.isError && (
+        {isDatasetReady && filterQuery.isError && (
           <InlineAlert
             title="Не удалось загрузить фильтры"
             message={filterQuery.error.message}
@@ -173,18 +201,25 @@ export function App() {
           <div className="table-header">
             <div>
               <h2>Список контактов</h2>
-              <p>
-                {contactsQuery.isPending
-                  ? "Загрузка данных"
-                  : `${total.toLocaleString("ru-RU")} контактов найдено`}
-              </p>
+              <p>{tableSubtitle}</p>
             </div>
             {selectedFilterCount > 0 && (
               <span className="badge badge-primary">{selectedFilterCount} активных фильтра</span>
             )}
           </div>
 
-          {contactsQuery.isError ? (
+          {statusQuery.isError ? (
+            <TableError message={statusQuery.error.message} onRetry={() => void statusQuery.refetch()} />
+          ) : statusQuery.isPending ? (
+            <ContactsSkeleton />
+          ) : !isDatasetReady ? (
+            <DatabaseNotReadyState
+              errorMessage={refreshMutation.isError ? refreshMutation.error.message : null}
+              isRefreshing={refreshMutation.isPending}
+              latestMessage={statusQuery.data?.latest_run?.message}
+              onRefresh={() => refreshMutation.mutate()}
+            />
+          ) : contactsQuery.isError ? (
             <TableError message={contactsQuery.error.message} onRetry={() => void contactsQuery.refetch()} />
           ) : contactsQuery.isPending ? (
             <ContactsSkeleton />
@@ -194,41 +229,43 @@ export function App() {
             <ContactsTable contacts={contactsQuery.data.items} />
           )}
 
-          <div className="pagination">
-            <span>
-              Страница {pageNumber.toLocaleString("ru-RU")} из {totalPages.toLocaleString("ru-RU")}
-            </span>
-            <div className="pagination-actions">
-              <button
-                className="icon-button"
-                type="button"
-                disabled={!hasPreviousPage}
-                onClick={() =>
-                  setFilters((current) => ({
-                    ...current,
-                    offset: Math.max(0, current.offset - current.limit)
-                  }))
-                }
-                aria-label="Предыдущая страница"
-              >
-                <ChevronLeft size={16} strokeWidth={1.5} />
-              </button>
-              <button
-                className="icon-button"
-                type="button"
-                disabled={!hasNextPage}
-                onClick={() =>
-                  setFilters((current) => ({
-                    ...current,
-                    offset: current.offset + current.limit
-                  }))
-                }
-                aria-label="Следующая страница"
-              >
-                <ChevronRight size={16} strokeWidth={1.5} />
-              </button>
+          {isDatasetReady && (
+            <div className="pagination">
+              <span>
+                Страница {pageNumber.toLocaleString("ru-RU")} из {totalPages.toLocaleString("ru-RU")}
+              </span>
+              <div className="pagination-actions">
+                <button
+                  className="icon-button"
+                  type="button"
+                  disabled={!hasPreviousPage}
+                  onClick={() =>
+                    setFilters((current) => ({
+                      ...current,
+                      offset: Math.max(0, current.offset - current.limit)
+                    }))
+                  }
+                  aria-label="Предыдущая страница"
+                >
+                  <ChevronLeft size={16} strokeWidth={1.5} />
+                </button>
+                <button
+                  className="icon-button"
+                  type="button"
+                  disabled={!hasNextPage}
+                  onClick={() =>
+                    setFilters((current) => ({
+                      ...current,
+                      offset: current.offset + current.limit
+                    }))
+                  }
+                  aria-label="Следующая страница"
+                >
+                  <ChevronRight size={16} strokeWidth={1.5} />
+                </button>
+              </div>
             </div>
-          </div>
+          )}
         </section>
       </main>
     </div>
@@ -343,6 +380,43 @@ function EmptyState({ onReset }: { onReset: () => void }) {
       <button className="button button-secondary" type="button" onClick={onReset}>
         Сбросить фильтры
       </button>
+    </div>
+  );
+}
+
+function DatabaseNotReadyState({
+  errorMessage,
+  isRefreshing,
+  latestMessage,
+  onRefresh
+}: {
+  errorMessage: string | null;
+  isRefreshing: boolean;
+  latestMessage?: string;
+  onRefresh: () => void;
+}) {
+  return (
+    <div className="state-panel state-panel-wide">
+      <Database size={26} strokeWidth={1.5} />
+      <h3>Локальная база не подготовлена.</h3>
+      <p>Нажмите «Обновить из Bitrix», чтобы загрузить данные.</p>
+      <p>Ручное read-only обновление может занять несколько минут.</p>
+      {latestMessage && <p className="state-note">{latestMessage}</p>}
+      {errorMessage && (
+        <p className="state-error" role="alert">
+          {errorMessage}
+        </p>
+      )}
+      <button
+        className="button button-primary"
+        type="button"
+        disabled={isRefreshing}
+        onClick={onRefresh}
+      >
+        <RefreshCcw size={16} strokeWidth={1.5} />
+        {isRefreshing ? "Загрузка данных из Bitrix..." : "Обновить из Bitrix"}
+      </button>
+      {isRefreshing && <p className="state-note">Это может занять несколько минут.</p>}
     </div>
   );
 }

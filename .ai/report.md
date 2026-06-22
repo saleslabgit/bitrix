@@ -1,111 +1,111 @@
-# Отчет: TASK-2026-06-22-06
+# Отчет: TASK-2026-06-22-07
 
 Статус: done
 
 ## Кратко
 
-Исправлен Compose runtime для frontend Vite dev server: frontend container теперь получает read-only mount дизайн-системы.
+Добавлен ручной UI-triggered refresh flow для локального приложения после `docker compose up --build`.
 
-Root cause:
+Docker по-прежнему только стартует сервисы и не запускает Bitrix/NBRB refresh автоматически. Если локальный `data/analytics.duckdb` уже содержит активный dataset, Contacts table загружается как раньше. Если активного dataset нет, frontend показывает состояние:
 
 ```text
-frontend/src/styles.css -> @import "../../ui-kits/styles.css"
+Локальная база не подготовлена.
+Нажмите «Обновить из Bitrix», чтобы загрузить данные.
 ```
 
-В контейнере frontend рабочий каталог смонтирован как `/app`, поэтому импорт из `/app/src/styles.css` резолвится в `/ui-kits/styles.css`. До этой задачи `ui-kits/` в контейнер не монтировался, из-за чего Vite мог показывать CSS ENOENT overlay.
+Кнопка `Обновить из Bitrix` вызывает новый backend endpoint:
 
-Fix:
-
-```yaml
-- ./ui-kits:/ui-kits:ro
+```text
+POST /api/local/refresh-data
 ```
 
-Manual frontend flow остается рабочим, потому что локально тот же импорт продолжает резолвиться в репозиторный `ui-kits/`.
+Endpoint строит Bitrix client из env, запускает существующую read-only manual ingestion, применяет approved contact type rules, перезапускает локальную нормализацию и загружает NBRB rates для raw deals. Успешный dataset активируется только после полной подготовки. Если локальная подготовка или NBRB rates падают, новый dataset не активируется как готовый.
 
 ## Измененные файлы
 
-- `docker-compose.yml` — добавлен read-only bind mount `./ui-kits:/ui-kits:ro` в `frontend` service.
-- `docs/development.md` — уточнено, что Compose монтирует `ui-kits/` read-only для Vite CSS imports.
-- `frontend/README.md` — уточнено, что Compose монтирует `ui-kits/` read-only.
+- `backend/app/main.py` — добавлен `POST /api/local/refresh-data`.
+- `backend/app/api/models.py` — добавлен typed safe response `LocalDataRefreshResponse`.
+- `backend/app/bitrix/ingestion.py` — добавлен optional finalizer hook для переиспользования manual ingestion до activation.
+- `backend/app/pipeline/manual_refresh.py` — добавлена orchestration-функция полного ручного refresh.
+- `backend/app/pipeline/currency_rates.py` — добавлен controlled transaction mode для вызова внутри refresh transaction и safe NBRB transport error.
+- `backend/tests/test_api_bitrix.py` — добавлены mocked tests для full refresh, no-credentials flow и failure-before-activation.
+- `frontend/src/api.ts` — добавлен `refreshLocalData()`.
+- `frontend/src/App.tsx` — добавлены dataset-not-ready state, refresh mutation, отключение contacts/filter queries до готового dataset.
+- `frontend/src/styles.css` — добавлены стили для refresh empty/error/progress state.
+- `docs/development.md` — описан простой Docker -> frontend -> manual refresh flow.
+- `frontend/README.md` — описан frontend/manual refresh flow.
+- `docs/project-status.md` — обновлен текущий статус проекта.
 - `.ai/report.md` — this report.
 
-`ui-kits/` files were not modified or staged. `.ai/task.md` remains a pre-existing unstaged planner change and was not staged by Codex. `.env`, generated data, DuckDB files, Parquet snapshots, CSV exports, logs, caches, `node_modules`, and `frontend/dist` were not staged.
-
-## User Verification Command
-
-```bash
-docker compose up --build
-```
-
-Open:
-
-```text
-http://localhost:5173
-```
-
-The Contacts screen should open without the Vite `[plugin:vite:css]` ENOENT overlay.
+`.ai/task.md` остался pre-existing unstaged planner change и не изменялся Codex. `.env`, generated data, DuckDB files, Parquet snapshots, CSV exports, logs, caches, `node_modules`, `frontend/dist`, and `ui-kits/` не staged.
 
 ## Bitrix Calls
 
-Bitrix methods called in this task:
+Live Bitrix refresh was not run.
+
+Bitrix methods called during this task:
 
 ```text
 none
 ```
 
-No Bitrix sync was run. No Bitrix row-listing methods were called. No Bitrix write methods were called.
+No Bitrix write methods were added or called. The code continues to use the existing read-only Bitrix client allowlist for live manual ingestion.
 
-## Запущенные проверки
+## Проверки
 
 Before implementation:
 
-- `git log --oneline -5` — passed. Latest relevant commit was `01fde5a planner: TASK-2026-06-22-06 Fix Compose ui-kits mount`.
-- `git status --short --branch` — passed. Showed only pre-existing modified `.ai/task.md`.
+- `git log --oneline -5` — passed. Latest relevant commit was `55325f1 planner: TASK-2026-06-22-07 Add manual data refresh flow`.
+- `git status --short` — passed. Showed only pre-existing modified `.ai/task.md`.
 
-Documentation/library checks:
+Backend:
 
-- Context7 docs queried for Docker Compose bind mount syntax.
+- `cd backend && python -m pytest` — not run because `python` is not installed in this environment.
+- `cd backend && python3 -m pytest` — not run because system Python did not have `pytest`.
+- `python3 -m venv /tmp/bitrix-backend-venv` — passed.
+- `/tmp/bitrix-backend-venv/bin/python -m pip install -e '.[dev]'` — passed in a temporary venv outside the repository.
+- `cd backend && /tmp/bitrix-backend-venv/bin/python -m pytest` — passed, `58 passed`.
 
-Runtime checks:
+Frontend:
 
-- `docker compose config` — passed. The rendered config includes `frontend` bind mount:
-  - source: repository `ui-kits`;
-  - target: `/ui-kits`;
-  - `read_only: true`.
-- `docker compose up --build -d` — passed. Backend and frontend containers started.
-- `curl -f -sS http://localhost:8000/health` — passed.
-- `curl -f -sS http://localhost:5173/` — passed.
-- `curl -f -sS http://localhost:5173/health` — passed through the Vite proxy to backend.
-- `curl -f -sS http://localhost:5173/api/datasets/status` — passed through the Vite proxy to backend.
-- Additional Vite module checks:
-  - `curl -f -sS http://localhost:5173/src/main.tsx` — passed, HTTP `200`.
-  - `curl -f -sS http://localhost:5173/src/styles.css` — passed, HTTP `200`, proving Vite could transform the CSS import graph.
-- `docker compose logs frontend --tail 160` — passed. Logs showed Vite ready on `0.0.0.0:5173`.
-- `docker compose logs frontend | rg "ENOENT|ui-kits/styles\\.css|\\[plugin:vite:css\\]"` — no matches. Command exited `1` because no error pattern was found.
-- `docker compose down -v` — passed. Containers/network were stopped and removed, including the anonymous node_modules volume.
+- `cd frontend && npm run build` — passed.
 
-`npm run build` was not run because no frontend source files changed; only Compose/docs/report changed.
+Compose:
 
-Backend tests were not run because backend code did not change.
+- `docker compose config` — passed. Output is not copied here because local Compose config expands local env values.
+- `docker compose up --build -d` — passed.
+- `curl -f -sS http://127.0.0.1:8000/health` — passed.
+- `curl -f -sS http://127.0.0.1:5173/` — passed.
+- `docker compose down -v` — passed.
 
-Pre-staging checks:
+Live/manual data refresh was intentionally not run during Compose verification. Only health/frontend root HTTP probes were made.
 
-- `git status --short --branch` — passed. Showed TASK-2026-06-22-06 files plus pre-existing unstaged `.ai/task.md`.
-- `git diff --stat HEAD` — passed. Included tracked task files plus pre-existing `.ai/task.md`.
-- `git diff --name-only --cached` — passed with no output.
-- `git diff --check -- ':!AGENTS.md' ':!.ai/task.md'` — passed with no output.
-- `git status --short --ignored frontend backend/data data ui-kits .env` — passed. `.env`, generated data, `frontend/dist/`, `frontend/node_modules/`, and `frontend/tsconfig.tsbuildinfo` were ignored and not staged.
+Safety and Git gate checks:
 
-Final staged checks:
-
+- `rg "crm\.[A-Za-z0-9_.]*(add|update|delete|set)" backend/app backend/tests` — passed for implementation scope. It found only the existing `crm.deal.update` negative test that asserts write methods are rejected.
 - `git status --short --branch` — passed. `.ai/task.md` remained unstaged.
-- `git diff --stat HEAD` — passed. Included staged TASK-2026-06-22-06 files plus pre-existing unstaged `.ai/task.md`.
-- `git diff --name-only --cached` — passed. Listed only `.ai/report.md`, `docker-compose.yml`, `docs/development.md`, and `frontend/README.md`.
-- `git diff --check -- ':!AGENTS.md' ':!.ai/task.md'` — passed with no output.
-- `git status --short --ignored frontend backend/data data ui-kits .env` — passed. `.env`, generated data, `frontend/dist/`, `frontend/node_modules/`, `frontend/tsconfig.tsbuildinfo`, and `ui-kits/` were not staged.
-- `git log --oneline -1` — passed. Latest relevant commit remained `01fde5a planner: TASK-2026-06-22-06 Fix Compose ui-kits mount`.
+- `git diff --stat HEAD` — passed. It includes the pre-existing unstaged `.ai/task.md` diff.
+- `git diff --name-only --cached` before staging — passed with no output.
+- `git diff --check -- ':!AGENTS.md' ':!.ai/task.md'` — passed.
+- `git status --short --ignored frontend backend/data data ui-kits .env` — passed. `.env`, `backend/data/`, `data/`, `frontend/dist/`, `frontend/node_modules/`, and `frontend/tsconfig.tsbuildinfo` were ignored and not staged.
+- Final `git diff --name-only --cached` — passed. Staged files are only TASK-2026-06-22-07 implementation/docs/report files:
+  - `.ai/report.md`
+  - `backend/app/api/models.py`
+  - `backend/app/bitrix/ingestion.py`
+  - `backend/app/main.py`
+  - `backend/app/pipeline/currency_rates.py`
+  - `backend/app/pipeline/manual_refresh.py`
+  - `backend/tests/test_api_bitrix.py`
+  - `docs/development.md`
+  - `docs/project-status.md`
+  - `frontend/README.md`
+  - `frontend/src/App.tsx`
+  - `frontend/src/api.ts`
+  - `frontend/src/styles.css`
+- `git log --oneline -1` — passed. Latest relevant commit remained `55325f1 planner: TASK-2026-06-22-07 Add manual data refresh flow`.
 
 ## Known Limitations
 
-- Compose still runs the Vite development server, not a production frontend image.
-- npm still reports 1 low severity vulnerability during container `npm ci`; no `npm audit fix` was run to avoid unrelated dependency changes.
+- `POST /api/local/refresh-data` is synchronous and can block for several minutes, by design for this MVP task.
+- No background queue, scheduler, auth, roles, dashboard, or new report screens were added.
+- `npm ci` inside the frontend container still reports 1 low severity npm vulnerability; no dependency update or audit fix was run to avoid unrelated changes.

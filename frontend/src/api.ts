@@ -50,6 +50,15 @@ export type DatasetStorageStatus = {
   latest_run: PipelineStatus | null;
 };
 
+export type LocalDataRefreshResponse = {
+  status: PipelineStatus;
+  message: string;
+  contact_type_rules_count: number;
+  active_contact_type_rules_count: number;
+  currency_rate_rows_loaded: number;
+  currency_rate_currencies: string[];
+};
+
 export type ContactFilters = {
   search: string;
   contactType: string;
@@ -91,10 +100,24 @@ export function fetchDatasetStatus(): Promise<DatasetStorageStatus> {
   return request<DatasetStorageStatus>("/api/datasets/status");
 }
 
-async function request<T>(path: string): Promise<T> {
+export async function refreshLocalData(): Promise<LocalDataRefreshResponse> {
+  const result = await request<LocalDataRefreshResponse>("/api/local/refresh-data", {
+    method: "POST"
+  });
+
+  if (result.status.state !== "success") {
+    throw new Error(result.message || result.status.message || "Не удалось обновить данные.");
+  }
+
+  return result;
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`, {
+    ...init,
     headers: {
-      Accept: "application/json"
+      Accept: "application/json",
+      ...init?.headers
     }
   });
 

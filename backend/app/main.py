@@ -12,6 +12,7 @@ from app.api.models import (
     DatasetProfileResponse,
     DealCycleReportResponse,
     FilterMetadataResponse,
+    LocalDataRefreshResponse,
     PipelineStatusResponse,
     RfmResponse,
     StaleDealResponse,
@@ -28,6 +29,8 @@ from app.bitrix.ingestion import (
 )
 from app.core.config import get_settings
 from app.local_database import get_connection
+from app.pipeline.currency_rates import NbrbRateClient
+from app.pipeline.manual_refresh import run_full_bitrix_manual_refresh
 from app.pipeline.synthetic import get_latest_pipeline_status, run_synthetic_pipeline
 from app.reports.analytics import (
     get_abc_report,
@@ -162,6 +165,38 @@ def run_manual_bitrix_sync() -> PipelineStatusResponse:
         data_dir=settings.data_dir,
     )
     return PipelineStatusResponse.model_validate(status)
+
+
+@app.post("/api/local/refresh-data", response_model=LocalDataRefreshResponse)
+def refresh_local_data() -> LocalDataRefreshResponse:
+    try:
+        client = _build_bitrix_client()
+    except (BitrixClientError, ValueError) as exc:
+        status = store_bitrix_ingestion_error(get_connection(), str(exc))
+        return LocalDataRefreshResponse(
+            status=PipelineStatusResponse.model_validate(status),
+            message=status.message,
+            contact_type_rules_count=0,
+            active_contact_type_rules_count=0,
+            currency_rate_rows_loaded=0,
+            currency_rate_currencies=(),
+        )
+
+    result = run_full_bitrix_manual_refresh(
+        get_connection(),
+        client=client,
+        contact_type_field=settings.bitrix_contact_type_field,
+        data_dir=settings.data_dir,
+        rate_client=NbrbRateClient(),
+    )
+    return LocalDataRefreshResponse(
+        status=PipelineStatusResponse.model_validate(result.status),
+        message=result.status.message,
+        contact_type_rules_count=result.contact_type_rules_count,
+        active_contact_type_rules_count=result.active_contact_type_rules_count,
+        currency_rate_rows_loaded=result.currency_rate_rows_loaded,
+        currency_rate_currencies=result.currency_rate_currencies,
+    )
 
 
 @app.get("/api/meta/filters", response_model=FilterMetadataResponse)

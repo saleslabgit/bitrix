@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -27,6 +28,8 @@ from app.storage.status import (
 BITRIX_MANUAL_DATASET_NAME = "bitrix-manual"
 BITRIX_MANUAL_DATASET_KIND = "bitrix_manual"
 
+BitrixManualFinalizer = Callable[[duckdb.DuckDBPyConnection], None]
+
 
 def run_bitrix_manual_ingestion(
     connection: duckdb.DuckDBPyConnection,
@@ -34,6 +37,8 @@ def run_bitrix_manual_ingestion(
     client: BitrixClient,
     contact_type_field: str | None,
     data_dir: Path | None = None,
+    finalize_local_data: BitrixManualFinalizer | None = None,
+    success_message: str = "Manual Bitrix ingestion completed.",
 ) -> PipelineStatus:
     started_at = datetime.now(timezone.utc)
     run_id = build_run_id(BITRIX_MANUAL_DATASET_KIND, started_at)
@@ -57,7 +62,10 @@ def run_bitrix_manual_ingestion(
             links=links,
             stages=stages,
         )
-        normalize_local_data(connection)
+        if finalize_local_data is None:
+            normalize_local_data(connection)
+        else:
+            finalize_local_data(connection)
         snapshot_paths = ()
         if data_dir is not None:
             snapshot_paths = write_raw_parquet_snapshots(
@@ -71,7 +79,7 @@ def run_bitrix_manual_ingestion(
             connection,
             run_id=run_id,
             state="success",
-            message="Manual Bitrix ingestion completed.",
+            message=success_message,
             started_at=started_at,
             finished_at=finished_at,
             snapshot_paths=snapshot_paths,
@@ -79,7 +87,7 @@ def run_bitrix_manual_ingestion(
         )
         store_dataset_run(connection, status)
         connection.execute("COMMIT")
-    except (BitrixClientError, ValueError, duckdb.Error) as exc:
+    except (BitrixClientError, OSError, ValueError, duckdb.Error) as exc:
         _rollback_if_needed(connection)
         finished_at = datetime.now(timezone.utc)
         status = _status(

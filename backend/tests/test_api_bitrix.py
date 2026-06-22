@@ -1,6 +1,18 @@
 from app import main
 from app.local_database import reset_connection
-from app.main import bitrix_discovery, bitrix_sync_status, run_manual_bitrix_sync
+import duckdb
+
+from app.main import (
+    bitrix_discovery,
+    bitrix_sync_status,
+    refresh_local_data,
+    run_manual_bitrix_sync,
+)
+from app.pipeline.approved_contact_type_rules import APPROVED_CONTACT_TYPE_RULES
+from app.pipeline.currency_rates import NbrbRateClient
+from app.pipeline.manual_refresh import run_full_bitrix_manual_refresh
+from app.pipeline.synthetic import run_synthetic_pipeline
+from app.storage.status import get_active_dataset_run
 
 
 def test_bitrix_api_surfaces_fail_safely_without_credentials(monkeypatch, tmp_path) -> None:
@@ -13,6 +25,7 @@ def test_bitrix_api_surfaces_fail_safely_without_credentials(monkeypatch, tmp_pa
     try:
         discovery = bitrix_discovery()
         run_status = run_manual_bitrix_sync()
+        refresh_status = refresh_local_data()
         latest_status = bitrix_sync_status()
     finally:
         reset_connection()
@@ -22,4 +35,123 @@ def test_bitrix_api_surfaces_fail_safely_without_credentials(monkeypatch, tmp_pa
     assert run_status.dataset_kind == "bitrix_manual"
     assert run_status.state == "error"
     assert "webhook URL is not configured" in run_status.message
+    assert refresh_status.status.dataset_kind == "bitrix_manual"
+    assert refresh_status.status.state == "error"
+    assert "webhook URL is not configured" in refresh_status.message
     assert latest_status.state == "error"
+
+
+def test_full_manual_refresh_runs_bitrix_rules_normalization_and_rates() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        result = run_full_bitrix_manual_refresh(
+            connection,
+            client=RefreshBitrixClient(),
+            contact_type_field="UF_CRM_CONTACT_TYPE",
+            rate_client=NbrbRateClient(transport=_nbrb_transport),
+        )
+        normalized_contact = connection.execute(
+            """
+            SELECT contact_type_normalized, region_normalized
+            FROM normalized_contacts
+            WHERE contact_id = 10
+            """
+        ).fetchone()
+        rate_count = connection.execute("SELECT COUNT(*) FROM currency_rates").fetchone()[0]
+
+    assert result.status.state == "success"
+    assert result.status.is_active is True
+    assert result.status.raw_contacts_count == 1
+    assert result.status.normalized_deals_count == 1
+    assert result.contact_type_rules_count == len(APPROVED_CONTACT_TYPE_RULES)
+    assert result.active_contact_type_rules_count == 13
+    assert result.currency_rate_rows_loaded == 2
+    assert result.currency_rate_currencies == ("USD",)
+    assert normalized_contact == ("Дизайнер", "Беларусь")
+    assert rate_count == 2
+
+
+def test_full_manual_refresh_preparation_failure_keeps_previous_active_dataset() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        previous_status = run_synthetic_pipeline(connection)
+
+        result = run_full_bitrix_manual_refresh(
+            connection,
+            client=UnsupportedCurrencyBitrixClient(),
+            contact_type_field="UF_CRM_CONTACT_TYPE",
+            rate_client=NbrbRateClient(transport=_nbrb_transport),
+        )
+        active_status = get_active_dataset_run(connection)
+        normalized_deal_count = connection.execute(
+            "SELECT COUNT(*) FROM normalized_deals"
+        ).fetchone()[0]
+
+    assert result.status.state == "error"
+    assert "Unsupported currencies" in result.status.message
+    assert result.status.is_active is False
+    assert active_status.run_id == previous_status.run_id
+    assert active_status.dataset_kind == "local_synthetic"
+    assert normalized_deal_count == previous_status.normalized_deals_count
+
+
+class RefreshBitrixClient:
+    def list_stages(self) -> list[dict[str, object]]:
+        return [
+            {
+                "STATUS_ID": "WON",
+                "CATEGORY_ID": "0",
+                "SEMANTICS": "S",
+                "NAME": "Won",
+            }
+        ]
+
+    def list_contacts(self, contact_type_field: str | None) -> list[dict[str, object]]:
+        assert contact_type_field == "UF_CRM_CONTACT_TYPE"
+        return [
+            {
+                "ID": "10",
+                "NAME": "Ada",
+                "LAST_NAME": "Lovelace",
+                "UF_CRM_CONTACT_TYPE": "61",
+            }
+        ]
+
+    def list_deals(self) -> list[dict[str, object]]:
+        return [
+            {
+                "ID": "100",
+                "TITLE": "Won deal",
+                "OPPORTUNITY": "150.25",
+                "CURRENCY_ID": "USD",
+                "DATE_CREATE": "2025-01-01T10:00:00+00:00",
+                "CLOSEDATE": "2025-01-02T10:00:00+00:00",
+                "STAGE_ID": "WON",
+                "CATEGORY_ID": "0",
+                "CONTACT_ID": "10",
+            }
+        ]
+
+
+class UnsupportedCurrencyBitrixClient(RefreshBitrixClient):
+    def list_deals(self) -> list[dict[str, object]]:
+        rows = super().list_deals()
+        rows[0]["CURRENCY_ID"] = "JPY"
+        return rows
+
+
+def _nbrb_transport(url: str) -> object:
+    if url.endswith("/currencies"):
+        return [
+            {
+                "Cur_ID": 431,
+                "Cur_Abbreviation": "USD",
+                "Cur_Scale": 1,
+                "Cur_DateStart": "2020-01-01T00:00:00",
+                "Cur_DateEnd": "2050-01-01T00:00:00",
+            }
+        ]
+    if "rates/dynamics/431" in url:
+        return [
+            {"Date": "2025-01-01T00:00:00", "Cur_OfficialRate": 3.3},
+            {"Date": "2025-01-02T00:00:00", "Cur_OfficialRate": 3.4},
+        ]
+    raise AssertionError(f"Unexpected URL: {url}")

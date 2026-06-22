@@ -30,6 +30,15 @@ class DatasetStorageStatusResponse(ApiModel):
     latest_run: PipelineStatusResponse | None
 
 
+class LocalDataRefreshResponse(ApiModel):
+    status: PipelineStatusResponse
+    message: str
+    contact_type_rules_count: int
+    active_contact_type_rules_count: int
+    currency_rate_rows_loaded: int
+    currency_rate_currencies: tuple[str, ...] = ()
+
+
 class DatasetProfileRunResponse(ApiModel):
     run_id: str | None = None
     dataset_name: str

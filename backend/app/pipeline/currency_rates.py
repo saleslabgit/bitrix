@@ -5,6 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from urllib.error import URLError
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
@@ -145,6 +146,7 @@ def load_currency_rates_for_raw_deals(
     *,
     client: NbrbRateClient | None = None,
     as_of_date: date | None = None,
+    manage_transaction: bool = True,
 ) -> CurrencyRateLoadResult | None:
     initialize_schema(connection)
     period = _raw_deal_rate_period(connection, as_of_date=as_of_date)
@@ -219,7 +221,8 @@ def load_currency_rates_for_raw_deals(
                 )
             )
 
-    connection.execute("BEGIN TRANSACTION")
+    if manage_transaction:
+        connection.execute("BEGIN TRANSACTION")
     try:
         connection.execute("DELETE FROM currency_rates")
         connection.executemany(
@@ -236,9 +239,11 @@ def load_currency_rates_for_raw_deals(
             """,
             rows,
         )
-        connection.execute("COMMIT")
+        if manage_transaction:
+            connection.execute("COMMIT")
     except Exception:
-        connection.execute("ROLLBACK")
+        if manage_transaction:
+            connection.execute("ROLLBACK")
         raise
 
     return CurrencyRateLoadResult(
@@ -298,6 +303,9 @@ def _year_periods(start_date: date, end_date: date) -> tuple[tuple[date, date], 
 
 
 def _default_transport(url: str) -> object:
-    with urlopen(url, timeout=30) as response:
-        payload = response.read()
+    try:
+        with urlopen(url, timeout=30) as response:
+            payload = response.read()
+    except URLError as exc:
+        raise ValueError("NBRB request failed.") from exc
     return json.loads(payload.decode("utf-8"))

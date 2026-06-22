@@ -50,6 +50,23 @@ Backend:  http://localhost:8000
 Frontend: http://localhost:5173
 ```
 
+Docker Compose only starts the backend and frontend services. It intentionally
+does not call Bitrix, load NBRB rates, or refresh local data during startup.
+Existing `data/analytics.duckdb` storage is reused when present, and generated
+local databases remain gitignored.
+
+Simple local app flow:
+
+1. Run `docker compose up --build`.
+2. Open `http://localhost:5173`.
+3. If an active local dataset exists, the Contacts table loads normally.
+4. If the frontend says `Локальная база не подготовлена.`, click
+   `Обновить из Bitrix`.
+5. Wait for the manual read-only refresh to finish; it can take several
+   minutes. The backend syncs allowed Bitrix data, applies approved contact
+   type rules, reruns local normalization, loads NBRB rates, and then the
+   Contacts screen refetches dataset status, filters, and rows.
+
 The Compose frontend service runs the Vite dev server on `0.0.0.0:5173` and
 sets `VITE_BACKEND_URL=http://backend:8000`, so frontend `/api` and `/health`
 requests are proxied to the backend service over the Compose network. It also
@@ -72,7 +89,8 @@ Full-stack verification checklist:
 
 - `http://localhost:8000/health` returns backend health.
 - `http://localhost:5173` opens the frontend.
-- The Contacts table loads.
+- The Contacts table loads when an active local dataset exists.
+- With no active dataset, the Contacts screen shows the manual refresh panel.
 - Search, filters, and pagination respond.
 - If the frontend shows an API error, check `GET http://localhost:8000/api/datasets/status` and confirm an active dataset is available.
 
@@ -131,6 +149,7 @@ Frontend endpoints used by the Contacts screen:
 GET /api/reports/contacts
 GET /api/meta/filters
 GET /api/datasets/status
+POST /api/local/refresh-data
 ```
 
 The frontend must continue to read only local backend endpoints. It must not
@@ -163,10 +182,19 @@ Manual Bitrix backend endpoints:
 ```text
 GET  http://localhost:8000/api/datasets/status
 GET  http://localhost:8000/api/datasets/profile
+POST http://localhost:8000/api/local/refresh-data
 GET  http://localhost:8000/api/bitrix/discovery
 POST http://localhost:8000/api/bitrix/sync/run
 GET  http://localhost:8000/api/bitrix/sync/status
 ```
+
+`POST /api/local/refresh-data` is the UI-facing operator endpoint for the full
+manual local refresh. It builds the Bitrix client from environment settings,
+runs the existing read-only manual Bitrix ingestion, applies the approved
+contact type rules, reruns local normalization, loads NBRB rates for raw deals,
+and returns only safe status, counts, and messages. It does not expose webhook
+values, secrets, raw rows, generated file contents, or local absolute paths. It
+does not call Bitrix write methods.
 
 `GET /api/datasets/status` reports the active local dataset and latest run
 metadata with safe messages, counts, UTC timestamps, and relative snapshot
@@ -225,7 +253,7 @@ as `CONTACT_ID` and `CONTACT_IDS`. It must not mass-call
 Safe local operator flow:
 
 ```text
-configure .env -> docker compose up --build -> run discovery -> set BITRIX_CONTACT_TYPE_FIELD -> run manual Bitrix sync -> read /api/datasets/status and reports
+configure .env -> docker compose up --build -> open frontend -> click Обновить из Bitrix if dataset is not ready -> read reports
 ```
 
 ## Backend Tests

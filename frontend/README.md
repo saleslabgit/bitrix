@@ -22,6 +22,14 @@ Open:
 http://localhost:5173
 ```
 
+Compose only starts services. It does not automatically call Bitrix or refresh
+local data. If an active `data/analytics.duckdb` dataset exists, the Contacts
+table loads normally. If the screen says `Локальная база не подготовлена.`,
+click `Обновить из Bitrix`; the backend runs the manual read-only refresh,
+applies approved contact type rules, reruns local normalization, loads NBRB
+rates, and then the screen reloads status, filters, and contacts. Local
+databases and generated data are intentionally not committed.
+
 The Compose frontend service proxies API calls to `http://backend:8000` inside
 the Compose network and mounts the repository `ui-kits/` directory read-only for
 design-system CSS imports.
@@ -53,7 +61,8 @@ For built/static deployments, set `VITE_API_BASE_URL` if the API is not served f
 
 - Backend health opens at `http://localhost:8000/health`.
 - Frontend opens at `http://localhost:5173`.
-- Contacts table loads.
+- Contacts table loads when a local active dataset exists.
+- With no active dataset, the manual `Обновить из Bitrix` panel appears.
 - Search, filters, and pagination work.
 - If the frontend shows an API error, check `http://localhost:8000/api/datasets/status`.
 
