@@ -1,49 +1,32 @@
-# Task: TASK-2026-06-22-05
+# Task: TASK-2026-06-22-06
 
 Status: planned
-Created from: current `main` after accepted `TASK-2026-06-22-04`
+Created from: current `main` after user reported frontend Compose runtime error
 
 ## Title
 
-Run full stack with Compose
+Fix Compose ui-kits mount
+
+## Problem
+
+When running the full stack through Docker Compose, the frontend Vite dev server fails with:
+
+```text
+[plugin:vite:css] [postcss] ENOENT: no such file or directory, open '../../ui-kits/styles.css'
+/app/src/styles.css
+```
+
+Root cause: the frontend container mounts only `./frontend` to `/app`, while `frontend/src/styles.css` imports `../../ui-kits/styles.css`. Inside the container, that relative path resolves outside `/app` to `/ui-kits/styles.css`, but `ui-kits/` is not mounted there.
 
 ## Goal
 
-Make local testing convenient for the user by allowing backend and frontend to run together with one command:
+Fix the full-stack Compose startup so this command works and the Contacts screen opens:
 
 ```bash
 docker compose up --build
 ```
 
-After this task, the user should be able to open the frontend in a browser and test the Contacts screen against the local backend without manually starting two separate processes.
-
-## Scope
-
-### 1. Add Frontend To Docker Compose
-
-Update `docker-compose.yml` so it starts both services:
-
-- `backend` on `http://localhost:8000`;
-- `frontend` on `http://localhost:5173` or another documented port if `5173` is unavailable.
-
-The frontend service must:
-
-- run the existing Vite dev server;
-- bind to `0.0.0.0` so it is reachable from the host;
-- proxy `/api` and `/health` to the backend service inside Compose;
-- use Compose service networking, expected backend target `http://backend:8000`;
-- avoid committing `node_modules`, `dist`, caches, or generated build artifacts.
-
-Acceptable implementation options:
-
-- add a small `frontend/Dockerfile` for development; or
-- use an official Node image directly in Compose if that is cleaner and documented.
-
-Prefer the simplest maintainable approach that fits the existing repo.
-
-### 2. Keep Existing Manual Frontend Flow Working
-
-Do not break the current manual flow:
+The fix must keep the manual frontend flow working:
 
 ```bash
 cd frontend
@@ -51,76 +34,78 @@ npm install
 npm run dev
 ```
 
-The Vite proxy should still default to `http://localhost:8000` outside Compose, while Compose can override `VITE_BACKEND_URL=http://backend:8000`.
+## Scope
 
-### 3. Documentation
+### 1. Fix design-system asset availability in Compose
 
-Update:
+Implement the smallest maintainable fix. Expected solution:
 
-- `docs/development.md` — one-command full-stack launch and URLs;
-- `frontend/README.md` — Compose launch plus manual launch;
-- `.ai/report.md` — changed files, checks, exact commands, known limitations.
+- mount repository `./ui-kits` into the frontend container at the path expected by the existing import, likely `/ui-kits:ro`.
 
-Include a short user-facing verification checklist in docs or report:
+Alternative solutions are acceptable only if they preserve both:
 
-- backend health is reachable;
-- frontend opens;
-- Contacts table loads;
-- filters/search/pagination work;
-- if frontend shows API error, check backend dataset/status.
+- Compose launch;
+- manual local frontend launch.
 
-### 4. Checks
+Do not copy or duplicate the `ui-kits/` files into `frontend/`.
 
-Run and document:
+### 2. Verify frontend startup, not just build
+
+`npm run build` alone is insufficient because the reported failure happens in Vite dev server under Compose.
+
+Run and document checks that prove the browser-visible dev server no longer shows the Vite CSS ENOENT overlay:
 
 ```bash
 docker compose config
+docker compose up --build -d
+curl -f http://localhost:8000/health
+curl -f http://localhost:5173/
+curl -f http://localhost:5173/health
+curl -f http://localhost:5173/api/datasets/status
 ```
 
-If Docker is available, also run the strongest practical check without leaving long-running services behind, for example:
+Also inspect frontend container logs for absence of the `ui-kits/styles.css` ENOENT error.
+
+Stop services afterward:
 
 ```bash
-docker compose build
+docker compose down -v
 ```
 
-or a bounded startup/health check. Stop services afterward if they are started.
+If Docker cannot be run in the environment, document the exact reason in `.ai/report.md` and still make the config fix.
 
-Run frontend build from `frontend/`:
+### 3. Documentation and report
 
-```bash
-npm run build
-```
+Update:
 
-Run backend tests only if backend code changes.
+- `.ai/report.md` — root cause, changed files, exact checks, and user verification command;
+- `docs/development.md` and/or `frontend/README.md` only if the launch instructions or Compose behavior materially change.
 
 ## Out Of Scope
 
-- Changing backend business logic.
-- Changing frontend report behavior beyond wiring needed for Compose.
 - New screens.
-- New backend endpoints.
+- Frontend redesign.
+- Backend API changes.
 - Bitrix calls.
 - Bitrix sync.
 - Bitrix write methods.
-- Production deployment.
-- Nginx/HTTPS.
+- Production Docker/Nginx/HTTPS.
 - CI.
 - Authentication.
 
 ## Acceptance Criteria
 
-- `docker compose up --build` starts backend and frontend together.
-- Frontend is reachable from the host at a documented URL.
-- Frontend API requests work through the Vite proxy to the backend Compose service.
-- Existing manual frontend dev flow still works.
-- `docker compose config` passes, or inability to run Docker is documented with exact reason.
-- `npm run build` passes from `frontend/`.
-- Docs and `.ai/report.md` include clear launch instructions.
+- Compose frontend container can read `ui-kits/styles.css`.
+- `docker compose up --build` starts backend and frontend without the Vite CSS ENOENT overlay.
+- `http://localhost:5173` returns the frontend page.
+- Proxy checks for `/health` and `/api/datasets/status` still work through frontend/Vite.
+- Manual local frontend flow remains valid.
+- No `ui-kits/` files are modified or staged.
 - No generated artifacts, secrets, `.env`, DuckDB files, Parquet snapshots, CSV exports, logs, caches, `node_modules`, or `frontend/dist` are staged.
 - The implementation commit uses the exact required message:
 
 ```text
-codex: TASK-2026-06-22-05 Run full stack with Compose
+codex: TASK-2026-06-22-06 Fix Compose ui-kits mount
 ```
 
 ## Checks
@@ -136,11 +121,21 @@ Run after implementation:
 
 ```bash
 docker compose config
+docker compose up --build -d
+curl -f http://localhost:8000/health
+curl -f http://localhost:5173/
+curl -f http://localhost:5173/health
+curl -f http://localhost:5173/api/datasets/status
+docker compose logs frontend
+docker compose down -v
+```
+
+Run frontend build if frontend files beyond Compose/docs are changed:
+
+```bash
 cd frontend
 npm run build
 ```
-
-If dependencies need installing locally, use the existing `package-lock.json` and document the exact command.
 
 Before committing:
 
@@ -161,7 +156,7 @@ Codex must not commit until all conditions below are true:
 - `.ai/report.md` is updated;
 - every required check is either run and reported, or explicitly documented as not run with reason;
 - `.ai/report.md` explicitly states that no Bitrix calls were added or run;
-- staged files are only files intentionally changed for `TASK-2026-06-22-05` plus `.ai/report.md`;
+- staged files are only files intentionally changed for `TASK-2026-06-22-06` plus `.ai/report.md`;
 - `.env`, generated data, DuckDB files, Parquet snapshots, CSV exports, logs, caches, `node_modules`, `frontend/dist`, and `ui-kits/` are not staged;
 - `.ai/task.md` is not staged by Codex unless the user explicitly requested changing the task;
 - the final commit message exactly matches the required `codex:` message above.
