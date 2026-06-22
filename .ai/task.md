@@ -1,191 +1,177 @@
-# Task: TASK-2026-06-22-08
+# Task: TASK-2026-06-22-09
 
 Status: planned
-Created from: current `main` after accepted `TASK-2026-06-22-07`
+Created from: current `main` after accepted `TASK-2026-06-22-08`
 
 ## Title
 
-Improve contacts USD and refresh UX
+Fix contact-deal link completeness
 
 ## Goal
 
-Improve the first real Contacts screen after user testing:
+Investigate and fix the data completeness issue where Bitrix shows more deals for a contact than the local Contacts analytics table.
 
-- avoid misleading original-currency totals as the main financial metric;
-- show USD revenue/profit metrics already calculated by the backend;
-- make manual data refresh progress and completion states clear for the user.
+The concrete user-reported case is contact `661`:
 
-Keep scope narrow: this is still the Contacts screen only. Do not add dashboard, ABC, RFM, deal-cycle, stale-deal, concentration, or type/region screens.
+- Bitrix contact card shows `7` deals.
+- Local Contacts table currently shows `4` deals.
+- This contact has Bitrix type `[61]` / `Дизайнер`, which maps to normalized type `Дизайнер` and priority `1`.
 
-## Current Problem
+Because `Дизайнер` has the highest active priority, this mismatch is not explained by analytical-contact priority. If a deal is linked to contact `661`, contact `661` should normally win analytical-contact selection over lower-priority linked contacts.
 
-The Contacts screen currently displays `total_amount_original` from:
+The task must identify where the missing three deals are lost and fix the read-only extraction/local normalization path so local contact analytics can match Bitrix for this case.
 
-```text
-GET /api/reports/contacts
-```
+## Facts
 
-That field is a sum of original deal amounts and is not converted to USD. Because contacts can have deals in different currencies, this is not a reliable financial metric.
+- Bitrix is read-only in this project.
+- No Bitrix CRM write methods may be added or called.
+- Current Contacts screen uses `GET /api/reports/contacts/analytics`.
+- Current local analytics counts deals by `analytical_contact_id`.
+- Current deal-contact links are reconstructed from `crm.deal.list` deal fields `CONTACT_ID` and `CONTACT_IDS` via `transform_deal_contact_links_from_deals`.
+- Previous mass per-deal `crm.deal.contact.items.get` style extraction was removed because it was too slow/heavy for live sync.
+- The user confirmed the contact type priority is not the cause for contact `661`.
+- Local/manual refresh may take several minutes and must remain explicitly user-triggered.
 
-The backend already has converted metrics in:
+## Assumptions
 
-```text
-GET /api/reports/contacts/analytics
-```
+- The local mismatch is likely caused by incomplete extraction of deal-contact links, incomplete deal ingestion, or a mismatch between Bitrix contact-card deal visibility and the fields currently selected by `crm.deal.list`.
+- A targeted diagnostic for one contact is safe if it uses only read-only methods and does not expose secrets or forbidden personal fields.
+- Any broader fix must avoid unbounded long per-deal calls without batching, progress visibility, or clear operator expectations.
 
-Relevant fields include:
+## Unknowns
 
-- `revenue_usd`;
-- `estimated_profit_usd`;
-- `first_won_date`;
-- `last_won_date`;
-- `latest_deal_date`;
-- `has_sales`.
+- Whether Bitrix `CONTACT_ID` / `CONTACT_IDS` in the current `crm.deal.list` response are complete for all linked contacts.
+- Whether the missing contact `661` deals are absent from raw deals, absent from raw deal-contact links, or present but not selected as analytical deals.
+- Which read-only Bitrix endpoint/method is the correct scalable source of deal-contact links for this project stage.
+- Whether Bitrix contact card includes deals that are visible through a different relation path than the current deal list fields.
 
-Also, the current refresh UI can temporarily show confusing text such as `Manual Bitrix refresh completed.` while the panel still says the local database is not prepared. The user needs clearer loading/progress/result indicators.
+## Scope
 
-## Product Scope
+### 1. Add targeted local diagnostics
 
-### 1. Contacts table financial columns
+Add a backend-only diagnostic capability for a single contact ID, preferably under an internal/debug route or script that is not exposed as a public report screen.
 
-Update the Contacts screen to use USD analytics as the primary financial data.
+For `contact_id=661`, the diagnostic must report safe aggregate/ID-level information only:
 
-Expected table columns after the change:
-
-- contact name;
-- raw type, if still useful;
+- contact ID;
+- contact name if already available in allowed local data;
+- raw Bitrix type ID(s);
 - normalized type;
 - region;
-- total deals count;
-- won/open/lost deals count;
-- `Выручка USD` from `revenue_usd`;
-- `Расчетная прибыль USD` from `estimated_profit_usd`;
-- optional sales/date fields if they fit cleanly, e.g. latest deal date.
+- priority;
+- raw/local linked deals from local deal-contact links;
+- analytical deals from normalized/local analytics data;
+- whether each linked deal exists in raw deals;
+- deal status group where already available locally;
+- concise explanation of where the count diverges.
 
-Do not present `total_amount_original` as the main financial metric. If kept, label it clearly as diagnostic/original and do not imply it is converted.
+Do not expose phone, email, address, messenger, comments, files, requisites, webhook values, raw API payload dumps, or arbitrary Bitrix custom fields.
 
-### 2. API usage
+### 2. Add targeted read-only Bitrix verification if needed
 
-Prefer using existing backend endpoints:
+If local-only diagnostics cannot explain the mismatch, add a targeted read-only verification path for one contact ID.
 
-- `GET /api/reports/contacts/analytics` for table data;
-- `GET /api/meta/filters`;
-- `GET /api/datasets/status`;
-- `POST /api/local/refresh-data`.
+The verification may call Bitrix only when explicitly invoked by the operator/developer, not during Docker startup and not during normal page load.
 
-Do not create a new report endpoint unless there is a strong reason. If a tiny backend fix is required for parity of filters/pagination, keep it scoped and covered by tests.
+It must:
 
-The existing analytics endpoint supports `limit`, `offset`, `search`, `contact_type`, `region`, and date filters. If status filtering is not available there, either:
+- be limited to a supplied contact ID;
+- avoid CRM write methods;
+- avoid dumping raw private rows;
+- compare Bitrix-visible deal IDs for the contact with local deal IDs/link IDs;
+- include clear timeout/bounds or pagination handling;
+- document which Bitrix read-only method(s) it uses.
 
-- remove/disable the status filter on this screen with a clear reason in `.ai/report.md`; or
-- add status support to the analytics endpoint if it is small, consistent with the existing contacts endpoint, and tested.
+Do not run a broad live Bitrix sync as part of tests unless explicitly required. If a live targeted verification for `661` is run, record that fact in `.ai/report.md` including method names, counts, and safety notes, without secrets or raw personal data.
 
-Do not silently keep a status filter that no longer affects results.
+### 3. Fix extraction/local normalization based on findings
 
-### 3. Refresh UX
+Once the missing point is identified, fix the smallest correct part of the pipeline.
 
-Improve manual refresh UX on the Contacts screen:
+Possible acceptable fixes include:
 
-- while refresh is running, show a clear blocking/progress state:
+- correcting parsing of `CONTACT_IDS` if the current parser misses a Bitrix response shape;
+- expanding the safe allowlist only for non-personal relationship fields if needed;
+- adding a bounded/batched read-only link extraction strategy if `CONTACT_ID` / `CONTACT_IDS` are proven incomplete;
+- improving normalization so locally present links correctly select the analytical contact.
 
-```text
-Загрузка данных из Bitrix...
-Это может занять несколько минут.
-```
+The fix must preserve these rules:
 
-- disable duplicate refresh clicks;
-- after successful refresh, show a concise success state/counts before or while refetching table data, for example:
+- deals are counted only once in contact analytics;
+- analytical contact selection uses configured active contact-type priorities;
+- `Дизайнер` priority `1` outranks dealer/contractor/final-client priorities;
+- won revenue uses USD conversion logic already implemented;
+- no forbidden personal fields are fetched, stored, logged, displayed, or committed.
 
-```text
-Обновление завершено: 14216 контактов, 9142 сделок, курсы загружены.
-```
+### 4. Tests and regression coverage
 
-- avoid displaying backend technical text like `Manual Bitrix refresh completed.` as the main user message;
-- after success, refetch dataset status, filters, and Contacts table;
-- after failure, show a clear error and keep the refresh button available.
+Add or update tests that reproduce the discovered failure mode where practical.
 
-### 4. Preserve existing behavior
+At minimum, cover:
 
-Keep:
+- contact `Дизайнер` with priority `1` wins analytical selection when linked to a deal;
+- multi-contact deal links are not dropped for the Bitrix response shape found during investigation;
+- contact analytics count matches the normalized deal/link facts in the tested scenario;
+- forbidden Bitrix write methods remain rejected/not introduced.
 
-- Docker starts services only, no auto-refresh;
-- user explicitly triggers refresh;
-- existing local active dataset loads immediately;
-- no Bitrix calls except when user clicks `Обновить из Bitrix`;
-- no Bitrix write methods;
-- no forbidden personal fields displayed.
+### 5. Documentation/report
 
-## Backend Scope
+Update `.ai/report.md` with:
 
-Backend changes are allowed only if needed to support the improved Contacts table cleanly.
+- root cause;
+- exact files changed;
+- whether live Bitrix was called;
+- if live Bitrix was called, which read-only methods were used and for which contact ID/counts;
+- confirmation that no write methods were added or called;
+- how to reproduce/check the diagnostic safely.
 
-Possible acceptable backend changes:
-
-- add status filter support to `GET /api/reports/contacts/analytics`, matching existing `GET /api/reports/contacts` behavior;
-- add/adjust tests for analytics pagination/filter behavior;
-- keep response safe and typed.
-
-Forbidden backend changes:
-
-- new report family;
-- new Bitrix methods;
-- Bitrix write methods;
-- changed currency conversion formula;
-- changed contact type mapping/priority rules.
-
-## Frontend Scope
-
-Update only the existing frontend Contacts screen and API client types.
-
-Requirements:
-
-- use `ContactAnalyticsPageResponse` shape if switching to `/api/reports/contacts/analytics`;
-- format USD money clearly, e.g. `$12,345.67` or `12 345,67 USD` consistently;
-- keep loading/error/empty states;
-- keep pagination;
-- keep search/type/region filters;
-- handle status filter correctly as described above;
-- keep design-system styling.
-
-## Documentation And Report
-
-Update:
-
-- `.ai/report.md` — what changed, endpoint used, financial metric behavior, refresh UX, checks;
-- `frontend/README.md` and/or `docs/development.md` only if user flow changed materially;
-- `docs/project-status.md` — Contacts screen now uses USD analytics metrics.
+Update project docs only if behavior, operator flow, Bitrix extraction rules, or diagnostics become part of the ongoing workflow.
 
 ## Out Of Scope
 
-- Dashboard.
-- ABC/RFM screens.
-- Deal reconciliation screen.
-- Stale deals/cycle/concentration/type-region screens.
-- Automatic refresh.
-- Background queue.
-- Auth.
-- Production deployment.
-- UI redesign.
-- Design-system restructuring.
-- CSV export.
+- New frontend report screens.
+- Redesign of Contacts UI.
+- ABC/RFM/concentration/type-region screens.
+- Automatic background refresh.
+- Scheduled sync.
+- Companies, leads, products, calls, emails, comments, activities, files, requisites.
+- Export features.
+- Any Bitrix write operation.
+- Large unrelated refactors.
+
+## Constraints
+
+- Bitrix remains read-only.
+- Do not add or call methods matching:
+
+```text
+crm.*.add
+crm.*.update
+crm.*.delete
+crm.*.set
+```
+
+- Do not commit `.env`, local databases, Parquet snapshots, raw exports, logs, caches, build artifacts, `node_modules`, `frontend/dist`, or `ui-kits/` changes.
+- Do not print webhook URLs or tokens.
+- Do not expose forbidden personal fields.
+- Do not make Docker Compose auto-refresh Bitrix data.
+- Keep changes focused on data correctness for contact-deal links and contact analytics.
 
 ## Acceptance Criteria
 
-- Contacts screen no longer uses original-currency sum as the primary financial metric.
-- Contacts screen displays USD revenue and estimated profit from backend analytics.
-- Search/type/region filters and pagination still work.
-- Status filter is either supported correctly or removed/disabled with explicit report note.
-- Manual refresh running state is clear and blocks duplicate clicks.
-- Manual refresh success state shows useful user-facing counts/status, not only backend technical text.
-- No forbidden personal fields are displayed.
-- No Bitrix calls happen unless the user triggers refresh.
+- The implementation explains the `contact_id=661` mismatch: why Bitrix shows `7` deals while local analytics showed `4`.
+- The root cause is documented in `.ai/report.md`.
+- The extraction/local normalization path is fixed so local contact analytics can include all relevant deals for contact `661` after refresh or targeted correction.
+- For a designer contact linked to a deal, priority selection is verified and not blamed for the missing deals.
+- Local analytics still counts each deal only once.
 - No Bitrix write methods are added or called.
-- `npm run build` passes from `frontend/`.
-- Backend tests run if backend code changes.
+- No forbidden personal fields are fetched beyond the existing allowlist or exposed in API/UI/logs/report.
+- Relevant backend tests pass.
+- If frontend or operator-visible behavior changes, relevant frontend/build/operator checks are run and reported.
 - The implementation commit uses the exact required message:
 
 ```text
-codex: TASK-2026-06-22-08 Improve contacts USD and refresh UX
+codex: TASK-2026-06-22-09 Fix contact-deal link completeness
 ```
 
 ## Checks
@@ -197,14 +183,7 @@ git log --oneline -5
 git status --short
 ```
 
-Run frontend checks:
-
-```bash
-cd frontend
-npm run build
-```
-
-Run backend tests if backend code changes:
+Run backend tests after backend changes:
 
 ```bash
 cd backend
@@ -213,7 +192,14 @@ python -m pytest
 
 Use the existing backend dev environment if system Python lacks pytest and document the exact command.
 
-Run Compose smoke checks if Docker is available:
+Run frontend build only if frontend code changes:
+
+```bash
+cd frontend
+npm run build
+```
+
+Run Compose smoke checks if runtime/operator flow changes:
 
 ```bash
 docker compose config
@@ -223,7 +209,15 @@ curl -f http://localhost:5173/
 docker compose down -v
 ```
 
-Do not run live Bitrix refresh unless the user explicitly asks. Use mocked tests for refresh UX/API changes where practical.
+Run safety search before committing:
+
+```bash
+rg "crm\.[A-Za-z0-9_.]*(add|update|delete|set)" backend/app backend/tests
+```
+
+If this search returns only existing negative tests, state that in `.ai/report.md`.
+
+If any live Bitrix diagnostic is run, it must be targeted and read-only. Record method names and aggregate counts only. Do not include secrets or raw private rows in `.ai/report.md`.
 
 Before committing:
 
@@ -234,18 +228,17 @@ git diff --name-only --cached
 git diff --check -- ':!AGENTS.md' ':!.ai/task.md'
 ```
 
-If any required check cannot be run, document the exact reason in `.ai/report.md`.
-
 ## Hard Workflow Gate
 
 Codex must not commit until all conditions below are true:
 
 - the latest relevant commit is this planner commit;
-- `.ai/report.md` is updated;
+- the investigation identifies whether the mismatch is caused by missing raw deals, missing raw links, parsing, normalization, or Bitrix relation semantics;
+- `.ai/report.md` is updated with root cause and verification results;
 - every required check is either run and reported, or explicitly documented as not run with reason;
-- `.ai/report.md` explicitly states whether any live Bitrix refresh was or was not run;
+- `.ai/report.md` explicitly states whether any live Bitrix call was or was not run;
 - `.ai/report.md` explicitly states that no Bitrix write methods were added or called;
-- staged files are only files intentionally changed for `TASK-2026-06-22-08` plus `.ai/report.md`;
+- staged files are only files intentionally changed for `TASK-2026-06-22-09` plus `.ai/report.md`;
 - `.env`, generated data, DuckDB files, Parquet snapshots, CSV exports, logs, caches, `node_modules`, `frontend/dist`, and `ui-kits/` are not staged;
 - `.ai/task.md` is not staged by Codex unless the user explicitly requested changing the task;
 - the final commit message exactly matches the required `codex:` message above.
