@@ -91,18 +91,17 @@ def test_meta_filters_returns_empty_metadata_before_dataset_is_prepared() -> Non
     assert filters_response.max_closed_at is None
 
 
-def test_meta_filters_rejects_empty_contact_types_for_active_non_empty_dataset() -> None:
+def test_meta_filters_allows_empty_contact_types_for_active_non_empty_dataset() -> None:
     run_local_synthetic_sync()
     get_connection().execute("DELETE FROM normalized_contacts")
 
-    with pytest.raises(HTTPException) as exc_info:
-        meta_filters()
+    filters_response = meta_filters()
 
-    assert exc_info.value.status_code == 503
-    assert (
-        exc_info.value.detail
-        == "Filter metadata is temporarily unavailable. Keep previous options and retry."
-    )
+    assert filters_response.contact_types == ()
+    assert filters_response.regions == ()
+    assert set(filters_response.statuses) == {"won", "open", "lost"}
+    assert filters_response.min_created_at is not None
+    assert filters_response.max_created_at is not None
 
 
 def test_filter_metadata_handles_empty_contacts_and_no_closed_deals() -> None:

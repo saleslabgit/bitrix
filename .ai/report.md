@@ -1,33 +1,47 @@
-# Отчет: TASK-2026-06-22-25
+# Отчет: TASK-2026-06-22-26
 
 Статус: done
 
 ## Кратко
 
-Исправил ABC filter toolbar, чтобы controls переносились внутри workspace и
-не уезжали вправо. Уточнил changed-only UX: фильтр теперь называется
-`Только изменившие ABC` и работает только при примененном периоде `Стало`.
+Убрал ожидаемый `503` из `GET /api/meta/filters` для случая, когда active
+dataset есть, но metadata snapshot временно пустой.
+
+Root cause: backend route `meta_filters()` специально превращал empty
+`contact_types` в `HTTP 503`. После появления frontend cache fallback это стало
+обычным шумным network error в браузере.
 
 ## Измененные файлы
 
+- `backend/app/main.py`
+- `backend/tests/test_api_local.py`
 - `frontend/src/App.tsx`
-- `frontend/src/api.ts`
-- `frontend/src/styles.css`
-- `frontend/README.md`
+- `docs/development.md`
 - `.ai/report.md`
 
-## Что изменено
+## Backend
 
-- `toolbar-abc` переведен на responsive `auto-fit` grid.
-- ABC search занимает две колонки на широком экране и одну колонку на узком.
-- ABC action buttons больше не требуют отдельной широкой строки и занимают
-  ширину своей grid-ячейки.
-- Checkbox label заменен с `Только изменения` на `Только изменившие ABC`.
-- Checkbox disabled без примененного `Стало`.
-- Если persisted state содержит `changedOnly=true`, single-period ABC request
-  визуально не показывает checked state и не отправляет `changed_only=true`.
-- При включенном `Стало` checkbox продолжает отправлять `changed_only=true` и
-  фильтрует по `segment_changed`.
+- `GET /api/meta/filters` теперь всегда возвращает typed
+  `FilterMetadataResponse`, если local schema читается.
+- Empty `contact_types`, `regions`, `statuses` и date ranges остаются
+  допустимым payload state.
+- Endpoint не вызывает Bitrix и не скрывает реальные storage/database
+  исключения.
+- Тест `test_meta_filters_allows_empty_contact_types_for_active_non_empty_dataset`
+  покрывает active dataset с пустыми contact types без `503`.
+
+## Frontend
+
+- Existing cache fallback сохранен.
+- Если fresh metadata пустая/invalid, но есть valid cached metadata, UI больше
+  не показывает alert только из-за transient empty metadata.
+- Dropdowns продолжают использовать cached metadata и не очищаются.
+
+## Документация
+
+- `docs/development.md` уточняет, что `/api/meta/filters` возвращает typed local
+  metadata payload даже при временно пустых option lists, а frontend использует
+  cached options.
 
 ## Запущенные проверки
 
@@ -35,6 +49,11 @@ Before implementation:
 
 - `git log --oneline -5`
 - `git status --short --branch`
+
+Backend:
+
+- `cd backend && /tmp/bitrix-backend-venv/bin/pytest tests/test_api_local.py`
+  — passed, `13 passed`.
 
 Frontend:
 
@@ -48,28 +67,24 @@ Safety:
 
 ## Факты
 
-- Backend ABC calculation logic не менялся.
-- Contacts и Deals behavior намеренно не менялся.
-- Frontend по-прежнему вызывает локальный backend endpoint
-  `/api/reports/abc/analytics`.
-- Region filters/columns не добавлялись.
-- `ui-kits/` не изменялся.
-- Bitrix calls не добавлялись.
+- Report page loads still call only local backend endpoints.
+- No Bitrix calls were added.
+- No CRM write methods were added.
+- No secrets, raw rows, or forbidden personal fields were added.
+- `ui-kits/` was not changed.
 
 ## Предположения
 
-- Responsive grid с minimum control width `150px` покрывает типичные desktop
-  widths с sidebar enabled и позволяет toolbar переноситься на несколько строк.
+- The periodic browser console `503` was caused by the explicit guard removed
+  from `meta_filters()`.
 
 ## Неизвестное
 
-- Browser visual verification was not run. The ABC toolbar renders only with an
-  active dataset, and this task did not run a local data refresh or live
-  browser flow. The responsive behavior is covered by CSS changes and frontend
-  build.
+- Browser runtime verification was not run. The behavior is covered by backend
+  local API tests and frontend build.
 
 ## Риски или следующий шаг
 
-Review should verify in browser at the reported viewport width that `Стало с`,
-`Стало по`, `Применить стало`, and `Сбросить` stay inside the ABC report
-workspace.
+Review should verify during normal frontend usage that `/api/meta/filters`
+returns `200` instead of periodic expected `503` when metadata is temporarily
+empty.

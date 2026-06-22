@@ -1061,21 +1061,22 @@ export function App() {
           </section>
         )}
 
-        {isDatasetReady && (filterQuery.isError || isFreshFilterMetadataInvalid) && (
-          <InlineAlert
-            title={
-              filterMetadata
-                ? "Фильтры показаны из кэша"
-                : "Не удалось загрузить фильтры"
-            }
-            message={
-              filterQuery.isError
-                ? filterQuery.error.message
-                : "Backend вернул пустые фильтры для активной базы. Повторите загрузку фильтров."
-            }
-            onRetry={() => void filterQuery.refetch()}
-          />
-        )}
+        {isDatasetReady &&
+          (filterQuery.isError || (isFreshFilterMetadataInvalid && !filterMetadata)) && (
+            <InlineAlert
+              title={
+                filterMetadata
+                  ? "Фильтры показаны из кэша"
+                  : "Не удалось загрузить фильтры"
+              }
+              message={
+                filterQuery.isError
+                  ? filterQuery.error.message
+                  : "Backend вернул пустые фильтры для активной базы. Повторите загрузку фильтров."
+              }
+              onRetry={() => void filterQuery.refetch()}
+            />
+          )}
 
         {isDatasetReady && refreshMutation.isError && !isRefreshing && (
           <InlineAlert

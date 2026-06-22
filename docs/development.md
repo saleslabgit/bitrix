@@ -185,7 +185,10 @@ won-only and sums budget only for `status_group == "won"`. Deal estimated
 profit is won-only: `budget_usd * 0.50` when `status_group == "won"`, otherwise
 `0.00`. Deals UI state is persisted separately under `bitrix-sales.deals.v1`.
 Shared filter metadata is cached under `bitrix-sales.filter-metadata.v1`;
-resetting either report does not clear the metadata cache.
+resetting either report does not clear the metadata cache. `GET /api/meta/filters`
+returns a typed local metadata payload even when one or more option lists are
+temporarily empty; the frontend keeps using valid cached options instead of
+clearing dropdowns or surfacing a transient empty snapshot as an error.
 
 The ABC screen uses `/api/reports/abc/analytics` for local customer ABC
 analysis. `date_from` / `date_to` are the source/base period shown as `Было`;
