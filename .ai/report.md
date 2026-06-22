@@ -1,87 +1,51 @@
-# Отчет: TASK-2026-06-22-28
+# Отчет: TASK-2026-06-22-29
 
 Статус: done
 
 ## Кратко
 
-Доработал report workspace в dense operational layout: убрал крупный видимый
-report title/subtitle, перенес фильтры Contacts/Deals/ABC в правый drawer и
-сделал table card заполняющей доступную высоту до низа viewport. Существующий
-contact won-revenue chart/modal и backend endpoint сохранены.
+Исправил regression report workspace width после TASK-28: table card больше не
+сжимается в узкую centered card в loading/pending state и занимает всю доступную
+ширину main content в loaded state. Пагинация скрыта, пока активный table query
+ожидает данные.
 
 ## Измененные файлы
 
 - `frontend/src/App.tsx`
 - `frontend/src/styles.css`
-- `frontend/README.md`
-- `docs/development.md`
-- `docs/project-status.md`
 - `.ai/report.md`
 
-## Backend
+## Root Cause
 
-Backend chart endpoint уже присутствовал в текущем `main` после предыдущего
-codex commit:
+- `.table-card` наследовала shared rule с `.toolbar`: `margin: 0 auto`.
+- В flex column auto horizontal margins и отсутствие явной ширины мешали card
+  растягиваться по cross axis.
+- Loading skeleton/state content мог задавать визуальную ширину shell.
+- Пагинация показывалась при готовом dataset даже во время pending table query,
+  поэтому на loading screen появлялась misleading page строка.
 
-- `GET /api/reports/contacts/{contact_id}/won-revenue-series`;
-- local-only data from `normalized_deals` and existing USD conversion;
-- won-only, non-null close date, grouped by close date;
-- safe empty response for existing contacts without matching won deals;
-- safe `404` for missing contacts.
+## Frontend
 
-В этой задаче backend code не менялся.
+- `.table-card` теперь явно растягивается по main panel content width:
+  `align-self: stretch`, `width: 100%`, `max-width: none`, `margin: 0`.
+- `.table-card` сохранила full-height flex behavior, internal overflow и
+  bottom pagination layout.
+- `.table-scroll` получил explicit `width: 100%` и продолжает быть внутренней
+  vertical/horizontal scroll area.
+- `.state-panel` и `.skeleton-table` занимают full-width/full-height available
+  area внутри card.
+- Pagination теперь показывается только когда dataset готов, refresh не идет,
+  status/table queries не pending, table query не в error, и active range валиден.
 
-## Frontend Drawer
+## Сохраненное поведение TASK-28
 
-- Inline filter toolbars удалены из основного report flow.
-- Добавлен один right-side filter drawer для активного report.
-- Drawer открывается кнопкой `Фильтры` в compact top action row.
-- Drawer содержит существующие controls для Contacts, Deals и ABC.
-- Существующее состояние фильтров, draft/apply date behavior, debounced search,
-  metadata fallback, storage keys и reset behavior сохранены.
-- Closing drawer через backdrop, close button, `Готово` или Escape не сбрасывает
-  filters.
-- Reset в drawer сбрасывает только active report filters.
-- Region filters/columns не возвращались.
-
-## Workspace Layout
-
-- Видимый `Reports` eyebrow, large `h1` и page subtitle удалены из main
-  workspace.
-- Dataset status и `Обновить из Bitrix` сохранены в compact top action row.
-- Active report и active filter count отображаются компактно.
-- `.main-panel` теперь viewport-bounded flex layout без крупного page-level
-  vertical scroll.
-- `.table-card` заполняет оставшуюся высоту viewport.
-- `.table-scroll` остается vertical/horizontal scroll area for rows.
-- `thead th` остаются sticky.
-- Pagination остается visible внизу card.
-- Deals/ABC totals остаются readable outside row scroll area.
-
-## Contact Chart
-
-- Contact name click по-прежнему открывает accessible modal.
-- Modal показывает selected contact, period, totals and Recharts SVG chart.
-- Closing modal не сбрасывает Contacts filters, sorting или pagination.
-
-## Документация
-
-- `docs/development.md` обновлен для compact top row, right drawer и full-height
-  table workspace.
-- `frontend/README.md` обновлен для drawer filters и dense full-height layout.
-- `docs/project-status.md` дополнен текущим frontend workspace состоянием.
+- Compact top action row сохранен.
+- Right filter drawer открывается.
+- Sticky headers сохранены.
+- Bottom pagination сохранена в loaded state.
+- Contact revenue chart modal открывается и рендерит SVG chart.
 
 ## Запущенные проверки
-
-Before implementation:
-
-- `git log --oneline -5`
-- `git status --short --branch`
-
-Backend:
-
-- `cd backend && /tmp/bitrix-backend-venv/bin/pytest tests/test_api_local.py tests/test_analytics.py`
-  — passed, `55 passed`.
 
 Frontend:
 
@@ -93,19 +57,28 @@ Runtime / browser:
 
 - `docker compose up --build -d` — passed.
 - `curl -f http://127.0.0.1:8000/health` — passed.
-- `curl -f http://127.0.0.1:8000/api/meta/filters` — passed.
 - `curl -f http://127.0.0.1:5173/` — passed.
-- Playwright desktop smoke at `1366x768`:
-  - no visible main `h1` or `.page-subtitle`;
-  - Contacts table rendered 25 rows;
-  - table card spanned from near top action row to bottom of viewport;
-  - `.table-scroll` had `overflowY: auto`;
+- Playwright desktop smoke at `1366x768`, pending/loading state:
+  - skeleton visible;
+  - pagination hidden;
+  - main panel width `1126px`;
+  - table card width `1086px`, matching content width after panel padding;
+  - card no longer centered by skeleton content.
+- Playwright desktop smoke at `1366x768`, loaded state:
+  - 25 table rows rendered;
+  - main panel width `1126px`;
+  - table card width `1086px`, matching content width after panel padding;
+  - card height `676px`, bottom near viewport bottom;
+  - `.table-scroll` kept internal vertical overflow;
   - table header `position: sticky`;
-  - pagination remained visible;
-  - filter drawer opened from the right and closed correctly;
-  - clicking a contact name opened the revenue modal;
-  - modal rendered summary and SVG chart;
-  - browser console had `0` errors.
+  - pagination visible;
+  - filter drawer opened.
+- Playwright chart smoke:
+  - contact modal opened with `aria-modal="true"`;
+  - close button present;
+  - revenue chart SVG rendered;
+  - chart summary rendered;
+  - table rows still present behind modal.
 - `docker compose down -v` — passed.
 
 Safety:
@@ -116,26 +89,26 @@ Safety:
 
 ## Факты
 
+- Backend code was not changed.
 - No Bitrix calls were added.
-- No backend code changed in this task.
 - No CRM write methods were added.
-- No `ui-kits/` files were changed.
+- No documentation files needed changes because this is a CSS/layout regression
+  fix, not a material workflow or architecture change.
 - No `node_modules`, `frontend/dist`, `.playwright-mcp`, local DB files,
   snapshots, logs, raw data, generated data, `.env`, or secrets are staged.
 
 ## Предположения
 
-- Keeping debounced search active inside the drawer is acceptable because it
-  preserves the previous search behavior and closing the drawer does not reset
-  filter state.
+- Treating `.main-panel` padding as available content inset is correct; the card
+  fills the content area inside that padding, not the full viewport.
 
 ## Неизвестное
 
-- Mobile browser visual verification was not run. CSS includes drawer/modal
-  mobile constraints, but runtime smoke was desktop-only.
+- Mobile browser visual verification was not run; the regression and acceptance
+  criteria targeted the report workspace width on the desktop operator flow.
 
 ## Риски или следующий шаг
 
-- The filter drawer is intentionally one shared drawer whose contents switch by
-  active report. If later reports need different interaction semantics, it may
-  be worth extracting report-specific drawer bodies into separate components.
+- The report shell still shares some visual base rules with `.toolbar`. If more
+  workspace-specific card behavior is needed later, separating the shared rule
+  into explicit component classes would reduce accidental coupling.

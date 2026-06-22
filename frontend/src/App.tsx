@@ -441,6 +441,13 @@ export function App() {
   const totalPages = Math.max(1, Math.ceil(total / activeFilters.limit));
   const hasPreviousPage = activeFilters.offset > 0;
   const hasNextPage = activeFilters.offset + activeFilters.limit < total;
+  const showPagination =
+    isDatasetReady &&
+    !statusQuery.isPending &&
+    !isRefreshing &&
+    !activeQuery.isPending &&
+    !activeQuery.isError &&
+    !activeRangeInvalid;
   const tableSubtitle = statusQuery.isPending
     ? "Проверка локального dataset"
     : !isDatasetReady
@@ -941,7 +948,7 @@ export function App() {
             </>
           )}
 
-          {isDatasetReady && (
+          {showPagination && (
             <div className="pagination">
               <span>
                 Страница {pageNumber.toLocaleString("ru-RU")} из {totalPages.toLocaleString("ru-RU")}
