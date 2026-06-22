@@ -103,6 +103,23 @@ counts from `raw_contacts`. This metadata-only flow must not call
 `crm.contact.list`, `crm.deal.list`, `crm.deal.contact.items.get`, or Bitrix
 write methods.
 
+Local live-data readiness helpers:
+
+```text
+app.pipeline.local_refresh.apply_approved_rules_and_renormalize
+app.pipeline.currency_rates.load_currency_rates_for_raw_deals
+```
+
+The local refresh helper replaces `contact_type_rules` with the approved
+source-controlled option-ID mapping and reruns normalization from existing
+DuckDB raw tables. It does not call Bitrix and does not overwrite raw tables.
+
+The currency-rate helper loads observed local deal currencies from the official
+NBRB read-only API into `currency_rates`. It uses the raw deal date range,
+historical NBRB currency metadata periods, and daily dynamics rows. Tests mock
+the NBRB transport. Live use requires network access but does not require
+Bitrix credentials.
+
 `POST /api/bitrix/sync/run` is a manual read-only ingestion entry point. It
 loads allowed contacts, deals, locally reconstructed deal-contact links, and
 stages into local raw DuckDB tables, then runs existing normalization.
@@ -145,6 +162,7 @@ If Docker commands print a WSL integration error, enable Docker Desktop integrat
 
 - The API uses a configured local DuckDB connection. Default runtime storage is persistent under `APP_DATA_DIR`; tests can still use in-memory or temporary connections.
 - Dataset activation is transaction-backed for the current single-table-set storage model, not a full staging-table swap system.
-- No NBRB integration, persisted analytics tables, authentication, scheduler, or frontend is implemented.
+- NBRB rate loading is implemented for local backend readiness, but no scheduler or automatic refresh exists.
+- No persisted analytics tables, authentication, scheduler, or frontend is implemented.
 - Future frontend implementation should use `ui-kits/` as the design-system source; no frontend screens are implemented in this backend milestone.
 - Docker Compose currently runs only the backend service.

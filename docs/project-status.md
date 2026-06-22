@@ -55,10 +55,12 @@ Backend/data milestone for the Bitrix sales analytics MVP: local analytics, read
 - Added a local-only safe dataset quality profile helper and `GET /api/datasets/profile`.
 - Profiled the first active live Bitrix dataset from local DuckDB aggregates without Bitrix calls.
 - Added a metadata-only contact type enum label extraction helper and local aggregate mapping helper.
+- Applied the approved live contact type option-ID mapping locally and reran normalization from persisted raw tables.
+- Added read-only NBRB currency-rate loading for local USD analytics and loaded rates for the active live dataset.
 
 ## Intentionally Not Done
 
-- NBRB currency integration.
+- Automatic/scheduled NBRB currency refresh.
 - Persisted analytics output tables.
 - Full staging-table swap mechanics beyond the current transaction-backed single active table set.
 - Production migration tooling.
@@ -83,7 +85,6 @@ Backend/data milestone for the Bitrix sales analytics MVP: local analytics, read
 ## Unknowns
 
 - Real Bitrix webhook URL remains local secret and is not documented.
-- Actual contact types, priorities, and region mapping.
 - Actual pipelines, stages, and currencies in Bitrix.
 - Final design-system tokens and component decisions.
 - Deployment host, HTTPS setup, and backup destination.
@@ -92,4 +93,4 @@ Backend/data milestone for the Bitrix sales analytics MVP: local analytics, read
 
 ## Next Likely Steps
 
-Fill the contact type mapping decision columns from `.ai/report.md`, configure active contact type/priority/region rules, rerun local normalization from persisted data, then plan NBRB currency integration.
+Review backend live-readiness aggregates in `.ai/report.md`, then plan the frontend milestone against the approved design system.

@@ -69,27 +69,49 @@ derived from Bitrix stage semantics (`won`, `open`, or `lost`).
 
 ### Currency Rates
 
-Rates are used to normalize all financial analytics to USD. The target source is the official NBRB API. Rate details and fetch timestamps are stored locally once implemented.
+Rates are used to normalize all financial analytics to USD. The target source is the official NBRB API. Rate details and fetch timestamps are stored locally.
 
 Current scaffold model: `CurrencyRateSnapshot`.
 
 Current storage table: `currency_rates`.
 
-In the local synthetic milestone, rates are deterministic fixture rows only. No NBRB or external API calls are made. Conversion is calculated on demand for reports:
+Synthetic tests use deterministic fixture rows. Live local readiness can load
+NBRB rates into `currency_rates` with `load_currency_rates_for_raw_deals()`.
+The loader inspects local `raw_deals`, fetches historical NBRB currency metadata
+periods and daily dynamics for the observed date range and currencies, and
+stores BYN-per-unit source and USD rates locally. No Bitrix calls are made for
+currency work. Conversion is calculated on demand for reports:
 
 ```text
 amount_usd = amount_original * source_rate_byn / usd_rate_byn
 ```
 
-The selected rate is the latest local rate for the deal currency on or before the target date. Closed deals use `closed_at`; open deals use `created_at`. USD is still converted through the local rate formula, with equal source and USD rates in the fixture.
+The selected rate is the latest local rate for the deal currency on or before
+the target date. Closed deals use `closed_at`; open deals use `created_at`. If a
+deal date is after the last loaded NBRB date, reports use the latest loaded rate
+on or before that deal date.
 
 ### Contact Type And Region Config
 
-Contact type normalization, priority, and region mapping are configuration or local data. Concrete values are unknown until real Bitrix data is inspected.
+Contact type normalization, priority, and region mapping are configuration or local data.
 
 Current scaffold model: `ContactTypeRule`.
 
 Current storage table: `contact_type_rules`.
+
+For the live Bitrix dataset, `contact_type_rules.raw_value` stores an individual
+Bitrix enum option ID as text, for example `61`, not the full raw combination
+string from `raw_contacts.contact_type_raw`. The special source-controlled
+raw value `__MISSING__` represents `NULL`, empty string, `False`, and `[]`.
+
+Current approved live rules are source-controlled in
+`backend/app/pipeline/approved_contact_type_rules.py` and loaded into DuckDB by
+`apply_approved_rules_and_renormalize()`. Active normalization parses option IDs
+from raw combination values such as `[61, 59, 65]`, ignores inactive/unknown
+options, and chooses the active option with the smallest priority number.
+Tie-breaker for multiple active options with the same priority is the smallest
+Bitrix option ID. Missing type uses the approved `__MISSING__` rule:
+`Конечный клиент / Без региона / priority 4`.
 
 ### Normalized Contacts
 
@@ -105,7 +127,12 @@ Fields:
 - `contact_type_normalized`;
 - `region_normalized`.
 
-Unknown, missing, or inactive type rules normalize to `Не определено`.
+Unknown or inactive type rules normalize to `Не определено`.
+
+For live option-ID rules, missing contact type is not unknown: it uses the
+approved `__MISSING__` rule and normalizes to `Конечный клиент / Без региона`.
+Non-empty raw values that contain only inactive or unknown option IDs still
+normalize to `Не определено`.
 
 ### Normalized Deals
 
@@ -121,6 +148,12 @@ Fields include original deal fields plus:
 - `region_normalized`.
 
 Deals without contacts are preserved with `analytical_contact_id = NULL`, `analytical_contact_name = "Без контакта"`, and normalized type/region as `Не определено`.
+
+Analytical contact selection uses only active resolved contact type rules.
+Priority `1` is highest. If linked contacts have equal resolved priority,
+Bitrix primary flag wins, then the smallest contact ID wins. Contacts whose raw
+type resolves only to inactive/unknown options are not eligible for analytical
+selection.
 
 ### Local Dataset Runs And Activation
 

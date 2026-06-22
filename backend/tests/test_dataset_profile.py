@@ -33,7 +33,7 @@ def test_dataset_profile_reports_safe_aggregate_counts(tmp_path) -> None:
         "synthetic-service",
     )
 
-    assert profile.link_integrity.deals_without_analytical_contact_count == 1
+    assert profile.link_integrity.deals_without_analytical_contact_count == 5
     assert profile.link_integrity.deals_without_local_link_count == 1
     assert profile.link_integrity.links_missing_contact_count == 0
     assert profile.link_integrity.links_missing_deal_count == 0

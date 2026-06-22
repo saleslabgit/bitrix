@@ -5,7 +5,8 @@ from datetime import datetime
 
 import duckdb
 
-from app.pipeline.normalization import UNDEFINED_VALUE
+from app.domain import resolve_contact_type
+from app.pipeline.normalization import UNDEFINED_VALUE, _load_type_rules
 from app.storage.schema import list_expected_tables
 from app.storage.status import DatasetRunStatus, get_dataset_storage_status
 
@@ -383,7 +384,12 @@ def _raw_values_without_active_rule(
         ORDER BY contacts.contact_type_raw
         """
     ).fetchall()
-    return tuple(row[0] for row in rows)
+    type_rules = _load_type_rules(connection)
+    return tuple(
+        row[0]
+        for row in rows
+        if resolve_contact_type(row[0], type_rules) is None
+    )
 
 
 def _type_region_counts(

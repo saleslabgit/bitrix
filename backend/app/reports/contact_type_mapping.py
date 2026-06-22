@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import ast
 from dataclasses import dataclass
 
 import duckdb
+
+from app.domain import parse_contact_type_option_ids
 
 
 @dataclass(frozen=True)
@@ -69,28 +70,4 @@ def format_raw_combination_summary(
 
 
 def _parse_raw_option_ids(raw_value: object) -> tuple[int, ...]:
-    if raw_value in (None, ""):
-        return ()
-
-    try:
-        parsed = ast.literal_eval(str(raw_value))
-    except (SyntaxError, ValueError):
-        return ()
-
-    if isinstance(parsed, int):
-        values = [parsed]
-    elif isinstance(parsed, (list, tuple)):
-        values = parsed
-    else:
-        return ()
-
-    option_ids: list[int] = []
-    for value in values:
-        try:
-            option_id = int(value)
-        except (TypeError, ValueError):
-            continue
-        if option_id > 0 and option_id not in option_ids:
-            option_ids.append(option_id)
-
-    return tuple(option_ids)
+    return parse_contact_type_option_ids(str(raw_value) if raw_value is not None else None)

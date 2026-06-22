@@ -10,6 +10,7 @@ from app.domain import (
     DealContactLink,
     DealSnapshot,
     StageSnapshot,
+    resolve_contact_type,
     select_analytical_contact,
 )
 
@@ -28,11 +29,8 @@ def normalize_local_data(connection: duckdb.DuckDBPyConnection) -> None:
     stages = _load_stages(connection)
     type_rules = _load_type_rules(connection)
 
-    active_rules = {
-        rule.raw_value: rule for rule in type_rules if rule.is_active
-    }
     normalized_contacts = {
-        contact.contact_id: _normalize_contact(contact, active_rules)
+        contact.contact_id: _normalize_contact(contact, type_rules)
         for contact in contacts.values()
     }
 
@@ -131,16 +129,13 @@ def normalize_local_data(connection: duckdb.DuckDBPyConnection) -> None:
 
 def _normalize_contact(
     contact: ContactSnapshot,
-    active_rules: dict[str, ContactTypeRule],
+    type_rules: list[ContactTypeRule],
 ) -> tuple[ContactSnapshot, str, str]:
-    if contact.contact_type_raw is None:
+    resolved_type = resolve_contact_type(contact.contact_type_raw, type_rules)
+    if resolved_type is None:
         return contact, UNDEFINED_VALUE, UNDEFINED_VALUE
 
-    rule = active_rules.get(contact.contact_type_raw)
-    if rule is None:
-        return contact, UNDEFINED_VALUE, UNDEFINED_VALUE
-
-    return contact, rule.normalized_type, rule.region
+    return contact, resolved_type.normalized_type, resolved_type.region
 
 
 def _load_contacts(

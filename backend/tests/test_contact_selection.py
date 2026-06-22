@@ -1,4 +1,9 @@
-from app.domain import ContactSnapshot, ContactTypeRule, DealContactLink
+from app.domain import (
+    ContactSnapshot,
+    ContactTypeRule,
+    DealContactLink,
+    MISSING_CONTACT_TYPE_RULE_RAW_VALUE,
+)
 from app.domain.contact_selection import select_analytical_contact
 
 
@@ -85,7 +90,7 @@ def test_deal_without_contacts_returns_none() -> None:
     assert selected is None
 
 
-def test_unknown_or_missing_contact_type_uses_neutral_fallback() -> None:
+def test_unknown_or_inactive_contact_type_is_not_selected() -> None:
     contacts = {
         1: contact(1, None),
         2: contact(2, "unknown"),
@@ -95,6 +100,35 @@ def test_unknown_or_missing_contact_type_uses_neutral_fallback() -> None:
         links=[link(2), link(1, is_primary=True)],
         contacts_by_id=contacts,
         type_rules=[],
+    )
+
+    assert selected is None
+
+
+def test_missing_contact_type_rule_can_select_missing_contact() -> None:
+    contacts = {
+        1: contact(1, None),
+        2: contact(2, "[67]"),
+    }
+
+    selected = select_analytical_contact(
+        links=[link(2, is_primary=True), link(1)],
+        contacts_by_id=contacts,
+        type_rules=[
+            ContactTypeRule(
+                raw_value=MISSING_CONTACT_TYPE_RULE_RAW_VALUE,
+                normalized_type="Конечный клиент",
+                priority=4,
+                region="Без региона",
+            ),
+            ContactTypeRule(
+                raw_value="67",
+                normalized_type="Поставщик",
+                priority=99,
+                region="Без региона",
+                is_active=False,
+            ),
+        ],
     )
 
     assert selected == 1
