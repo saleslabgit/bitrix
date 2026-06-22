@@ -184,6 +184,7 @@ export function App() {
     null
   );
   const [revenueChartContact, setRevenueChartContact] = useState<ContactAnalytics | null>(null);
+  const [isFilterDrawerOpen, setIsFilterDrawerOpen] = useState(false);
   const isDealCreatedRangeInvalid =
     Boolean(filters.dealCreatedFrom) &&
     Boolean(filters.dealCreatedTo) &&
@@ -402,6 +403,21 @@ export function App() {
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [revenueChartContact]);
+
+  useEffect(() => {
+    if (!isFilterDrawerOpen) {
+      return;
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsFilterDrawerOpen(false);
+      }
+    }
+
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [isFilterDrawerOpen]);
 
   const activeQuery =
     activeReport === "contacts" ? contactsQuery : activeReport === "deals" ? dealsQuery : abcQuery;
@@ -758,13 +774,25 @@ export function App() {
       </aside>
 
       <main className="main-panel" id={activeReport}>
-        <header className="page-header">
-          <div>
-            <p className="eyebrow">Reports</p>
-            <h1>{reportTitle(activeReport)}</h1>
-            <p className="page-subtitle">{reportSubtitle(activeReport)}</p>
+        <header className="workspace-header">
+          <div className="workspace-title">
+            <span className="badge badge-neutral">Reports</span>
+            <strong>{reportTitle(activeReport)}</strong>
+            {activeSelectedFilterCount > 0 && (
+              <span className="badge badge-primary">{activeSelectedFilterCount} фильтра</span>
+            )}
           </div>
           <div className="header-actions">
+            {isDatasetReady && (
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={() => setIsFilterDrawerOpen(true)}
+              >
+                <Filter size={16} strokeWidth={1.5} />
+                Фильтры
+              </button>
+            )}
             <DatasetBadge
               isLoading={statusQuery.isPending}
               isError={statusQuery.isError}
@@ -785,325 +813,6 @@ export function App() {
             )}
           </div>
         </header>
-
-        {isDatasetReady && activeReport === "contacts" && (
-          <section className="toolbar" aria-label="Фильтры контактов">
-            <label className="field search-field">
-              <span>Поиск</span>
-              <div className="input-shell">
-                <Search size={16} strokeWidth={1.5} />
-                <input
-                  value={searchDraft}
-                  onChange={(event) => setSearchDraft(event.target.value)}
-                  placeholder="Название контакта"
-                  type="search"
-                />
-              </div>
-            </label>
-
-            <label className="field">
-              <span>ID контакта</span>
-              <div className="input-shell">
-                <Search size={16} strokeWidth={1.5} />
-                <input
-                  value={contactIdDraft}
-                  onChange={(event) => updateContactIdFilter(event.target.value)}
-                  placeholder="661"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  type="search"
-                />
-              </div>
-            </label>
-
-            <SelectField
-              label="Тип"
-              value={filters.contactType}
-              onChange={(value) => updateFilter("contactType", value)}
-              options={filterMetadata?.contact_types ?? []}
-              disabled={!filterMetadata}
-            />
-            <SelectField
-              label="Статус сделки"
-              value={filters.status}
-              onChange={(value) => updateFilter("status", value)}
-              options={filterMetadata?.statuses ?? []}
-              disabled={!filterMetadata}
-            />
-
-            <label className="field">
-              <span>Создана с</span>
-              <input
-                className="date-input"
-                value={dealCreatedDrafts.from}
-                onChange={(event) => updateDealCreatedDraft("from", event.target.value)}
-                min={dateOnly(filterMetadata?.min_created_at)}
-                max={dateOnly(filterMetadata?.max_created_at)}
-                type="date"
-              />
-            </label>
-
-            <label className="field">
-              <span>Создана по</span>
-              <input
-                className="date-input"
-                value={dealCreatedDrafts.to}
-                onChange={(event) => updateDealCreatedDraft("to", event.target.value)}
-                min={dateOnly(filterMetadata?.min_created_at)}
-                max={dateOnly(filterMetadata?.max_created_at)}
-                type="date"
-              />
-            </label>
-
-            <button
-              className="button button-secondary date-apply-button"
-              type="button"
-              disabled={
-                !areDealCreatedDraftsChanged ||
-                !areDealCreatedDraftsComplete ||
-                areDealCreatedDraftsInvalid
-              }
-              onClick={applyDealCreatedDrafts}
-            >
-              <Filter size={16} strokeWidth={1.5} />
-              Применить даты
-            </button>
-
-            <button className="button button-secondary" type="button" onClick={resetFilters}>
-              <Filter size={16} strokeWidth={1.5} />
-              Сбросить
-            </button>
-          </section>
-        )}
-
-        {isDatasetReady && activeReport === "deals" && (
-          <section className="toolbar toolbar-deals" aria-label="Фильтры сделок">
-            <label className="field search-field">
-              <span>Клиент</span>
-              <div className="input-shell">
-                <Search size={16} strokeWidth={1.5} />
-                <input
-                  value={dealClientSearchDraft}
-                  onChange={(event) => updateDealClientSearch(event.target.value)}
-                  placeholder="Название клиента"
-                  type="search"
-                />
-              </div>
-            </label>
-
-            <label className="field">
-              <span>ID сделки</span>
-              <div className="input-shell">
-                <Search size={16} strokeWidth={1.5} />
-                <input
-                  value={dealIdDraft}
-                  onChange={(event) => updateDealIdFilter(event.target.value)}
-                  placeholder="1024"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  type="search"
-                />
-              </div>
-            </label>
-
-            <SelectField
-              label="Статус сделки"
-              value={dealFilters.status}
-              onChange={(value) => updateDealFilter("status", value)}
-              options={filterMetadata?.statuses ?? []}
-              disabled={!filterMetadata}
-            />
-            <SelectField
-              label="Тип"
-              value={dealFilters.contactType}
-              onChange={(value) => updateDealFilter("contactType", value)}
-              options={filterMetadata?.contact_types ?? []}
-              disabled={!filterMetadata}
-            />
-
-            <label className="field">
-              <span>Создана с</span>
-              <input
-                className="date-input"
-                value={dealReportCreatedDrafts.from}
-                onChange={(event) => updateDealReportCreatedDraft("from", event.target.value)}
-                min={dateOnly(filterMetadata?.min_created_at)}
-                max={dateOnly(filterMetadata?.max_created_at)}
-                type="date"
-              />
-            </label>
-
-            <label className="field">
-              <span>Создана по</span>
-              <input
-                className="date-input"
-                value={dealReportCreatedDrafts.to}
-                onChange={(event) => updateDealReportCreatedDraft("to", event.target.value)}
-                min={dateOnly(filterMetadata?.min_created_at)}
-                max={dateOnly(filterMetadata?.max_created_at)}
-                type="date"
-              />
-            </label>
-
-            <button
-              className="button button-secondary date-apply-button"
-              type="button"
-              disabled={
-                !areDealReportCreatedDraftsChanged ||
-                !areDealReportCreatedDraftsComplete ||
-                areDealReportCreatedDraftsInvalid
-              }
-              onClick={applyDealReportCreatedDrafts}
-            >
-              <Filter size={16} strokeWidth={1.5} />
-              Применить даты
-            </button>
-
-            <button className="button button-secondary" type="button" onClick={resetDealFilters}>
-              <Filter size={16} strokeWidth={1.5} />
-              Сбросить
-            </button>
-          </section>
-        )}
-
-        {isDatasetReady && activeReport === "abc" && (
-          <section className="toolbar toolbar-abc" aria-label="Фильтры ABC">
-            <label className="field search-field">
-              <span>Клиент</span>
-              <div className="input-shell">
-                <Search size={16} strokeWidth={1.5} />
-                <input
-                  value={abcSearchDraft}
-                  onChange={(event) => setAbcSearchDraft(event.target.value)}
-                  placeholder="Название клиента"
-                  type="search"
-                />
-              </div>
-            </label>
-
-            <label className="field">
-              <span>ID клиента</span>
-              <div className="input-shell">
-                <Search size={16} strokeWidth={1.5} />
-                <input
-                  value={abcContactIdDraft}
-                  onChange={(event) => updateAbcContactIdFilter(event.target.value)}
-                  placeholder="661"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  type="search"
-                />
-              </div>
-            </label>
-
-            <SelectField
-              label="Тип"
-              value={abcFilters.contactType}
-              onChange={(value) => updateAbcFilter("contactType", value)}
-              options={filterMetadata?.contact_types ?? []}
-              disabled={!filterMetadata}
-            />
-            <SelectField
-              label="ABC"
-              value={abcFilters.segment}
-              onChange={(value) => updateAbcFilter("segment", value)}
-              options={ABC_SEGMENTS}
-            />
-            <SelectField
-              label="Приоритет"
-              value={abcFilters.migrationPriority}
-              onChange={(value) => updateAbcFilter("migrationPriority", value)}
-              options={MIGRATION_PRIORITIES}
-            />
-
-            <label className="field checkbox-field">
-              <span>Изменения</span>
-              <label className="check-shell">
-                <input
-                  checked={isAbcCompareEnabled && abcFilters.changedOnly}
-                  disabled={!isAbcCompareEnabled}
-                  onChange={(event) => updateAbcFilter("changedOnly", event.target.checked)}
-                  type="checkbox"
-                />
-                Только изменившие ABC
-              </label>
-            </label>
-
-            <label className="field">
-              <span>Было с</span>
-              <input
-                className="date-input"
-                value={abcDateDrafts.from}
-                onChange={(event) => updateAbcDateDraft("from", event.target.value)}
-                min={dateOnly(filterMetadata?.min_closed_at)}
-                max={dateOnly(filterMetadata?.max_closed_at)}
-                type="date"
-              />
-            </label>
-            <label className="field">
-              <span>Было по</span>
-              <input
-                className="date-input"
-                value={abcDateDrafts.to}
-                onChange={(event) => updateAbcDateDraft("to", event.target.value)}
-                min={dateOnly(filterMetadata?.min_closed_at)}
-                max={dateOnly(filterMetadata?.max_closed_at)}
-                type="date"
-              />
-            </label>
-            <button
-              className="button button-secondary date-apply-button"
-              type="button"
-              disabled={!areAbcDateDraftsChanged || !areAbcDateDraftsComplete || areAbcDateDraftsInvalid}
-              onClick={applyAbcDateDrafts}
-            >
-              <Filter size={16} strokeWidth={1.5} />
-              Применить было
-            </button>
-
-            <label className="field">
-              <span>Стало с</span>
-              <input
-                className="date-input"
-                value={abcCompareDateDrafts.from}
-                onChange={(event) => updateAbcCompareDateDraft("from", event.target.value)}
-                min={dateOnly(filterMetadata?.min_closed_at)}
-                max={dateOnly(filterMetadata?.max_closed_at)}
-                type="date"
-              />
-            </label>
-            <label className="field">
-              <span>Стало по</span>
-              <input
-                className="date-input"
-                value={abcCompareDateDrafts.to}
-                onChange={(event) => updateAbcCompareDateDraft("to", event.target.value)}
-                min={dateOnly(filterMetadata?.min_closed_at)}
-                max={dateOnly(filterMetadata?.max_closed_at)}
-                type="date"
-              />
-            </label>
-            <button
-              className="button button-secondary date-apply-button"
-              type="button"
-              disabled={
-                !areAbcCompareDraftsChanged ||
-                !areAbcCompareDraftsComplete ||
-                areAbcCompareDraftsInvalid ||
-                Boolean(abcCompareDateDrafts.from) !== Boolean(abcCompareDateDrafts.to)
-              }
-              onClick={applyAbcCompareDateDrafts}
-            >
-              <Filter size={16} strokeWidth={1.5} />
-              Применить стало
-            </button>
-
-            <button className="button button-secondary" type="button" onClick={resetAbcFilters}>
-              <Filter size={16} strokeWidth={1.5} />
-              Сбросить
-            </button>
-          </section>
-        )}
 
         {isDatasetReady &&
           (filterQuery.isError || (isFreshFilterMetadataInvalid && !filterMetadata)) && (
@@ -1261,6 +970,370 @@ export function App() {
           )}
         </section>
       </main>
+      {isDatasetReady && isFilterDrawerOpen && (
+        <div
+          className="drawer-backdrop"
+          role="presentation"
+          onMouseDown={() => setIsFilterDrawerOpen(false)}
+        >
+          <aside
+            className="filter-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="filter-drawer-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <header className="drawer-header">
+              <div>
+                <p className="eyebrow">Filters</p>
+                <h2 id="filter-drawer-title">Фильтры: {reportTitle(activeReport)}</h2>
+              </div>
+              <button
+                className="icon-button"
+                type="button"
+                onClick={() => setIsFilterDrawerOpen(false)}
+                aria-label="Закрыть фильтры"
+              >
+                <X size={16} strokeWidth={1.5} />
+              </button>
+            </header>
+
+            <div className="drawer-body">
+              {activeReport === "contacts" && (
+                <div className="drawer-form">
+                  <label className="field">
+                    <span>Поиск</span>
+                    <div className="input-shell">
+                      <Search size={16} strokeWidth={1.5} />
+                      <input
+                        value={searchDraft}
+                        onChange={(event) => setSearchDraft(event.target.value)}
+                        placeholder="Название контакта"
+                        type="search"
+                      />
+                    </div>
+                  </label>
+
+                  <label className="field">
+                    <span>ID контакта</span>
+                    <div className="input-shell">
+                      <Search size={16} strokeWidth={1.5} />
+                      <input
+                        value={contactIdDraft}
+                        onChange={(event) => updateContactIdFilter(event.target.value)}
+                        placeholder="661"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        type="search"
+                      />
+                    </div>
+                  </label>
+
+                  <SelectField
+                    label="Тип"
+                    value={filters.contactType}
+                    onChange={(value) => updateFilter("contactType", value)}
+                    options={filterMetadata?.contact_types ?? []}
+                    disabled={!filterMetadata}
+                  />
+                  <SelectField
+                    label="Статус сделки"
+                    value={filters.status}
+                    onChange={(value) => updateFilter("status", value)}
+                    options={filterMetadata?.statuses ?? []}
+                    disabled={!filterMetadata}
+                  />
+
+                  <label className="field">
+                    <span>Создана с</span>
+                    <input
+                      className="date-input"
+                      value={dealCreatedDrafts.from}
+                      onChange={(event) => updateDealCreatedDraft("from", event.target.value)}
+                      min={dateOnly(filterMetadata?.min_created_at)}
+                      max={dateOnly(filterMetadata?.max_created_at)}
+                      type="date"
+                    />
+                  </label>
+
+                  <label className="field">
+                    <span>Создана по</span>
+                    <input
+                      className="date-input"
+                      value={dealCreatedDrafts.to}
+                      onChange={(event) => updateDealCreatedDraft("to", event.target.value)}
+                      min={dateOnly(filterMetadata?.min_created_at)}
+                      max={dateOnly(filterMetadata?.max_created_at)}
+                      type="date"
+                    />
+                  </label>
+
+                  <button
+                    className="button button-secondary"
+                    type="button"
+                    disabled={
+                      !areDealCreatedDraftsChanged ||
+                      !areDealCreatedDraftsComplete ||
+                      areDealCreatedDraftsInvalid
+                    }
+                    onClick={applyDealCreatedDrafts}
+                  >
+                    <Filter size={16} strokeWidth={1.5} />
+                    Применить даты
+                  </button>
+                </div>
+              )}
+
+              {activeReport === "deals" && (
+                <div className="drawer-form">
+                  <label className="field">
+                    <span>Клиент</span>
+                    <div className="input-shell">
+                      <Search size={16} strokeWidth={1.5} />
+                      <input
+                        value={dealClientSearchDraft}
+                        onChange={(event) => updateDealClientSearch(event.target.value)}
+                        placeholder="Название клиента"
+                        type="search"
+                      />
+                    </div>
+                  </label>
+
+                  <label className="field">
+                    <span>ID сделки</span>
+                    <div className="input-shell">
+                      <Search size={16} strokeWidth={1.5} />
+                      <input
+                        value={dealIdDraft}
+                        onChange={(event) => updateDealIdFilter(event.target.value)}
+                        placeholder="1024"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        type="search"
+                      />
+                    </div>
+                  </label>
+
+                  <SelectField
+                    label="Статус сделки"
+                    value={dealFilters.status}
+                    onChange={(value) => updateDealFilter("status", value)}
+                    options={filterMetadata?.statuses ?? []}
+                    disabled={!filterMetadata}
+                  />
+                  <SelectField
+                    label="Тип"
+                    value={dealFilters.contactType}
+                    onChange={(value) => updateDealFilter("contactType", value)}
+                    options={filterMetadata?.contact_types ?? []}
+                    disabled={!filterMetadata}
+                  />
+
+                  <label className="field">
+                    <span>Создана с</span>
+                    <input
+                      className="date-input"
+                      value={dealReportCreatedDrafts.from}
+                      onChange={(event) => updateDealReportCreatedDraft("from", event.target.value)}
+                      min={dateOnly(filterMetadata?.min_created_at)}
+                      max={dateOnly(filterMetadata?.max_created_at)}
+                      type="date"
+                    />
+                  </label>
+
+                  <label className="field">
+                    <span>Создана по</span>
+                    <input
+                      className="date-input"
+                      value={dealReportCreatedDrafts.to}
+                      onChange={(event) => updateDealReportCreatedDraft("to", event.target.value)}
+                      min={dateOnly(filterMetadata?.min_created_at)}
+                      max={dateOnly(filterMetadata?.max_created_at)}
+                      type="date"
+                    />
+                  </label>
+
+                  <button
+                    className="button button-secondary"
+                    type="button"
+                    disabled={
+                      !areDealReportCreatedDraftsChanged ||
+                      !areDealReportCreatedDraftsComplete ||
+                      areDealReportCreatedDraftsInvalid
+                    }
+                    onClick={applyDealReportCreatedDrafts}
+                  >
+                    <Filter size={16} strokeWidth={1.5} />
+                    Применить даты
+                  </button>
+                </div>
+              )}
+
+              {activeReport === "abc" && (
+                <div className="drawer-form">
+                  <label className="field">
+                    <span>Клиент</span>
+                    <div className="input-shell">
+                      <Search size={16} strokeWidth={1.5} />
+                      <input
+                        value={abcSearchDraft}
+                        onChange={(event) => setAbcSearchDraft(event.target.value)}
+                        placeholder="Название клиента"
+                        type="search"
+                      />
+                    </div>
+                  </label>
+
+                  <label className="field">
+                    <span>ID клиента</span>
+                    <div className="input-shell">
+                      <Search size={16} strokeWidth={1.5} />
+                      <input
+                        value={abcContactIdDraft}
+                        onChange={(event) => updateAbcContactIdFilter(event.target.value)}
+                        placeholder="661"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        type="search"
+                      />
+                    </div>
+                  </label>
+
+                  <SelectField
+                    label="Тип"
+                    value={abcFilters.contactType}
+                    onChange={(value) => updateAbcFilter("contactType", value)}
+                    options={filterMetadata?.contact_types ?? []}
+                    disabled={!filterMetadata}
+                  />
+                  <SelectField
+                    label="ABC"
+                    value={abcFilters.segment}
+                    onChange={(value) => updateAbcFilter("segment", value)}
+                    options={ABC_SEGMENTS}
+                  />
+                  <SelectField
+                    label="Приоритет"
+                    value={abcFilters.migrationPriority}
+                    onChange={(value) => updateAbcFilter("migrationPriority", value)}
+                    options={MIGRATION_PRIORITIES}
+                  />
+
+                  <label className="field checkbox-field">
+                    <span>Изменения</span>
+                    <label className="check-shell">
+                      <input
+                        checked={isAbcCompareEnabled && abcFilters.changedOnly}
+                        disabled={!isAbcCompareEnabled}
+                        onChange={(event) => updateAbcFilter("changedOnly", event.target.checked)}
+                        type="checkbox"
+                      />
+                      Только изменившие ABC
+                    </label>
+                  </label>
+
+                  <label className="field">
+                    <span>Было с</span>
+                    <input
+                      className="date-input"
+                      value={abcDateDrafts.from}
+                      onChange={(event) => updateAbcDateDraft("from", event.target.value)}
+                      min={dateOnly(filterMetadata?.min_closed_at)}
+                      max={dateOnly(filterMetadata?.max_closed_at)}
+                      type="date"
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Было по</span>
+                    <input
+                      className="date-input"
+                      value={abcDateDrafts.to}
+                      onChange={(event) => updateAbcDateDraft("to", event.target.value)}
+                      min={dateOnly(filterMetadata?.min_closed_at)}
+                      max={dateOnly(filterMetadata?.max_closed_at)}
+                      type="date"
+                    />
+                  </label>
+                  <button
+                    className="button button-secondary"
+                    type="button"
+                    disabled={
+                      !areAbcDateDraftsChanged ||
+                      !areAbcDateDraftsComplete ||
+                      areAbcDateDraftsInvalid
+                    }
+                    onClick={applyAbcDateDrafts}
+                  >
+                    <Filter size={16} strokeWidth={1.5} />
+                    Применить было
+                  </button>
+
+                  <label className="field">
+                    <span>Стало с</span>
+                    <input
+                      className="date-input"
+                      value={abcCompareDateDrafts.from}
+                      onChange={(event) => updateAbcCompareDateDraft("from", event.target.value)}
+                      min={dateOnly(filterMetadata?.min_closed_at)}
+                      max={dateOnly(filterMetadata?.max_closed_at)}
+                      type="date"
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Стало по</span>
+                    <input
+                      className="date-input"
+                      value={abcCompareDateDrafts.to}
+                      onChange={(event) => updateAbcCompareDateDraft("to", event.target.value)}
+                      min={dateOnly(filterMetadata?.min_closed_at)}
+                      max={dateOnly(filterMetadata?.max_closed_at)}
+                      type="date"
+                    />
+                  </label>
+                  <button
+                    className="button button-secondary"
+                    type="button"
+                    disabled={
+                      !areAbcCompareDraftsChanged ||
+                      !areAbcCompareDraftsComplete ||
+                      areAbcCompareDraftsInvalid ||
+                      Boolean(abcCompareDateDrafts.from) !== Boolean(abcCompareDateDrafts.to)
+                    }
+                    onClick={applyAbcCompareDateDrafts}
+                  >
+                    <Filter size={16} strokeWidth={1.5} />
+                    Применить стало
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <footer className="drawer-footer">
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={
+                  activeReport === "contacts"
+                    ? resetFilters
+                    : activeReport === "deals"
+                      ? resetDealFilters
+                      : resetAbcFilters
+                }
+              >
+                <Filter size={16} strokeWidth={1.5} />
+                Сбросить фильтры
+              </button>
+              <button
+                className="button button-primary"
+                type="button"
+                onClick={() => setIsFilterDrawerOpen(false)}
+              >
+                Готово
+              </button>
+            </footer>
+          </aside>
+        </div>
+      )}
       {revenueChartContact && (
         <ContactRevenueModal
           contact={revenueChartContact}

@@ -4,76 +4,72 @@
 
 ## Кратко
 
-Добавил viewport-bounded таблицы со sticky headers/bottom controls для Contacts,
-Deals и ABC, а также modal chart по won USD revenue выбранного контакта.
+Доработал report workspace в dense operational layout: убрал крупный видимый
+report title/subtitle, перенес фильтры Contacts/Deals/ABC в правый drawer и
+сделал table card заполняющей доступную высоту до низа viewport. Существующий
+contact won-revenue chart/modal и backend endpoint сохранены.
 
 ## Измененные файлы
 
-- `backend/app/api/models.py`
-- `backend/app/main.py`
-- `backend/app/reports/analytics.py`
-- `backend/tests/test_api_local.py`
-- `frontend/package.json`
-- `frontend/package-lock.json`
-- `frontend/src/api.ts`
 - `frontend/src/App.tsx`
 - `frontend/src/styles.css`
 - `frontend/README.md`
-- `docs/data-model.md`
 - `docs/development.md`
+- `docs/project-status.md`
 - `.ai/report.md`
 
 ## Backend
 
-- Добавлен local-only endpoint:
-  `GET /api/reports/contacts/{contact_id}/won-revenue-series`.
-- Query params: optional inclusive `date_from` / `date_to` over
-  `normalized_deals.closed_at.date()`.
-- Источник данных: `normalized_deals` и существующая `_load_deal_facts()` USD
-  conversion logic.
-- Endpoint включает только deals with:
-  - `analytical_contact_id == contact_id`;
-  - `status_group == "won"`;
-  - non-null `closed_at`.
-- Точки агрегируются по close date ascending. Несколько won deals на одну дату
-  суммируются в одной точке.
-- Existing contact без matching won deals возвращает empty `points` и нулевые
-  totals.
-- Missing contact возвращает safe `404`.
-- Endpoint не отдает deal names, raw rows, personal fields, local paths,
-  webhook values или secrets и не вызывает Bitrix.
+Backend chart endpoint уже присутствовал в текущем `main` после предыдущего
+codex commit:
 
-## Frontend
+- `GET /api/reports/contacts/{contact_id}/won-revenue-series`;
+- local-only data from `normalized_deals` and existing USD conversion;
+- won-only, non-null close date, grouped by close date;
+- safe empty response for existing contacts without matching won deals;
+- safe `404` for missing contacts.
 
-- Добавлен `recharts`.
-- Contact name в Contacts table стал button-like control.
-- Click открывает modal с `role="dialog"` и `aria-modal="true"`.
-- Modal показывает contact name, contact ID, period label, total won revenue,
-  won deal count и line chart by close date.
-- Modal поддерживает loading, error, empty state, close button, backdrop close и
-  Escape close.
-- Закрытие modal не сбрасывает filters, sorting или pagination.
-- Для текущей задачи Contacts `Создана с` / `Создана по` передаются в chart
-  request как selected period context и явно подписаны в modal.
+В этой задаче backend code не менялся.
 
-## Sticky Tables
+## Frontend Drawer
 
-- Contacts, Deals и ABC table cards стали flex containers с viewport-bounded
-  max height.
-- `.table-scroll` теперь скроллит rows по vertical и horizontal axes.
-- `thead th` sticky внутри scroll area.
-- Pagination находится outside row scroll area и остается видимой внизу card.
-- Deals и ABC totals bars остаются outside row scroll area; top/bottom totals
-  читаемы при вертикальном скролле rows.
-- Contacts/Deals toolbars переведены на wrapping `auto-fit` grid, чтобы фильтры
-  не выходили за common desktop viewport.
+- Inline filter toolbars удалены из основного report flow.
+- Добавлен один right-side filter drawer для активного report.
+- Drawer открывается кнопкой `Фильтры` в compact top action row.
+- Drawer содержит существующие controls для Contacts, Deals и ABC.
+- Существующее состояние фильтров, draft/apply date behavior, debounced search,
+  metadata fallback, storage keys и reset behavior сохранены.
+- Closing drawer через backdrop, close button, `Готово` или Escape не сбрасывает
+  filters.
+- Reset в drawer сбрасывает только active report filters.
+- Region filters/columns не возвращались.
+
+## Workspace Layout
+
+- Видимый `Reports` eyebrow, large `h1` и page subtitle удалены из main
+  workspace.
+- Dataset status и `Обновить из Bitrix` сохранены в compact top action row.
+- Active report и active filter count отображаются компактно.
+- `.main-panel` теперь viewport-bounded flex layout без крупного page-level
+  vertical scroll.
+- `.table-card` заполняет оставшуюся высоту viewport.
+- `.table-scroll` остается vertical/horizontal scroll area for rows.
+- `thead th` остаются sticky.
+- Pagination остается visible внизу card.
+- Deals/ABC totals остаются readable outside row scroll area.
+
+## Contact Chart
+
+- Contact name click по-прежнему открывает accessible modal.
+- Modal показывает selected contact, period, totals and Recharts SVG chart.
+- Closing modal не сбрасывает Contacts filters, sorting или pagination.
 
 ## Документация
 
-- `docs/development.md` описывает новый endpoint, modal chart period mapping и
-  bounded table behavior.
-- `docs/data-model.md` описывает contact won revenue series output.
-- `frontend/README.md` описывает modal chart и sticky/bounded table behavior.
+- `docs/development.md` обновлен для compact top row, right drawer и full-height
+  table workspace.
+- `frontend/README.md` обновлен для drawer filters и dense full-height layout.
+- `docs/project-status.md` дополнен текущим frontend workspace состоянием.
 
 ## Запущенные проверки
 
@@ -82,39 +78,33 @@ Before implementation:
 - `git log --oneline -5`
 - `git status --short --branch`
 
-Docs:
-
-- Context7 Recharts docs fetched for current `ResponsiveContainer`,
-  `LineChart`, `XAxis`, `YAxis`, `Tooltip`, accessibility behavior.
-
 Backend:
 
-- `cd backend && /tmp/bitrix-backend-venv/bin/pytest tests/test_api_local.py`
-  — passed, `17 passed`.
-- `cd backend && /tmp/bitrix-backend-venv/bin/pytest`
-  — passed, `115 passed`.
+- `cd backend && /tmp/bitrix-backend-venv/bin/pytest tests/test_api_local.py tests/test_analytics.py`
+  — passed, `55 passed`.
 
 Frontend:
 
 - `cd frontend && npm run build` — passed.
-  Vite reported a bundle-size warning after adding Recharts; build succeeded.
-- Re-ran `cd frontend && npm run build` after CSS fixes — passed with the same
-  bundle-size warning.
+  Vite reported the existing Recharts-related bundle-size warning; build
+  succeeded.
 
 Runtime / browser:
 
 - `docker compose up --build -d` — passed.
 - `curl -f http://127.0.0.1:8000/health` — passed.
-- New contact revenue endpoint returned `200` for an existing local contact.
+- `curl -f http://127.0.0.1:8000/api/meta/filters` — passed.
 - `curl -f http://127.0.0.1:5173/` — passed.
 - Playwright desktop smoke at `1366x768`:
+  - no visible main `h1` or `.page-subtitle`;
   - Contacts table rendered 25 rows;
+  - table card spanned from near top action row to bottom of viewport;
   - `.table-scroll` had `overflowY: auto`;
   - table header `position: sticky`;
-  - table card stayed inside viewport with pagination visible;
-  - toolbar stayed inside viewport;
-  - clicking a contact name opened an accessible modal;
-  - modal rendered summary and SVG chart for a contact with won revenue;
+  - pagination remained visible;
+  - filter drawer opened from the right and closed correctly;
+  - clicking a contact name opened the revenue modal;
+  - modal rendered summary and SVG chart;
   - browser console had `0` errors.
 - `docker compose down -v` — passed.
 
@@ -126,30 +116,26 @@ Safety:
 
 ## Факты
 
-- No Bitrix calls were added to report page load, chart modal, Docker startup,
-  or local read endpoints.
+- No Bitrix calls were added.
+- No backend code changed in this task.
 - No CRM write methods were added.
 - No `ui-kits/` files were changed.
-- No secrets, `.env`, local DB files, Parquet snapshots, CSV exports,
-  `node_modules`, `frontend/dist`, logs, raw data, or generated data are staged.
+- No `node_modules`, `frontend/dist`, `.playwright-mcp`, local DB files,
+  snapshots, logs, raw data, generated data, `.env`, or secrets are staged.
 
 ## Предположения
 
-- Mapping current Contacts date inputs (`Создана с` / `Создана по`) to chart
-  close-date filters is acceptable for this task because the modal labels the
-  period explicitly and the backend endpoint already supports true close-date
-  parameters.
+- Keeping debounced search active inside the drawer is acceptable because it
+  preserves the previous search behavior and closing the drawer does not reset
+  filter state.
 
 ## Неизвестное
 
-- Mobile visual verification was not run. CSS includes mobile constraints for
-  modal height, chart height, and single-column summary, but the Playwright
-  smoke was desktop-only.
+- Mobile browser visual verification was not run. CSS includes drawer/modal
+  mobile constraints, but runtime smoke was desktop-only.
 
 ## Риски или следующий шаг
 
-- Recharts increases the frontend bundle enough for Vite to warn about chunks
-  over 500 kB. This is not a functional failure, but future chart-heavy work
-  may benefit from code-splitting.
-- A later UX task should add explicit Contacts close-date filters if the chart
-  period semantics need to be separated from deal creation date filters.
+- The filter drawer is intentionally one shared drawer whose contents switch by
+  active report. If later reports need different interaction semantics, it may
+  be worth extracting report-specific drawer bodies into separate components.

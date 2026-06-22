@@ -226,7 +226,10 @@ query support remain in place for later use.
 Contacts, Deals, and ABC report cards are viewport-bounded. Table rows scroll
 inside the card with sticky column headers; pagination remains outside the row
 scroll area at the bottom. Deals and ABC totals remain visible outside the row
-scroll area above and below their tables.
+scroll area above and below their tables. The report workspace uses a compact
+top action row instead of a large page title/subtitle block, and active report
+filters open in a right-side drawer. Closing the drawer does not reset filters;
+reset actions still affect only the active report.
 
 Local Vite serves `/favicon.ico` from `frontend/public/favicon.ico`, so browser
 favicon probing should not produce a 404 during development.

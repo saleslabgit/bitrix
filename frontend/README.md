@@ -13,12 +13,13 @@ Implemented screen:
 - Deals table state is persisted in browser local storage under `bitrix-sales.deals.v1`; reset clears only Deals table state.
 - `ABC` report table with exact customer ID, customer search, type, `Было` ABC segment, migration priority, changed-only filter, applied `Было` period, optional applied `Стало` period, pagination, loading, error, empty, reset, Bitrix contact-card links, and sortable local USD revenue/share columns.
 - The ABC table uses `/api/reports/abc/analytics`. `Было` ABC is calculated from won-only USD revenue by local `closed_at` dates. When both `Стало` dates are applied, target revenue/segment, transition, and priority columns are shown in the same table; customers with revenue in either period are included so lost and reappeared customers remain visible. Transition direction is always `ABC было -> ABC стало`.
-- The ABC filter toolbar wraps inside the report workspace. `Только изменившие ABC` is disabled until `Стало` is applied and is not sent for single-period ABC requests.
+- Contacts, Deals, and ABC filters open in a right-side drawer from the compact workspace action row. Closing the drawer does not reset report state; reset clears only the active report state.
+- In the ABC drawer, `Только изменившие ABC` is disabled until `Стало` is applied and is not sent for single-period ABC requests.
 - ABC table state is persisted separately under `bitrix-sales.abc.v1`; reset clears only ABC table state.
 - Last valid filter metadata is persisted under `bitrix-sales.filter-metadata.v1` so transient empty metadata snapshots do not clear dropdown options.
 - Local Vite serves `/favicon.ico` from `frontend/public/favicon.ico`.
 - Region filters and columns are temporarily hidden in Contacts, Deals, and ABC while region detection is unfinished. Existing backend region support remains available for later use.
-- Contacts, Deals, and ABC table cards are bounded to the available viewport height. Rows scroll inside the card with sticky table headers, while pagination remains visible at the bottom; Deals and ABC totals remain outside the row scroll area.
+- Contacts, Deals, and ABC use a dense full-height workspace without a large page title/subtitle block. Table cards fill the available viewport height; rows scroll inside the card with sticky table headers, while pagination remains visible at the bottom. Deals and ABC totals remain outside the row scroll area.
 
 The app reads only the local backend API. It does not call Bitrix.
 
@@ -77,10 +78,11 @@ For built/static deployments, set `VITE_API_BASE_URL` if the API is not served f
 - Frontend opens at `http://localhost:5173`.
 - Contacts, Deals, and ABC tables load when a local active dataset exists.
 - With no active dataset, the manual `Обновить из Bitrix` panel appears.
+- The `Фильтры` button opens the right drawer for the active report; backdrop, close button, and Escape close it without resetting filters.
 - Contacts search, exact contact ID filter, deal creation date range, type/status filters, clickable non-zero deal counters, sorting, reset, and pagination work.
 - Contact names open a modal with won USD revenue by close date; loading, error, empty, Escape, close button, and backdrop-close states work without resetting the Contacts table.
 - Deals client search, exact deal ID filter, deal creation date range, type/status filters, sorting, filtered totals, reset, and pagination work. The working area uses the available screen width with horizontal table scroll where needed.
-- ABC customer search, exact customer ID filter, `Было` period, optional `Стало` period, segment/priority filters, changed-only mode, sorting, summary totals, reset, and pagination work. `Стало` updates the same table instead of opening a separate table, and ABC filters do not overflow the visible workspace.
+- ABC customer search, exact customer ID filter, `Было` period, optional `Стало` period, segment/priority filters, changed-only mode, sorting, summary totals, reset, and pagination work. `Стало` updates the same table instead of opening a separate table.
 - If the frontend shows an API error, check `http://localhost:8000/api/datasets/status`.
 
 ## Design System

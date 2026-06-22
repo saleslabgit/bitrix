@@ -79,6 +79,7 @@ Frontend reporting milestone for the Bitrix sales analytics MVP: local analytics
 - Added `GET /api/reports/abc/analytics` for paginated local customer ABC analysis with source/base `Было` classification, optional target/result `Стало` transitions in the same table, allowlisted filters/sorting, filtered totals, and migration priority counts.
 - Added an ABC frontend report with local-only filters, applied `Было`/`Стало` date ranges, changed-only mode, separate browser state under `bitrix-sales.abc.v1`, transition badges, and target columns shown only when `Стало` is enabled.
 - Corrected ABC transition direction to always mean `ABC было -> ABC стало`, so loss cases such as `A -> Нет продаж` are not treated as growth priorities.
+- Added a compact full-height report workspace: Contacts, Deals, and ABC filters open in a right-side drawer, table cards fill the available viewport height with sticky headers and visible bottom controls, and Contacts names open a local won-revenue chart modal.
 
 ## Intentionally Not Done
 
