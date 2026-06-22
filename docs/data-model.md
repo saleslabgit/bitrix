@@ -228,8 +228,16 @@ Contact analytics budget fields use all assigned deals in local USD: `budget_usd
 Deal analytics budget is the single normalized deal amount in USD. Deal
 estimated profit is won-only: `budget_usd * 0.50` when `status_group == "won"`,
 otherwise `0.00` for open or lost deals. Deal analytics supports exact deal ID,
-status, normalized type, normalized region, and inclusive created-date filters,
-with stable allowlisted sorting before pagination.
+client search over local `normalized_deals.analytical_contact_name`, status,
+normalized type, normalized region, and inclusive created-date filters, with
+stable allowlisted sorting before pagination. Deal analytics page totals
+`filtered_budget_usd` and `filtered_estimated_profit_usd` are calculated across
+all filtered rows before pagination.
+
+USD deal conversion does not require a stored `currency_rates` row because the
+amount is already denominated in the target currency. Non-USD reports still
+require local currency rates; missing non-USD rates are treated as unavailable
+local analytics data rather than silently estimated.
 
 For deterministic synthetic reports, the default analysis date is the maximum local report date from normalized deals. Last-12-month ABC starts from the same month/day one year before that analysis date.
 

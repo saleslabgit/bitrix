@@ -121,6 +121,25 @@ def test_contact_analytics_supports_exact_contact_id_filter() -> None:
     assert page.items[0].contact_id == 4
 
 
+def test_contact_analytics_contact_id_desc_handles_usd_deals_without_rate_rows() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        _load_usd_deal_without_rates_dataset(connection)
+
+        page = list_contact_analytics(
+            connection,
+            limit=25,
+            offset=0,
+            sort="contact_id",
+            order="desc",
+        )
+
+    assert page.total == 1
+    assert page.items[0].contact_id == 1
+    assert page.items[0].budget_usd == Decimal("100.00")
+    assert page.items[0].revenue_usd == Decimal("100.00")
+    assert page.items[0].estimated_profit_usd == Decimal("50.00")
+
+
 def test_contact_analytics_sorts_before_pagination_by_revenue_and_date() -> None:
     with duckdb.connect(database=":memory:") as connection:
         run_synthetic_pipeline(connection)
@@ -294,6 +313,42 @@ def test_deal_analytics_filters_by_status_type_region_and_created_date() -> None
     assert page.total == 1
     assert page.items[0].deal_id == 22
     assert page.items[0].created_date == date(2025, 10, 1)
+
+
+def test_deal_analytics_filters_by_client_search_and_returns_filtered_totals() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        run_synthetic_pipeline(connection)
+
+        page = list_deal_analytics(
+            connection,
+            limit=1,
+            offset=0,
+            client_search="contact 2",
+            sort="budget_usd",
+            order="desc",
+        )
+
+    assert page.total == 4
+    assert len(page.items) == 1
+    assert page.items[0].deal_id == 5
+    assert page.filtered_budget_usd == Decimal("191454.55")
+    assert page.filtered_estimated_profit_usd == Decimal("73227.28")
+
+
+def test_deal_analytics_empty_filtered_totals_are_zero() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        run_synthetic_pipeline(connection)
+
+        page = list_deal_analytics(
+            connection,
+            limit=10,
+            client_search="missing client",
+        )
+
+    assert page.total == 0
+    assert page.items == ()
+    assert page.filtered_budget_usd == Decimal("0.00")
+    assert page.filtered_estimated_profit_usd == Decimal("0.00")
 
 
 def test_deal_analytics_sorts_by_budget_profit_and_date_with_tie_breaker() -> None:
@@ -617,6 +672,60 @@ def _load_equal_revenue_dataset(connection: duckdb.DuckDBPyConnection) -> None:
                 2,
                 "Tie Contact 2",
             ),
+        ],
+    )
+
+
+def _load_usd_deal_without_rates_dataset(connection: duckdb.DuckDBPyConnection) -> None:
+    initialize_schema(connection)
+    connection.execute(
+        """
+        INSERT INTO normalized_contacts (
+            contact_id,
+            contact_name,
+            contact_type_raw,
+            contact_type_normalized,
+            region_normalized
+        )
+        VALUES (1, 'USD Contact', NULL, 'Synthetic Type', 'Synthetic Region')
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO normalized_deals (
+            deal_id,
+            deal_name,
+            amount_original,
+            currency_original,
+            created_at,
+            closed_at,
+            stage_id,
+            category_id,
+            status_group,
+            analytical_contact_id,
+            analytical_contact_name,
+            contact_type_normalized,
+            region_normalized
+        )
+        VALUES (
+            1,
+            'USD Deal Without Local Rate',
+            100.00,
+            'USD',
+            ?,
+            ?,
+            'SYN:WON',
+            1,
+            'won',
+            1,
+            'USD Contact',
+            'Synthetic Type',
+            'Synthetic Region'
+        )
+        """,
+        [
+            datetime(2025, 1, 1, tzinfo=timezone.utc),
+            datetime(2025, 1, 2, tzinfo=timezone.utc),
         ],
     )
 

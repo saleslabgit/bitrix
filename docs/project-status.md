@@ -70,6 +70,9 @@ Frontend reporting milestone for the Bitrix sales analytics MVP: local analytics
 - Improved manual refresh UX with blocking progress text and a user-facing success message with refreshed counts.
 - Added `GET /api/reports/deals/analytics` for local deal-level rows with exact deal ID, status, normalized type/region, inclusive deal creation date filters, allowlisted stable sorting, and pagination.
 - Added Deals report UI with sidebar switching, local metadata-backed filters, draft/apply date behavior, Bitrix deal links, USD budget, won-only USD estimated profit, sorting, pagination, loading/error/empty/reset states, and separate browser storage under `bitrix-sales.deals.v1`.
+- Refined Deals report with local analytical client search and filtered USD budget/profit totals calculated before pagination.
+- Fixed report handling for local datasets with USD deals but no USD rate rows; missing non-USD rates now return a safe service-unavailable error instead of an internal server error.
+- Added a frontend favicon so local browser `/favicon.ico` probing no longer returns 404.
 
 ## Intentionally Not Done
 

@@ -170,16 +170,20 @@ browser storage under `bitrix-sales.contacts.v1`; it stores filter/sort/page
 settings only, not backend rows, secrets, or raw data.
 
 The Deals screen uses `/api/reports/deals/analytics` for local deal-level rows
-with exact `deal_id`, status, type, region, inclusive
-`deal_created_from` / `deal_created_to`, allowlisted `sort`, `order`,
+with exact `deal_id`, local analytical `client_search`, status, type, region,
+inclusive `deal_created_from` / `deal_created_to`, allowlisted `sort`, `order`,
 `limit`, and `offset` parameters. Deal rows expose the deal ID/name, status,
 normalized type/region, USD budget, USD estimated profit, created date, and
-closed date. Deal budget is the single deal amount in USD. Deal estimated
-profit is won-only: `budget_usd * 0.50` when `status_group == "won"`, otherwise
-`0.00`. Deals UI state is persisted separately under
-`bitrix-sales.deals.v1`. Shared filter metadata is cached under
-`bitrix-sales.filter-metadata.v1`; resetting either report does not clear the
-metadata cache.
+closed date. The response also includes `filtered_budget_usd` and
+`filtered_estimated_profit_usd`, calculated across all filtered rows before
+pagination. Deal budget is the single deal amount in USD. Deal estimated profit
+is won-only: `budget_usd * 0.50` when `status_group == "won"`, otherwise
+`0.00`. Deals UI state is persisted separately under `bitrix-sales.deals.v1`.
+Shared filter metadata is cached under `bitrix-sales.filter-metadata.v1`;
+resetting either report does not clear the metadata cache.
+
+Local Vite serves `/favicon.ico` from `frontend/public/favicon.ico`, so browser
+favicon probing should not produce a 404 during development.
 
 The frontend must continue to read only local backend endpoints. It must not
 call Bitrix directly or display forbidden personal fields such as phone, email,

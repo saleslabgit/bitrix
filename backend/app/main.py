@@ -1,7 +1,7 @@
 from datetime import date
 from typing import Annotated, Literal
 
-from fastapi import FastAPI, HTTPException, Query, status
+from fastapi import FastAPI, HTTPException, Query, status as http_status
 
 from app.api.models import (
     AbcResponse,
@@ -40,6 +40,7 @@ from app.pipeline.currency_rates import NbrbRateClient
 from app.pipeline.manual_refresh import run_full_bitrix_manual_refresh
 from app.pipeline.synthetic import get_latest_pipeline_status, run_synthetic_pipeline
 from app.reports.analytics import (
+    AnalyticsDataUnavailableError,
     get_abc_report,
     get_concentration_report,
     get_deal_cycle_report,
@@ -351,7 +352,7 @@ def meta_filters() -> FilterMetadataResponse:
         and not filters.contact_types
     ):
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Filter metadata is temporarily unavailable. Keep previous options and retry.",
         )
     return FilterMetadataResponse.model_validate(filters)
@@ -404,22 +405,28 @@ def report_contact_analytics(
     sort: ContactAnalyticsSortQuery = "contact_id",
     order: SortOrderQuery = "asc",
 ) -> ContactAnalyticsPageResponse:
-    page = list_contact_analytics(
-        get_connection(),
-        limit=limit,
-        offset=offset,
-        date_from=date_from,
-        date_to=date_to,
-        deal_created_from=deal_created_from,
-        deal_created_to=deal_created_to,
-        search=search,
-        contact_type=contact_type,
-        region=region,
-        status=status,
-        contact_id=contact_id,
-        sort=sort,
-        order=order,
-    )
+    try:
+        page = list_contact_analytics(
+            get_connection(),
+            limit=limit,
+            offset=offset,
+            date_from=date_from,
+            date_to=date_to,
+            deal_created_from=deal_created_from,
+            deal_created_to=deal_created_to,
+            search=search,
+            contact_type=contact_type,
+            region=region,
+            status=status,
+            contact_id=contact_id,
+            sort=sort,
+            order=order,
+        )
+    except AnalyticsDataUnavailableError as exc:
+        raise HTTPException(
+            status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
     return ContactAnalyticsPageResponse.model_validate(page)
 
 
@@ -434,24 +441,32 @@ def report_deal_analytics(
     status: str | None = None,
     contact_type: str | None = None,
     region: str | None = None,
+    client_search: str | None = None,
     deal_created_from: date | None = None,
     deal_created_to: date | None = None,
     sort: DealAnalyticsSortQuery = "deal_id",
     order: SortOrderQuery = "asc",
 ) -> DealAnalyticsPageResponse:
-    page = list_deal_analytics(
-        get_connection(),
-        limit=limit,
-        offset=offset,
-        deal_id=deal_id,
-        status=status,
-        contact_type=contact_type,
-        region=region,
-        deal_created_from=deal_created_from,
-        deal_created_to=deal_created_to,
-        sort=sort,
-        order=order,
-    )
+    try:
+        page = list_deal_analytics(
+            get_connection(),
+            limit=limit,
+            offset=offset,
+            deal_id=deal_id,
+            status=status,
+            contact_type=contact_type,
+            region=region,
+            client_search=client_search,
+            deal_created_from=deal_created_from,
+            deal_created_to=deal_created_to,
+            sort=sort,
+            order=order,
+        )
+    except AnalyticsDataUnavailableError as exc:
+        raise HTTPException(
+            status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
     return DealAnalyticsPageResponse.model_validate(page)
 
 

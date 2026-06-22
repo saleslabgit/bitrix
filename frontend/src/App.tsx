@@ -21,6 +21,7 @@ import {
   type ContactFilters,
   type ContactSort,
   type DealAnalytics,
+  type DealAnalyticsPage,
   type DealFilters,
   type DealSort,
   type FilterMetadata,
@@ -76,6 +77,7 @@ const initialFilters: ContactFilters = {
 
 const initialDealFilters: DealFilters = {
   dealId: "",
+  clientSearch: "",
   contactType: "",
   region: "",
   status: "",
@@ -97,6 +99,7 @@ export function App() {
   const [searchDraft, setSearchDraft] = useState(filters.search);
   const [contactIdDraft, setContactIdDraft] = useState(filters.contactId);
   const [dealIdDraft, setDealIdDraft] = useState(dealFilters.dealId);
+  const [dealClientSearchDraft, setDealClientSearchDraft] = useState(dealFilters.clientSearch);
   const [dealCreatedDrafts, setDealCreatedDrafts] = useState({
     from: filters.dealCreatedFrom,
     to: filters.dealCreatedTo
@@ -151,6 +154,18 @@ export function App() {
 
     return () => window.clearTimeout(timer);
   }, [searchDraft]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDealFilters((current) => ({
+        ...current,
+        clientSearch: dealClientSearchDraft,
+        offset: 0
+      }));
+    }, 300);
+
+    return () => window.clearTimeout(timer);
+  }, [dealClientSearchDraft]);
 
   useEffect(() => {
     storeFilters(filters);
@@ -268,6 +283,7 @@ export function App() {
     () =>
       [
         dealFilters.dealId.trim(),
+        dealFilters.clientSearch.trim(),
         dealFilters.contactType,
         dealFilters.region,
         dealFilters.status,
@@ -298,6 +314,7 @@ export function App() {
 
   function resetDealFilters() {
     setDealIdDraft("");
+    setDealClientSearchDraft("");
     setDealReportCreatedDrafts({ from: "", to: "" });
     window.localStorage.removeItem(DEALS_STORAGE_KEY);
     setDealFilters(initialDealFilters);
@@ -561,6 +578,19 @@ export function App() {
 
         {isDatasetReady && activeReport === "deals" && (
           <section className="toolbar toolbar-deals" aria-label="Фильтры сделок">
+            <label className="field search-field">
+              <span>Клиент</span>
+              <div className="input-shell">
+                <Search size={16} strokeWidth={1.5} />
+                <input
+                  value={dealClientSearchDraft}
+                  onChange={(event) => setDealClientSearchDraft(event.target.value)}
+                  placeholder="Название клиента"
+                  type="search"
+                />
+              </div>
+            </label>
+
             <label className="field">
               <span>ID сделки</span>
               <div className="input-shell">
@@ -731,12 +761,16 @@ export function App() {
               onSort={updateSort}
             />
           ) : (
-            <DealsTable
-              deals={dealsQuery.data?.items ?? []}
-              sort={dealFilters.sort}
-              order={dealFilters.order}
-              onSort={updateDealSort}
-            />
+            <>
+              {dealsQuery.data && <DealTotalsBar page={dealsQuery.data} />}
+              <DealsTable
+                deals={dealsQuery.data?.items ?? []}
+                sort={dealFilters.sort}
+                order={dealFilters.order}
+                onSort={updateDealSort}
+              />
+              {dealsQuery.data && <DealTotalsBar page={dealsQuery.data} />}
+            </>
           )}
 
           {isDatasetReady && (
@@ -1266,6 +1300,21 @@ function DealsTable({
   );
 }
 
+function DealTotalsBar({ page }: { page: DealAnalyticsPage }) {
+  return (
+    <div className="totals-bar">
+      <div>
+        <span>Бюджет по фильтру</span>
+        <strong>{formatUsd(page.filtered_budget_usd)}</strong>
+      </div>
+      <div>
+        <span>Прибыль по фильтру</span>
+        <strong>{formatUsd(page.filtered_estimated_profit_usd)}</strong>
+      </div>
+    </div>
+  );
+}
+
 function SortableHeader<TSort extends SortField>({
   label,
   field,
@@ -1395,6 +1444,7 @@ function loadStoredDealFilters(): DealFilters {
     const parsed = JSON.parse(stored) as Partial<Record<keyof DealFilters, unknown>>;
     return {
       dealId: stringValue(parsed.dealId).replace(/\D/g, ""),
+      clientSearch: stringValue(parsed.clientSearch),
       contactType: stringValue(parsed.contactType),
       region: stringValue(parsed.region),
       status: stringValue(parsed.status),

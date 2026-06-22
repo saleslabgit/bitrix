@@ -133,7 +133,13 @@ class DealAnalyticsPage:
     total: int
     limit: int
     offset: int
+    filtered_budget_usd: Decimal
+    filtered_estimated_profit_usd: Decimal
     items: tuple[DealAnalyticsRow, ...]
+
+
+class AnalyticsDataUnavailableError(ValueError):
+    pass
 
 
 @dataclass(frozen=True)
@@ -350,6 +356,7 @@ def list_deal_analytics(
     status: str | None = None,
     contact_type: str | None = None,
     region: str | None = None,
+    client_search: str | None = None,
     deal_created_from: date | None = None,
     deal_created_to: date | None = None,
     sort: DealAnalyticsSortField = "deal_id",
@@ -360,6 +367,7 @@ def list_deal_analytics(
     if order not in {"asc", "desc"}:
         raise ValueError(f"Unsupported deal analytics sort order: {order}")
 
+    normalized_client_search = client_search.strip().lower() if client_search else None
     deals = [
         deal
         for deal in _load_deal_facts(connection)
@@ -367,10 +375,15 @@ def list_deal_analytics(
         and (status is None or deal.status_group == status)
         and (contact_type is None or deal.contact_type_normalized == contact_type)
         and (region is None or deal.region_normalized == region)
+        and (
+            normalized_client_search is None
+            or normalized_client_search in deal.analytical_contact_name.lower()
+        )
         and _date_in_period(deal.created_at.date(), deal_created_from, deal_created_to)
     ]
+    filtered_rows = tuple(_build_deal_analytics_row(deal) for deal in deals)
     rows = _sort_deal_analytics_rows(
-        tuple(_build_deal_analytics_row(deal) for deal in deals),
+        filtered_rows,
         sort=sort,
         order=order,
     )
@@ -378,6 +391,12 @@ def list_deal_analytics(
         total=len(rows),
         limit=limit,
         offset=offset,
+        filtered_budget_usd=_money(
+            sum((row.budget_usd for row in filtered_rows), Decimal("0"))
+        ),
+        filtered_estimated_profit_usd=_money(
+            sum((row.estimated_profit_usd for row in filtered_rows), Decimal("0"))
+        ),
         items=rows[offset : offset + limit],
     )
 
@@ -803,11 +822,21 @@ def _select_rate(
     currency: str,
     target_date: date,
 ) -> tuple[Decimal, Decimal, date]:
+    if currency == "USD":
+        candidates = [row for row in rates.get(currency, ()) if row[0] <= target_date]
+        if candidates:
+            rate_date, source_rate_byn, usd_rate_byn = candidates[-1]
+            return source_rate_byn, usd_rate_byn, rate_date
+        return Decimal("1.00000000"), Decimal("1.00000000"), target_date
+
     candidates = [
         row for row in rates.get(currency, ()) if row[0] <= target_date
     ]
     if not candidates:
-        raise ValueError(f"No local currency rate for {currency} on or before {target_date}")
+        raise AnalyticsDataUnavailableError(
+            "Local currency rates are unavailable for the active dataset. "
+            "Refresh local data and retry."
+        )
 
     rate_date, source_rate_byn, usd_rate_byn = candidates[-1]
     return source_rate_byn, usd_rate_byn, rate_date

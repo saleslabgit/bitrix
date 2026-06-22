@@ -335,6 +335,13 @@ def test_api_analytics_reports_return_local_typed_data() -> None:
         sort="budget_usd",
         order="desc",
     )
+    client_search_deals = report_deal_analytics(
+        limit=1,
+        offset=0,
+        client_search="contact 2",
+        sort="budget_usd",
+        order="desc",
+    )
 
     assert contacts.total == 10
     assert contacts.items[0].revenue_usd > 0
@@ -368,6 +375,43 @@ def test_api_analytics_reports_return_local_typed_data() -> None:
     assert filtered_deals.total == 1
     assert filtered_deals.items[0].deal_id == 22
     assert sorted_deals.items[0].deal_id == 1
+    assert client_search_deals.total == 4
+    assert client_search_deals.filtered_budget_usd == Decimal("191454.55")
+    assert client_search_deals.filtered_estimated_profit_usd == Decimal("73227.28")
+
+
+def test_reported_contact_analytics_query_handles_usd_deals_without_rate_rows() -> None:
+    _load_api_usd_deal_without_rates_dataset()
+
+    response = report_contact_analytics(
+        limit=25,
+        offset=0,
+        sort="contact_id",
+        order="desc",
+    )
+
+    assert response.total == 1
+    assert response.items[0].contact_id == 1
+    assert response.items[0].budget_usd == Decimal("100.00")
+    assert response.items[0].estimated_profit_usd == Decimal("50.00")
+
+
+def test_contact_analytics_returns_safe_503_when_non_usd_rates_are_missing() -> None:
+    _load_api_non_usd_deal_without_rates_dataset()
+
+    with pytest.raises(HTTPException) as exc_info:
+        report_contact_analytics(
+            limit=25,
+            offset=0,
+            sort="contact_id",
+            order="desc",
+        )
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail == (
+        "Local currency rates are unavailable for the active dataset. "
+        "Refresh local data and retry."
+    )
 
 
 def test_api_responses_do_not_expose_forbidden_fields() -> None:
@@ -392,4 +436,64 @@ def test_api_responses_do_not_expose_forbidden_fields() -> None:
 
     assert all(
         forbidden not in response_text for forbidden in FORBIDDEN_RESPONSE_PARTS
+    )
+
+
+def _load_api_usd_deal_without_rates_dataset() -> None:
+    _load_api_deal_without_rates_dataset(currency="USD")
+
+
+def _load_api_non_usd_deal_without_rates_dataset() -> None:
+    _load_api_deal_without_rates_dataset(currency="EUR")
+
+
+def _load_api_deal_without_rates_dataset(*, currency: str) -> None:
+    connection = get_connection()
+    initialize_schema(connection)
+    connection.execute(
+        """
+        INSERT INTO normalized_contacts (
+            contact_id,
+            contact_name,
+            contact_type_raw,
+            contact_type_normalized,
+            region_normalized
+        )
+        VALUES (1, 'Rate Fixture Contact', NULL, 'Synthetic Type', 'Synthetic Region')
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO normalized_deals (
+            deal_id,
+            deal_name,
+            amount_original,
+            currency_original,
+            created_at,
+            closed_at,
+            stage_id,
+            category_id,
+            status_group,
+            analytical_contact_id,
+            analytical_contact_name,
+            contact_type_normalized,
+            region_normalized
+        )
+        VALUES (
+            1,
+            'Rate Fixture Deal',
+            100.00,
+            ?,
+            TIMESTAMP '2025-01-01 10:00:00',
+            TIMESTAMP '2025-01-02 10:00:00',
+            'SYN:WON',
+            1,
+            'won',
+            1,
+            'Rate Fixture Contact',
+            'Synthetic Type',
+            'Synthetic Region'
+        )
+        """,
+        [currency],
     )

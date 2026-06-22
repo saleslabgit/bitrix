@@ -41,6 +41,8 @@ export type DealAnalyticsPage = {
   total: number;
   limit: number;
   offset: number;
+  filtered_budget_usd: string;
+  filtered_estimated_profit_usd: string;
   items: DealAnalytics[];
 };
 
@@ -131,6 +133,7 @@ export type ContactFilters = {
 
 export type DealFilters = {
   dealId: string;
+  clientSearch: string;
   contactType: string;
   region: string;
   status: string;
@@ -187,6 +190,9 @@ export async function fetchDealAnalytics(filters: DealFilters): Promise<DealAnal
 
   if (filters.dealId.trim()) {
     params.set("deal_id", filters.dealId.trim());
+  }
+  if (filters.clientSearch.trim()) {
+    params.set("client_search", filters.clientSearch.trim());
   }
   if (filters.contactType) {
     params.set("contact_type", filters.contactType);
