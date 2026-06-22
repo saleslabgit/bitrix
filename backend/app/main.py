@@ -1,4 +1,5 @@
 from datetime import date
+from typing import Annotated, Literal
 
 from fastapi import FastAPI, Query
 
@@ -62,6 +63,22 @@ from app.storage.status import get_dataset_storage_status
 settings = get_settings()
 
 app = FastAPI(title=settings.name, debug=settings.debug)
+
+ContactAnalyticsSortQuery = Literal[
+    "contact_id",
+    "contact_name",
+    "contact_type_normalized",
+    "region_normalized",
+    "total_deals_count",
+    "won_deals_count",
+    "open_deals_count",
+    "lost_deals_count",
+    "revenue_usd",
+    "estimated_profit_usd",
+    "last_won_date",
+    "latest_deal_date",
+]
+SortOrderQuery = Literal["asc", "desc"]
 
 
 @app.get("/health")
@@ -352,6 +369,9 @@ def report_contact_analytics(
     contact_type: str | None = None,
     region: str | None = None,
     status: str | None = None,
+    contact_id: Annotated[int | None, Query(gt=0)] = None,
+    sort: ContactAnalyticsSortQuery = "contact_id",
+    order: SortOrderQuery = "asc",
 ) -> ContactAnalyticsPageResponse:
     page = list_contact_analytics(
         get_connection(),
@@ -363,6 +383,9 @@ def report_contact_analytics(
         contact_type=contact_type,
         region=region,
         status=status,
+        contact_id=contact_id,
+        sort=sort,
+        order=order,
     )
     return ContactAnalyticsPageResponse.model_validate(page)
 

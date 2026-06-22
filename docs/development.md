@@ -154,7 +154,10 @@ POST /api/local/refresh-data
 
 The Contacts screen uses USD analytics fields from `/api/reports/contacts/analytics`
 as its primary financial metrics. It does not present original-currency sums as
-converted revenue.
+converted revenue. The endpoint supports exact `contact_id` filtering plus
+allowlisted `sort` and `order` query parameters for stable server-side sorting
+before pagination. The frontend uses those local parameters for the verification
+table and still does not call Bitrix directly.
 
 The frontend must continue to read only local backend endpoints. It must not
 call Bitrix directly or display forbidden personal fields such as phone, email,

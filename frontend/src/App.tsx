@@ -17,6 +17,7 @@ import {
   refreshLocalData,
   type ContactAnalytics,
   type ContactFilters,
+  type ContactSort,
   type LocalDataRefreshResponse
 } from "./api";
 
@@ -24,9 +25,12 @@ const PAGE_SIZE = 25;
 
 const initialFilters: ContactFilters = {
   search: "",
+  contactId: "",
   contactType: "",
   region: "",
   status: "",
+  sort: "contact_id",
+  order: "asc",
   limit: PAGE_SIZE,
   offset: 0
 };
@@ -35,6 +39,7 @@ export function App() {
   const queryClient = useQueryClient();
   const [filters, setFilters] = useState<ContactFilters>(initialFilters);
   const [searchDraft, setSearchDraft] = useState("");
+  const [contactIdDraft, setContactIdDraft] = useState("");
   const [lastRefreshResult, setLastRefreshResult] = useState<LocalDataRefreshResponse | null>(
     null
   );
@@ -105,8 +110,13 @@ export function App() {
 
   const selectedFilterCount = useMemo(
     () =>
-      [filters.search.trim(), filters.contactType, filters.region, filters.status].filter(Boolean)
-        .length,
+      [
+        filters.search.trim(),
+        filters.contactId.trim(),
+        filters.contactType,
+        filters.region,
+        filters.status
+      ].filter(Boolean).length,
     [filters]
   );
 
@@ -120,7 +130,24 @@ export function App() {
 
   function resetFilters() {
     setSearchDraft("");
+    setContactIdDraft("");
     setFilters(initialFilters);
+    void queryClient.invalidateQueries({ queryKey: ["contacts"] });
+  }
+
+  function updateContactIdFilter(value: string) {
+    const numericValue = value.replace(/\D/g, "");
+    setContactIdDraft(numericValue);
+    updateFilter("contactId", numericValue);
+  }
+
+  function updateSort(sort: ContactSort) {
+    setFilters((current) => ({
+      ...current,
+      sort,
+      order: current.sort === sort && current.order === "asc" ? "desc" : "asc",
+      offset: 0
+    }));
   }
 
   return (
@@ -177,6 +204,21 @@ export function App() {
                   value={searchDraft}
                   onChange={(event) => setSearchDraft(event.target.value)}
                   placeholder="Название контакта"
+                  type="search"
+                />
+              </div>
+            </label>
+
+            <label className="field">
+              <span>ID контакта</span>
+              <div className="input-shell">
+                <Search size={16} strokeWidth={1.5} />
+                <input
+                  value={contactIdDraft}
+                  onChange={(event) => updateContactIdFilter(event.target.value)}
+                  placeholder="661"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   type="search"
                 />
               </div>
@@ -261,7 +303,12 @@ export function App() {
           ) : contactsQuery.data.items.length === 0 ? (
             <EmptyState onReset={resetFilters} />
           ) : (
-            <ContactsTable contacts={contactsQuery.data.items} />
+            <ContactsTable
+              contacts={contactsQuery.data.items}
+              sort={filters.sort}
+              order={filters.order}
+              onSort={updateSort}
+            />
           )}
 
           {isDatasetReady && (
@@ -490,31 +537,126 @@ function ContactsSkeleton() {
   );
 }
 
-function ContactsTable({ contacts }: { contacts: ContactAnalytics[] }) {
+function ContactsTable({
+  contacts,
+  sort,
+  order,
+  onSort
+}: {
+  contacts: ContactAnalytics[];
+  sort: ContactSort;
+  order: "asc" | "desc";
+  onSort: (sort: ContactSort) => void;
+}) {
   return (
     <div className="table-scroll">
       <table>
         <thead>
           <tr>
-            <th>Контакт</th>
-            <th>Тип</th>
-            <th>Регион</th>
-            <th>Всего сделок</th>
-            <th>Won</th>
-            <th>Open</th>
-            <th>Lost</th>
-            <th>Выручка USD</th>
-            <th>Расчетная прибыль USD</th>
-            <th>Последняя сделка</th>
+            <SortableHeader label="ID" field="contact_id" sort={sort} order={order} onSort={onSort} />
+            <SortableHeader
+              label="Контакт"
+              field="contact_name"
+              sort={sort}
+              order={order}
+              onSort={onSort}
+            />
+            <SortableHeader
+              label="Тип"
+              field="contact_type_normalized"
+              sort={sort}
+              order={order}
+              onSort={onSort}
+            />
+            <SortableHeader
+              label="Регион"
+              field="region_normalized"
+              sort={sort}
+              order={order}
+              onSort={onSort}
+            />
+            <SortableHeader
+              label="Всего сделок"
+              field="total_deals_count"
+              sort={sort}
+              order={order}
+              onSort={onSort}
+              align="right"
+            />
+            <SortableHeader
+              label="Won"
+              field="won_deals_count"
+              sort={sort}
+              order={order}
+              onSort={onSort}
+              align="right"
+            />
+            <SortableHeader
+              label="Open"
+              field="open_deals_count"
+              sort={sort}
+              order={order}
+              onSort={onSort}
+              align="right"
+            />
+            <SortableHeader
+              label="Lost"
+              field="lost_deals_count"
+              sort={sort}
+              order={order}
+              onSort={onSort}
+              align="right"
+            />
+            <SortableHeader
+              label="Бюджет USD"
+              field="revenue_usd"
+              sort={sort}
+              order={order}
+              onSort={onSort}
+              align="right"
+            />
+            <SortableHeader
+              label="Расчетная прибыль USD"
+              field="estimated_profit_usd"
+              sort={sort}
+              order={order}
+              onSort={onSort}
+              align="right"
+            />
+            <SortableHeader
+              label="Дата закрытия"
+              field="last_won_date"
+              sort={sort}
+              order={order}
+              onSort={onSort}
+            />
+            <SortableHeader
+              label="Последняя сделка"
+              field="latest_deal_date"
+              sort={sort}
+              order={order}
+              onSort={onSort}
+            />
           </tr>
         </thead>
         <tbody>
           {contacts.map((contact) => (
             <tr key={contact.contact_id}>
               <td>
+                <div className="id-cell">
+                  <span>{contact.contact_id}</span>
+                  <a
+                    href={`https://dialar.bitrix24.by/crm/contact/details/${contact.contact_id}/`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Посмотреть
+                  </a>
+                </div>
+              </td>
+              <td>
                 <div className="contact-cell">
                   <span>{contact.contact_name}</span>
-                  <small>ID {contact.contact_id}</small>
                 </div>
               </td>
               <td>
@@ -529,12 +671,41 @@ function ContactsTable({ contacts }: { contacts: ContactAnalytics[] }) {
               <td className="number-cell money-cell">
                 {formatUsd(contact.estimated_profit_usd)}
               </td>
+              <td>{formatDate(contact.last_won_date)}</td>
               <td>{formatDate(contact.latest_deal_date)}</td>
             </tr>
           ))}
         </tbody>
       </table>
     </div>
+  );
+}
+
+function SortableHeader({
+  label,
+  field,
+  sort,
+  order,
+  onSort,
+  align = "left"
+}: {
+  label: string;
+  field: ContactSort;
+  sort: ContactSort;
+  order: "asc" | "desc";
+  onSort: (sort: ContactSort) => void;
+  align?: "left" | "right";
+}) {
+  const active = sort === field;
+  const indicator = active ? (order === "asc" ? "↑" : "↓") : "↕";
+
+  return (
+    <th className={align === "right" ? "number-cell" : undefined} aria-sort={active ? (order === "asc" ? "ascending" : "descending") : "none"}>
+      <button className="sort-button" type="button" onClick={() => onSort(field)}>
+        <span>{label}</span>
+        <span aria-hidden="true">{indicator}</span>
+      </button>
+    </th>
   );
 }
 

@@ -22,6 +22,22 @@ export type ContactAnalyticsPage = {
   items: ContactAnalytics[];
 };
 
+export type ContactSort =
+  | "contact_id"
+  | "contact_name"
+  | "contact_type_normalized"
+  | "region_normalized"
+  | "total_deals_count"
+  | "won_deals_count"
+  | "open_deals_count"
+  | "lost_deals_count"
+  | "revenue_usd"
+  | "estimated_profit_usd"
+  | "last_won_date"
+  | "latest_deal_date";
+
+export type SortOrder = "asc" | "desc";
+
 export type FilterMetadata = {
   contact_types: string[];
   regions: string[];
@@ -65,9 +81,12 @@ export type LocalDataRefreshResponse = {
 
 export type ContactFilters = {
   search: string;
+  contactId: string;
   contactType: string;
   region: string;
   status: string;
+  sort: ContactSort;
+  order: SortOrder;
   limit: number;
   offset: number;
 };
@@ -85,6 +104,9 @@ export async function fetchContactAnalytics(
   if (filters.search.trim()) {
     params.set("search", filters.search.trim());
   }
+  if (filters.contactId.trim()) {
+    params.set("contact_id", filters.contactId.trim());
+  }
   if (filters.contactType) {
     params.set("contact_type", filters.contactType);
   }
@@ -94,6 +116,8 @@ export async function fetchContactAnalytics(
   if (filters.status) {
     params.set("status", filters.status);
   }
+  params.set("sort", filters.sort);
+  params.set("order", filters.order);
 
   return request<ContactAnalyticsPage>(`/api/reports/contacts/analytics?${params.toString()}`);
 }

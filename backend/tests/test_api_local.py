@@ -122,6 +122,13 @@ def test_api_analytics_reports_return_local_typed_data() -> None:
 
     contacts = report_contact_analytics(limit=10, offset=0)
     open_contacts = report_contact_analytics(limit=10, offset=0, status="open")
+    contact_by_id = report_contact_analytics(limit=10, offset=0, contact_id=4)
+    sorted_contacts = report_contact_analytics(
+        limit=1,
+        offset=0,
+        sort="revenue_usd",
+        order="desc",
+    )
     abc = report_abc()
     rfm = report_rfm()
     stale_deals = report_stale_deals()
@@ -133,6 +140,9 @@ def test_api_analytics_reports_return_local_typed_data() -> None:
     assert contacts.items[0].revenue_usd > 0
     assert open_contacts.total >= 1
     assert all(item.open_deals_count >= 1 for item in open_contacts.items)
+    assert contact_by_id.total == 1
+    assert contact_by_id.items[0].contact_id == 4
+    assert sorted_contacts.items[0].contact_id == 1
     assert len(abc) == 10
     assert any(row.abc_12m == "Нет продаж" for row in abc)
     assert len(rfm) == 10

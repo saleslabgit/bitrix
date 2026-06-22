@@ -2,6 +2,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 
 import duckdb
+import pytest
 
 from app.pipeline.synthetic import run_synthetic_pipeline
 from app.reports.analytics import (
@@ -84,6 +85,65 @@ def test_contact_analytics_abc_and_rfm_handle_no_sales_contact() -> None:
     assert abc_row.abc_12m == NO_SALES_SEGMENT
     assert rfm_row.rfm_code == "000"
     assert rfm_row.segment == NO_SALES_SEGMENT
+
+
+def test_contact_analytics_supports_exact_contact_id_filter() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        run_synthetic_pipeline(connection)
+
+        page = list_contact_analytics(connection, limit=10, contact_id=4)
+
+    assert page.total == 1
+    assert page.items[0].contact_id == 4
+
+
+def test_contact_analytics_sorts_before_pagination_by_revenue_and_date() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        run_synthetic_pipeline(connection)
+
+        revenue_page = list_contact_analytics(
+            connection,
+            limit=1,
+            sort="revenue_usd",
+            order="desc",
+        )
+        date_page = list_contact_analytics(
+            connection,
+            limit=3,
+            sort="last_won_date",
+            order="desc",
+        )
+
+    assert revenue_page.items[0].contact_id == 1
+    assert [row.last_won_date for row in date_page.items] == sorted(
+        (row.last_won_date for row in date_page.items),
+        reverse=True,
+    )
+
+
+def test_contact_analytics_sort_tie_breaks_by_contact_id() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        _load_equal_revenue_dataset(connection)
+
+        page = list_contact_analytics(
+            connection,
+            limit=10,
+            sort="revenue_usd",
+            order="desc",
+        )
+
+    assert [row.contact_id for row in page.items] == [1, 2, 3]
+
+
+def test_contact_analytics_rejects_unsupported_sort_field() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        run_synthetic_pipeline(connection)
+
+        with pytest.raises(ValueError, match="Unsupported contact analytics sort field"):
+            list_contact_analytics(
+                connection,
+                sort="raw_payload",  # type: ignore[arg-type]
+            )
 
 
 def test_abc_boundaries_at_80_and_95_percent_are_deterministic() -> None:
@@ -269,6 +329,87 @@ def _load_abc_boundary_dataset(connection: duckdb.DuckDBPyConnection) -> None:
                 datetime(2025, 1, 2, tzinfo=timezone.utc),
                 3,
                 "Boundary Contact 3",
+            ),
+        ],
+    )
+
+
+def _load_equal_revenue_dataset(connection: duckdb.DuckDBPyConnection) -> None:
+    initialize_schema(connection)
+    connection.executemany(
+        """
+        INSERT INTO normalized_contacts (
+            contact_id,
+            contact_name,
+            contact_type_raw,
+            contact_type_normalized,
+            region_normalized
+        )
+        VALUES (?, ?, NULL, 'Synthetic Type', 'Synthetic Region')
+        """,
+        [
+            (3, "Tie Contact 3"),
+            (1, "Tie Contact 1"),
+            (2, "Tie Contact 2"),
+        ],
+    )
+    connection.execute(
+        """
+        INSERT INTO currency_rates (
+            currency,
+            rate_date,
+            source_rate_byn,
+            usd_rate_byn,
+            rate_source,
+            rate_fetched_at
+        )
+        VALUES ('USD', DATE '2025-01-01', 3.30000000, 3.30000000, 'NBRB', ?)
+        """,
+        [datetime(2025, 1, 2, tzinfo=timezone.utc)],
+    )
+    connection.executemany(
+        """
+        INSERT INTO normalized_deals (
+            deal_id,
+            deal_name,
+            amount_original,
+            currency_original,
+            created_at,
+            closed_at,
+            stage_id,
+            category_id,
+            status_group,
+            analytical_contact_id,
+            analytical_contact_name,
+            contact_type_normalized,
+            region_normalized
+        )
+        VALUES (?, ?, 10.00, 'USD', ?, ?, 'SYN:WON', 1, 'won', ?, ?, 'Synthetic Type', 'Synthetic Region')
+        """,
+        [
+            (
+                1,
+                "Tie Deal 1",
+                datetime(2025, 1, 1, tzinfo=timezone.utc),
+                datetime(2025, 1, 2, tzinfo=timezone.utc),
+                3,
+                "Tie Contact 3",
+            ),
+            (
+                2,
+                "Tie Deal 2",
+                datetime(2025, 1, 1, tzinfo=timezone.utc),
+                datetime(2025, 1, 2, tzinfo=timezone.utc),
+                1,
+                "Tie Contact 1",
+            ),
+            (
+                3,
+                "Tie Deal 3",
+                datetime(2025, 1, 1, tzinfo=timezone.utc),
+                datetime(2025, 1, 2, tzinfo=timezone.utc),
+                2,
+                "Tie Contact 2",
             ),
         ],
     )

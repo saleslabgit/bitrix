@@ -1,7 +1,9 @@
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
+from functools import cmp_to_key
 from math import ceil
+from typing import Literal
 
 import duckdb
 
@@ -13,6 +15,35 @@ NO_SALES_SEGMENT = "Нет продаж"
 REACTIVATION_DAYS_THRESHOLD = 365
 MONEY_QUANT = Decimal("0.01")
 PERCENT_QUANT = Decimal("0.1")
+ContactAnalyticsSortField = Literal[
+    "contact_id",
+    "contact_name",
+    "contact_type_normalized",
+    "region_normalized",
+    "total_deals_count",
+    "won_deals_count",
+    "open_deals_count",
+    "lost_deals_count",
+    "revenue_usd",
+    "estimated_profit_usd",
+    "last_won_date",
+    "latest_deal_date",
+]
+SortOrder = Literal["asc", "desc"]
+CONTACT_ANALYTICS_SORT_FIELDS: tuple[str, ...] = (
+    "contact_id",
+    "contact_name",
+    "contact_type_normalized",
+    "region_normalized",
+    "total_deals_count",
+    "won_deals_count",
+    "open_deals_count",
+    "lost_deals_count",
+    "revenue_usd",
+    "estimated_profit_usd",
+    "last_won_date",
+    "latest_deal_date",
+)
 
 
 @dataclass(frozen=True)
@@ -209,7 +240,15 @@ def list_contact_analytics(
     contact_type: str | None = None,
     region: str | None = None,
     status: str | None = None,
+    contact_id: int | None = None,
+    sort: ContactAnalyticsSortField = "contact_id",
+    order: SortOrder = "asc",
 ) -> ContactAnalyticsPage:
+    if sort not in CONTACT_ANALYTICS_SORT_FIELDS:
+        raise ValueError(f"Unsupported contact analytics sort field: {sort}")
+    if order not in {"asc", "desc"}:
+        raise ValueError(f"Unsupported contact analytics sort order: {order}")
+
     period_deals = [
         deal
         for deal in _load_deal_facts(connection)
@@ -222,11 +261,16 @@ def list_contact_analytics(
         contact_type=contact_type,
         region=region,
         status=status,
+        contact_id=contact_id,
     )
 
-    rows = tuple(
-        _build_contact_analytics_row(contact, period_deals)
-        for contact in contacts
+    rows = _sort_contact_analytics_rows(
+        tuple(
+            _build_contact_analytics_row(contact, period_deals)
+            for contact in contacts
+        ),
+        sort=sort,
+        order=order,
     )
     return ContactAnalyticsPage(
         total=len(rows),
@@ -675,9 +719,12 @@ def _filtered_contacts(
     contact_type: str | None,
     region: str | None,
     status: str | None,
+    contact_id: int | None,
 ) -> tuple[_ContactFact, ...]:
     filtered = []
     for contact in contacts:
+        if contact_id is not None and contact.contact_id != contact_id:
+            continue
         if search and search.lower() not in contact.contact_name.lower():
             continue
         if contact_type and contact.contact_type_normalized != contact_type:
@@ -692,6 +739,53 @@ def _filtered_contacts(
             continue
         filtered.append(contact)
     return tuple(filtered)
+
+
+def _sort_contact_analytics_rows(
+    rows: tuple[ContactAnalyticsRow, ...],
+    *,
+    sort: str,
+    order: SortOrder,
+) -> tuple[ContactAnalyticsRow, ...]:
+    descending = order == "desc"
+
+    def compare(left: ContactAnalyticsRow, right: ContactAnalyticsRow) -> int:
+        left_value = _contact_analytics_sort_value(left, sort)
+        right_value = _contact_analytics_sort_value(right, sort)
+
+        if left_value is None and right_value is None:
+            return _compare(left.contact_id, right.contact_id)
+        if left_value is None:
+            return 1
+        if right_value is None:
+            return -1
+
+        result = _compare(left_value, right_value)
+        if result and descending:
+            return -result
+        if result:
+            return result
+        return _compare(left.contact_id, right.contact_id)
+
+    return tuple(sorted(rows, key=cmp_to_key(compare)))
+
+
+def _contact_analytics_sort_value(
+    row: ContactAnalyticsRow,
+    sort: str,
+) -> int | str | Decimal | date | None:
+    value = getattr(row, sort)
+    if isinstance(value, str):
+        return value.lower()
+    return value
+
+
+def _compare(left: object, right: object) -> int:
+    if left < right:  # type: ignore[operator]
+        return -1
+    if left > right:  # type: ignore[operator]
+        return 1
+    return 0
 
 
 def _build_contact_analytics_row(

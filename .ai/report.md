@@ -1,62 +1,91 @@
-# Отчет: TASK-2026-06-22-12
+# Отчет: TASK-2026-06-22-13
 
 Статус: done
 
 ## Кратко
 
-Исправил класс ошибок DuckDB `executemany requires a non-empty list...` в
-manual refresh pipeline.
+Улучшил существующий Contacts screen для быстрой проверки локальных Bitrix
+данных после refresh.
 
-Теперь пустые batch-вставки не вызываются для нормализации и замены approved
-contact type rules, а невозможность загрузить ни одной строки валютных курсов
-превращается в безопасную доменную ошибку `ValueError` без технического текста
-DuckDB. UI-facing manual refresh уже сохраняет такие ошибки как безопасный
-status message и не активирует неполный dataset.
+Теперь таблица поддерживает server-side сортировку до pagination, точный поиск
+по contact ID, надежный reset всех фильтров, ссылку `Посмотреть` на карточку
+контакта в Bitrix, колонку `Дата закрытия` по `last_won_date` и колонку
+`Бюджет USD` по `revenue_usd`.
 
-## Implementation
+## Backend Behavior
 
-- `normalize_local_data()` больше не вызывает `executemany()` для пустых
-  `normalized_contacts` и `normalized_deals`.
-- `load_currency_rates_for_raw_deals()` теперь явно останавливается с безопасной
-  ошибкой, если raw deals есть, но после расчета нет ни одной строки
-  `currency_rates`.
-- `replace_contact_type_rules(connection, rules=())` очищает таблицу правил,
-  возвращает `0` и не вызывает пустой `executemany()`.
-- Manual refresh failure path покрыт тестом: предыдущий активный dataset
-  сохраняется, статус становится `error`, сообщение безопасное и не содержит
-  `executemany`.
+`GET /api/reports/contacts/analytics` расширен параметрами:
 
-## Production `executemany` Audit
+- `contact_id` — exact positive contact ID filter;
+- `sort` — allowlisted sort field;
+- `order` — `asc` / `desc`.
 
-Проверено через `rg "executemany" backend/app`.
+Allowed sort fields:
 
-- `backend/app/storage/loaders.py` уже использует `_executemany_if_rows()`.
-- `backend/app/pipeline/normalization.py` исправлен guard-ами перед вставками.
-- `backend/app/pipeline/approved_contact_type_rules.py` исправлен для пустого
-  набора правил.
-- `backend/app/pipeline/currency_rates.py` теперь не доходит до пустого
-  `executemany()` и возвращает безопасную доменную ошибку.
-- `backend/app/reports/contact_deal_diagnostics.py` direct-вставки уже имеют
-  `if not deals/links: return` и не относятся к normal manual refresh path.
+```text
+contact_id
+contact_name
+contact_type_normalized
+region_normalized
+total_deals_count
+won_deals_count
+open_deals_count
+lost_deals_count
+revenue_usd
+estimated_profit_usd
+last_won_date
+latest_deal_date
+```
 
-## Tests Added
+Sorting applies in the Python report layer before slicing by `offset`/`limit`.
+Tie-break is always `contact_id` ascending for deterministic output. Unsupported
+sort/order values are rejected safely by the report function and FastAPI type
+validation for the HTTP path.
 
-- Empty raw contacts/deals normalization leaves normalized tables empty.
-- Deal without contact links still normalizes as no-contact deal.
-- Currency loader raises safe `ValueError` when raw deals exist but no rate rows
-  can be inserted.
-- Empty approved contact type rules clear the table and return `0`.
-- Manual refresh surfaces safe error status for empty currency rows and preserves
-  the previous active dataset.
+## Frontend Behavior
+
+- Added compact `ID контакта` input near text search. It keeps only digits and
+  sends `contact_id` only when non-empty.
+- Added sortable table header buttons for visible verification columns.
+- Clicking a header toggles `asc`/`desc`, updates `sort`/`order`, and resets
+  `offset` to `0`.
+- Reset now clears text search draft, contact ID draft/filter, type, region,
+  status, pagination offset, and invalidates the contacts query.
+- Contact ID is shown in its own compact column with:
+
+```text
+https://dialar.bitrix24.by/crm/contact/details/{contact_id}/
+```
+
+  The link opens in a new tab with `rel="noopener noreferrer"`.
+- `Бюджет USD` displays `revenue_usd`. The previous `Выручка USD` label was
+  replaced to avoid duplicate/confusing financial columns.
+- `Дата закрытия` displays `last_won_date`, with `—` when absent.
+- `Расчетная прибыль USD`, deal counts, and `Последняя сделка` remain visible.
+- Existing refresh, loading, error, empty, and pagination states remain intact.
+
+Frontend still calls only local backend endpoints:
+
+```text
+GET /api/reports/contacts/analytics
+GET /api/meta/filters
+GET /api/datasets/status
+POST /api/local/refresh-data
+```
+
+No frontend Bitrix calls were added.
 
 ## Changed Files
 
-- `backend/app/pipeline/normalization.py`
-- `backend/app/pipeline/currency_rates.py`
-- `backend/app/pipeline/approved_contact_type_rules.py`
-- `backend/tests/test_pipeline.py`
-- `backend/tests/test_live_data_readiness.py`
-- `backend/tests/test_api_bitrix.py`
+- `backend/app/reports/analytics.py`
+- `backend/app/main.py`
+- `backend/tests/test_analytics.py`
+- `backend/tests/test_api_local.py`
+- `frontend/src/api.ts`
+- `frontend/src/App.tsx`
+- `frontend/src/styles.css`
+- `frontend/README.md`
+- `docs/development.md`
 - `.ai/report.md`
 
 Pre-existing unstaged local changes in `.ai/task.md`, `AGENTS.md`, and
@@ -65,65 +94,55 @@ modified.
 
 ## Checks
 
-Before continuing implementation:
+Before implementation:
 
+- `git log --oneline -5` — latest commit was
+  `421304d planner: TASK-2026-06-22-13 Improve Contacts verification UI`.
 - `git status --short --branch` — showed pre-existing modified `.ai/task.md`,
-  `AGENTS.md`, and `WORKFLOW.md`, plus task files.
-
-Backend dependencies:
-
-- `python3 -m pip install -e '.[dev]'` — failed because system Python is
-  externally managed by PEP 668.
-- `python3 -m venv /tmp/bitrix-backend-venv` — passed.
-- `/tmp/bitrix-backend-venv/bin/pip install -e '.[dev]'` — passed.
+  `AGENTS.md`, and `WORKFLOW.md`.
 
 Focused backend:
 
-- `cd backend && /tmp/bitrix-backend-venv/bin/pytest tests/test_pipeline.py tests/test_live_data_readiness.py tests/test_api_bitrix.py tests/test_bitrix_client.py`
-  — passed, `27 passed`.
+- `cd backend && /tmp/bitrix-backend-venv/bin/pytest tests/test_analytics.py tests/test_api_local.py`
+  — passed, `20 passed`.
 
 Full backend:
 
-- `cd backend && /tmp/bitrix-backend-venv/bin/pytest` — passed, `76 passed`.
-
-Safety:
-
-- `rg "executemany" backend/app` — completed; production call sites audited as
-  listed above.
-- `rg "crm\.[A-Za-z0-9_.]*(add|update|delete|set)" backend/app backend/tests`
-  — found only existing negative test `crm.deal.update`; no Bitrix write method
-  was added.
+- `cd backend && /tmp/bitrix-backend-venv/bin/pytest` — passed, `80 passed`.
 
 Frontend:
 
-- Not run. No frontend code changed.
+- `cd frontend && npm run build` — passed.
+
+Safety:
+
+- `rg "crm\.[A-Za-z0-9_.]*(add|update|delete|set)" backend/app backend/tests frontend/src`
+  — found only existing negative test `crm.deal.update`; no Bitrix write method
+  was added.
 
 Compose/operator startup:
 
-- Not run. Docker/frontend startup behavior was not changed; Docker Compose
-  still starts services only and does not trigger Bitrix refresh automatically.
+- Not run. Docker startup behavior was not changed. Docker Compose still starts
+  services only and does not automatically call Bitrix or refresh local data.
 
 ## Facts
 
-- DuckDB rejects `executemany()` with an empty parameter list.
-- Normalization can legitimately produce no rows for empty raw tables.
-- Manual refresh can fail during preparation before activating a dataset; that
-  path now returns safe status while preserving the previous active dataset.
-- The original live UI failure was not reproduced against the user's real data
-  in this environment, but the empty-batch failure class and audited production
-  call sites are covered by tests.
+- Contacts analytics remains aggregate contact-level data, not a per-deal table.
+- `Дата закрытия` uses existing `last_won_date`.
+- `Бюджет USD` uses existing `revenue_usd`, not original-currency totals.
+- Sorting/filtering use local backend analytics data only.
+- The Bitrix link is a plain external contact details link and does not call
+  Bitrix from frontend code.
 
 ## Unknowns
 
-- Which exact live input combination triggered the user's UI failure. The
-  observed DuckDB error class is covered for known manual refresh production
-  insertion points.
+- Browser-level visual verification with a live backend dataset was not run in
+  this task. TypeScript/Vite build passed.
 
 ## Risks Or Next Step
 
-If live refresh still fails, the next useful artifact is the safe
-`/api/datasets/status` or `/api/local/refresh-data` message after this commit.
-It should no longer expose raw DuckDB `executemany` text for these empty-row
-cases.
+If the dense table feels too wide on smaller laptop screens, the next UI-only
+adjustment should be column priority/compact display. Current implementation
+keeps all requested verification columns and relies on horizontal table scroll.
 
 No Bitrix write methods were added or called.
