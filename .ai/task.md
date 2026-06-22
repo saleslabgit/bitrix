@@ -1,141 +1,189 @@
-# Task: TASK-2026-06-22-09
+# Task: TASK-2026-06-22-10
 
 Status: planned
-Created from: current `main` after accepted `TASK-2026-06-22-08`
+Created from: current `main` at `92674a6` after review of `TASK-2026-06-22-09`
 
 ## Title
 
-Fix contact-deal link completeness
+Reconcile contact 661 explicit deal IDs
 
 ## Goal
 
-Investigate and fix the data completeness issue where Bitrix shows more deals for a contact than the local Contacts analytics table.
+Finish the contact-deal completeness investigation using the exact Bitrix deal IDs now supplied by the user.
 
-The concrete user-reported case is contact `661`:
+The user says Bitrix shows these 7 deals for `contact_id=661`:
 
-- Bitrix contact card shows `7` deals.
-- Local Contacts table currently shows `4` deals.
-- This contact has Bitrix type `[61]` / `Дизайнер`, which maps to normalized type `Дизайнер` and priority `1`.
+```text
+24761
+23989
+19149
+14773
+1239
+343
+123
+```
 
-Because `Дизайнер` has the highest active priority, this mismatch is not explained by analytical-contact priority. If a deal is linked to contact `661`, contact `661` should normally win analytical-contact selection over lower-priority linked contacts.
+`TASK-2026-06-22-09` found that local data and `crm.deal.list` filtered by `CONTACT_ID=661` both return only 4 deals:
 
-The task must identify where the missing three deals are lost and fix the read-only extraction/local normalization path so local contact analytics can match Bitrix for this case.
+```text
+14773
+19149
+23989
+24761
+```
+
+Therefore the concrete missing deals are:
+
+```text
+123
+343
+1239
+```
+
+This task must determine exactly where these three IDs diverge from the current pipeline and implement the smallest safe fix so contact analytics for `661` can be reconciled to the explicit Bitrix-visible deal list when the Bitrix per-deal relation data confirms the contact relationship.
 
 ## Facts
 
-- Bitrix is read-only in this project.
-- No Bitrix CRM write methods may be added or called.
-- Current Contacts screen uses `GET /api/reports/contacts/analytics`.
-- Current local analytics counts deals by `analytical_contact_id`.
-- Current deal-contact links are reconstructed from `crm.deal.list` deal fields `CONTACT_ID` and `CONTACT_IDS` via `transform_deal_contact_links_from_deals`.
-- Previous mass per-deal `crm.deal.contact.items.get` style extraction was removed because it was too slow/heavy for live sync.
-- The user confirmed the contact type priority is not the cause for contact `661`.
-- Local/manual refresh may take several minutes and must remain explicitly user-triggered.
+- Bitrix is read-only.
+- CRM write methods remain forbidden:
+  - `crm.*.add`
+  - `crm.*.update`
+  - `crm.*.delete`
+  - `crm.*.set`
+- Contact `661` has raw type `[61]`, normalized type `Дизайнер`, region `Беларусь`, priority `1`.
+- Priority is not the root cause. `Дизайнер` priority `1` should win over lower-priority linked contacts.
+- `TASK-2026-06-22-09` added local diagnostics and a `crm.deal.list CONTACT_ID` verification endpoint.
+- `TASK-2026-06-22-09` was not accepted in review because it did not explain the three concrete missing deals and added a mutating `apply_local_correction` diagnostic path that bypasses dataset run/activation semantics.
+- The existing normal sync source reconstructs links from `crm.deal.list` fields `CONTACT_ID` and `CONTACT_IDS`.
+- The previous broad per-deal `crm.deal.contact.items.get` scan was removed from normal sync because it was too slow/heavy.
+- Targeted use of `crm.deal.contact.items.get` for a supplied small list of deal IDs is acceptable if explicitly invoked, bounded, read-only, and reported without raw private rows.
 
 ## Assumptions
 
-- The local mismatch is likely caused by incomplete extraction of deal-contact links, incomplete deal ingestion, or a mismatch between Bitrix contact-card deal visibility and the fields currently selected by `crm.deal.list`.
-- A targeted diagnostic for one contact is safe if it uses only read-only methods and does not expose secrets or forbidden personal fields.
-- Any broader fix must avoid unbounded long per-deal calls without batching, progress visibility, or clear operator expectations.
+- The three missing deals may be present in local `raw_deals` but missing a local `raw_deal_contact_links` row for contact `661`.
+- Or the deals may be absent from local `raw_deals` entirely.
+- Or Bitrix per-deal contact relation data may show contact `661` even though `crm.deal.list CONTACT_ID=661` does not.
+- Or the user-visible Bitrix card may count a relation that is not available through the currently allowed read-only relation methods.
 
 ## Unknowns
 
-- Whether Bitrix `CONTACT_ID` / `CONTACT_IDS` in the current `crm.deal.list` response are complete for all linked contacts.
-- Whether the missing contact `661` deals are absent from raw deals, absent from raw deal-contact links, or present but not selected as analytical deals.
-- Which read-only Bitrix endpoint/method is the correct scalable source of deal-contact links for this project stage.
-- Whether Bitrix contact card includes deals that are visible through a different relation path than the current deal list fields.
+- Whether deals `123`, `343`, and `1239` exist in local `raw_deals`.
+- Whether local `raw_deal_contact_links` contains any links for those deal IDs, and whether any link points to `661`.
+- Whether local `normalized_deals` assigns those deal IDs to another analytical contact, no contact, or contact `661`.
+- Whether Bitrix `crm.deal.contact.items.get` for deal IDs `123`, `343`, and `1239` includes contact `661`.
+- Whether `crm.deal.list` filtered by explicit deal IDs returns safe deal rows for all seven supplied IDs.
 
 ## Scope
 
-### 1. Add targeted local diagnostics
+### 1. Add exact-ID local diagnostic
 
-Add a backend-only diagnostic capability for a single contact ID, preferably under an internal/debug route or script that is not exposed as a public report screen.
+Extend the backend diagnostic capability to compare one contact ID against an explicit supplied deal ID list.
 
-For `contact_id=661`, the diagnostic must report safe aggregate/ID-level information only:
+For contact `661` and deal IDs `123`, `343`, `1239`, `14773`, `19149`, `23989`, `24761`, it must report safe ID-level facts only:
 
-- contact ID;
-- contact name if already available in allowed local data;
-- raw Bitrix type ID(s);
-- normalized type;
-- region;
-- priority;
-- raw/local linked deals from local deal-contact links;
-- analytical deals from normalized/local analytics data;
-- whether each linked deal exists in raw deals;
-- deal status group where already available locally;
-- concise explanation of where the count diverges.
+- supplied contact ID;
+- supplied deal IDs;
+- which supplied deals exist in `raw_deals`;
+- which supplied deals have a local `raw_deal_contact_links` row to contact `661`;
+- all local linked contact IDs for each supplied deal, without contact phones/emails/addresses/etc.;
+- normalized analytical contact ID for each supplied deal;
+- whether each supplied deal would count in contact `661` analytics;
+- concise per-deal divergence reason.
 
-Do not expose phone, email, address, messenger, comments, files, requisites, webhook values, raw API payload dumps, or arbitrary Bitrix custom fields.
+Do not expose forbidden personal fields, raw API payloads, webhook values, comments, files, requisites, phone, email, address, messengers, arbitrary custom fields, local paths, or generated data contents.
 
-### 2. Add targeted read-only Bitrix verification if needed
+### 2. Add exact-ID read-only Bitrix verification
 
-If local-only diagnostics cannot explain the mismatch, add a targeted read-only verification path for one contact ID.
+Add or adjust a targeted live verification path for explicit deal IDs.
 
-The verification may call Bitrix only when explicitly invoked by the operator/developer, not during Docker startup and not during normal page load.
+It must be explicitly invoked only; no Docker startup, page load, report endpoint, or normal refresh may call it automatically.
 
-It must:
+Allowed targeted read-only methods for this task:
 
-- be limited to a supplied contact ID;
-- avoid CRM write methods;
-- avoid dumping raw private rows;
-- compare Bitrix-visible deal IDs for the contact with local deal IDs/link IDs;
-- include clear timeout/bounds or pagination handling;
-- document which Bitrix read-only method(s) it uses.
+- `crm.deal.list` with safe `select` from the existing deal allowlist and a filter bounded to the supplied deal IDs;
+- `crm.deal.contact.items.get` for exactly the supplied deal IDs, one call per supplied ID, with a hard count bound.
 
-Do not run a broad live Bitrix sync as part of tests unless explicitly required. If a live targeted verification for `661` is run, record that fact in `.ai/report.md` including method names, counts, and safety notes, without secrets or raw personal data.
+Do not add `crm.deal.get` unless there is a clear reason and the implementation prevents forbidden fields from being stored, logged, or returned. Prefer `crm.deal.list` with explicit safe `select`.
 
-### 3. Fix extraction/local normalization based on findings
+The verification must report only aggregate/ID-level facts:
 
-Once the missing point is identified, fix the smallest correct part of the pipeline.
+- which supplied deal IDs Bitrix returned via safe deal list;
+- for each supplied deal ID, whether `crm.deal.contact.items.get` contains contact `661`;
+- returned contact IDs for each supplied deal link set, if safe and needed;
+- method names used;
+- counts and divergence categories.
 
-Possible acceptable fixes include:
+### 3. Fix the data path for this reconciliation
 
-- correcting parsing of `CONTACT_IDS` if the current parser misses a Bitrix response shape;
-- expanding the safe allowlist only for non-personal relationship fields if needed;
-- adding a bounded/batched read-only link extraction strategy if `CONTACT_ID` / `CONTACT_IDS` are proven incomplete;
-- improving normalization so locally present links correctly select the analytical contact.
+If Bitrix per-deal relation data confirms that deals `123`, `343`, and `1239` are linked to contact `661`, implement a safe correction path so local analytics can include them for `661`.
 
-The fix must preserve these rules:
+Important: do not keep a mutating diagnostic endpoint that silently edits local raw tables outside dataset run/activation semantics.
 
-- deals are counted only once in contact analytics;
-- analytical contact selection uses configured active contact-type priorities;
-- `Дизайнер` priority `1` outranks dealer/contractor/final-client priorities;
-- won revenue uses USD conversion logic already implemented;
-- no forbidden personal fields are fetched, stored, logged, displayed, or committed.
+Acceptable approaches:
 
-### 4. Tests and regression coverage
+- make the explicit-ID correction a deliberate backend/operator helper that records a local dataset run/status and reruns normalization; or
+- integrate a bounded, explicitly invoked reconciliation function into the existing local refresh/ingestion pipeline without changing Docker startup behavior; or
+- if only a diagnostic result is safe in this task, remove/disable mutating `apply_local_correction` and mark the task `blocked` with exact evidence and the next required product decision.
 
-Add or update tests that reproduce the discovered failure mode where practical.
+If a correction is applied, it must:
 
-At minimum, cover:
+- affect only supplied deal IDs and supplied contact ID;
+- use only read-only Bitrix data;
+- preserve all existing deal fields from local raw data when the deal already exists;
+- insert only allowed safe deal fields if a supplied deal is missing from local `raw_deals`;
+- insert only allowed link fields into `raw_deal_contact_links`;
+- rerun normalization;
+- keep each deal counted only once through analytical contact selection;
+- ensure contact `661` wins for these deals when its confirmed link exists and lower-priority contacts are also linked;
+- avoid changing unrelated contacts/deals.
 
-- contact `Дизайнер` with priority `1` wins analytical selection when linked to a deal;
-- multi-contact deal links are not dropped for the Bitrix response shape found during investigation;
-- contact analytics count matches the normalized deal/link facts in the tested scenario;
-- forbidden Bitrix write methods remain rejected/not introduced.
+### 4. Clean up TASK-09 diagnostic mutation risk
 
-### 5. Documentation/report
+Review the `apply_local_correction` path added in `TASK-2026-06-22-09`.
+
+Do one of the following:
+
+- remove the public/API ability to mutate local raw/normalized data through `/api/internal/diagnostics/.../verify-bitrix-deals`; or
+- refactor it into the safe explicit-ID reconciliation path described above with proper bounds, tests, and status/reporting.
+
+By default, diagnostics should be read-only. Mutating reconciliation must be explicit, bounded, documented, and not disguised as a verification endpoint.
+
+### 5. Tests
+
+Add focused backend tests for:
+
+- exact-ID local diagnostic categorizes: missing raw deal, missing local link, assigned to another analytical contact, assigned to contact `661`;
+- exact-ID Bitrix verification calls only allowed read-only methods and is bounded to the supplied deal IDs;
+- if per-deal link data includes contact `661`, the reconciliation path inserts/repairs only the missing links for supplied IDs and analytics count for `661` becomes 7 in the test scenario;
+- designer priority `1` still wins over lower-priority primary contacts;
+- diagnostics do not expose forbidden personal fields;
+- CRM write methods remain rejected/not introduced.
+
+### 6. Documentation/report
 
 Update `.ai/report.md` with:
 
-- root cause;
-- exact files changed;
+- exact root cause for deals `123`, `343`, and `1239`;
+- local status of all seven supplied deal IDs;
 - whether live Bitrix was called;
-- if live Bitrix was called, which read-only methods were used and for which contact ID/counts;
+- if live Bitrix was called, method names, supplied IDs, aggregate counts, and safe divergence summary only;
+- whether any local correction/reconciliation was applied;
+- if correction was applied, exactly which deal IDs/links were changed and how analytics changed;
 - confirmation that no write methods were added or called;
-- how to reproduce/check the diagnostic safely.
+- checks run and results.
 
-Update project docs only if behavior, operator flow, Bitrix extraction rules, or diagnostics become part of the ongoing workflow.
+Update `docs/development.md` and/or `docs/data-model.md` only if diagnostic/reconciliation behavior changes.
 
 ## Out Of Scope
 
-- New frontend report screens.
+- New frontend screens.
 - Redesign of Contacts UI.
 - ABC/RFM/concentration/type-region screens.
 - Automatic background refresh.
 - Scheduled sync.
+- Broad unbounded scan of all deals with `crm.deal.contact.items.get`.
 - Companies, leads, products, calls, emails, comments, activities, files, requisites.
-- Export features.
+- CSV export.
 - Any Bitrix write operation.
 - Large unrelated refactors.
 
@@ -155,23 +203,25 @@ crm.*.set
 - Do not print webhook URLs or tokens.
 - Do not expose forbidden personal fields.
 - Do not make Docker Compose auto-refresh Bitrix data.
-- Keep changes focused on data correctness for contact-deal links and contact analytics.
+- Keep changes focused on reconciling contact `661` and the seven explicit deal IDs.
+- If exact-ID live Bitrix verification cannot be run safely, stop and mark blocked with the reason.
 
 ## Acceptance Criteria
 
-- The implementation explains the `contact_id=661` mismatch: why Bitrix shows `7` deals while local analytics showed `4`.
-- The root cause is documented in `.ai/report.md`.
-- The extraction/local normalization path is fixed so local contact analytics can include all relevant deals for contact `661` after refresh or targeted correction.
-- For a designer contact linked to a deal, priority selection is verified and not blamed for the missing deals.
-- Local analytics still counts each deal only once.
+- `.ai/report.md` explains each supplied deal ID: `123`, `343`, `1239`, `14773`, `19149`, `23989`, `24761`.
+- The report identifies the exact root cause for why `123`, `343`, and `1239` were not counted locally for contact `661`.
+- If Bitrix per-deal relation data confirms contact `661` on the missing deals, local analytics can be reconciled so contact `661` counts 7 deals after the explicit correction/reconciliation path.
+- If Bitrix per-deal relation data does not confirm contact `661`, the report states that clearly and no local data is changed.
+- The mutating `apply_local_correction` risk from `TASK-09` is removed or refactored into a bounded explicit reconciliation path with tests.
+- Diagnostics remain read-only by default.
 - No Bitrix write methods are added or called.
-- No forbidden personal fields are fetched beyond the existing allowlist or exposed in API/UI/logs/report.
+- No forbidden personal fields are fetched beyond allowlists, stored, logged, returned, or documented.
 - Relevant backend tests pass.
-- If frontend or operator-visible behavior changes, relevant frontend/build/operator checks are run and reported.
+- Frontend build is run only if frontend code changes.
 - The implementation commit uses the exact required message:
 
 ```text
-codex: TASK-2026-06-22-09 Fix contact-deal link completeness
+codex: TASK-2026-06-22-10 Reconcile contact 661 explicit deal IDs
 ```
 
 ## Checks
@@ -199,7 +249,7 @@ cd frontend
 npm run build
 ```
 
-Run Compose smoke checks if runtime/operator flow changes:
+Run Compose smoke checks only if runtime/operator startup behavior changes:
 
 ```bash
 docker compose config
@@ -215,10 +265,6 @@ Run safety search before committing:
 rg "crm\.[A-Za-z0-9_.]*(add|update|delete|set)" backend/app backend/tests
 ```
 
-If this search returns only existing negative tests, state that in `.ai/report.md`.
-
-If any live Bitrix diagnostic is run, it must be targeted and read-only. Record method names and aggregate counts only. Do not include secrets or raw private rows in `.ai/report.md`.
-
 Before committing:
 
 ```bash
@@ -233,12 +279,14 @@ git diff --check -- ':!AGENTS.md' ':!.ai/task.md'
 Codex must not commit until all conditions below are true:
 
 - the latest relevant commit is this planner commit;
-- the investigation identifies whether the mismatch is caused by missing raw deals, missing raw links, parsing, normalization, or Bitrix relation semantics;
-- `.ai/report.md` is updated with root cause and verification results;
+- the seven supplied deal IDs have been checked locally;
+- if live Bitrix verification is run, it is limited to the seven supplied deal IDs and read-only methods only;
+- `.ai/report.md` documents the exact result for deals `123`, `343`, and `1239`;
+- the `TASK-09` mutating diagnostic endpoint risk is removed or safely refactored;
 - every required check is either run and reported, or explicitly documented as not run with reason;
 - `.ai/report.md` explicitly states whether any live Bitrix call was or was not run;
 - `.ai/report.md` explicitly states that no Bitrix write methods were added or called;
-- staged files are only files intentionally changed for `TASK-2026-06-22-09` plus `.ai/report.md`;
+- staged files are only files intentionally changed for `TASK-2026-06-22-10` plus `.ai/report.md`;
 - `.env`, generated data, DuckDB files, Parquet snapshots, CSV exports, logs, caches, `node_modules`, `frontend/dist`, and `ui-kits/` are not staged;
 - `.ai/task.md` is not staged by Codex unless the user explicitly requested changing the task;
 - the final commit message exactly matches the required `codex:` message above.
