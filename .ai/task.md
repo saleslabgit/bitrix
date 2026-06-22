@@ -1,139 +1,151 @@
-# Task: TASK-2026-06-22-01
+# Task: TASK-2026-06-22-02
 
 Status: planned
-Created from commit: 7a17ae182669a61cbd48f666a38be6e88f2b3a66
+Created from: current `main` after accepted `TASK-2026-06-22-01`
 
 ## Title
 
-Profile live dataset quality
+Extract contact type enum labels
 
 ## Goal
 
-Inspect the first active live Bitrix dataset locally, without calling Bitrix, and produce a safe aggregate quality/profile report that prepares the next product decision: how to configure contact type, priority, and region rules.
+Prepare the exact business mapping input table that the user needs before the next large backend/data readiness milestone.
 
-This task must not invent business mappings. It should surface safe aggregate facts and blockers so the user can confirm the mapping rules in a later task.
+Read Bitrix metadata for the contact type field `UF_CRM_1595304971232` and extract the human-readable enum labels for the raw option IDs observed in the active local dataset. Then write a safe mapping template into `.ai/report.md` so the user can fill the business decisions: normalized type, region, priority, and active/inactive rule.
+
+This task is metadata-only. It must not call CRM row-listing methods, must not rerun sync, and must not create/update/delete anything in Bitrix CRM.
 
 ## Context
 
-- TASK-14 completed the first successful live read-only sync.
-- Active dataset should be `bitrix-manual`.
-- Reported live sync counts were:
-  - raw contacts: `14216`;
-  - raw deals: `9142`;
-  - raw links: `8830`;
-  - normalized contacts: `14216`;
-  - normalized deals: `9142`.
-- Deal-contact links are now built locally from deal fields `CONTACT_ID` and `CONTACT_IDS`; normal sync does not mass-call `crm.deal.contact.items.get`.
-- Contact type field is `UF_CRM_1595304971232`, stored locally as `contact_type_raw`.
-- Current contact type/region normalization rules are not yet configured from real data.
+- The active live local dataset was profiled in `TASK-2026-06-22-01`.
+- The contact type field is `UF_CRM_1595304971232`.
+- Local profiling found `54` distinct non-empty `contact_type_raw` combinations, built from these unique option IDs:
+
+```text
+59
+61
+65
+67
+151
+245
+247
+249
+251
+253
+255
+469
+1943
+1945
+2341
+2343
+2345
+2785
+2829
+```
+
+- There are currently `0` active `contact_type_rules`, so normalized type and region are still `Не определено` for the live dataset.
+- The next large backend/data readiness milestone must not start until the user has a clear mapping table to fill.
+
+## Required Output For The User
+
+In `.ai/report.md`, include a table with one row per observed Bitrix enum option ID.
+
+Codex must fill these factual columns:
+
+- `bitrix_option_id` — numeric enum option ID from Bitrix, e.g. `65`.
+- `bitrix_option_label` — human-readable enum option label from Bitrix metadata.
+- `contacts_count` — aggregate count of contacts whose raw type contains this option ID, calculated from the local DuckDB dataset.
+- `observed_raw_combinations` — safe aggregate list/count summary of raw combinations containing this option ID. Do not include contact IDs, contact names, deal IDs, deal names, or row samples.
+
+Codex must leave these decision columns blank or marked `TODO_USER`:
+
+- `normalized_type` — the analytics group name the user wants in reports, e.g. `Клиент`, `Дилер`, `Партнер`, `Поставщик`, `Не определено`, or another business-approved value.
+- `region` — the analytics region group the user wants in reports, e.g. `РБ`, `РФ`, `СНГ`, `Европа`, `Другое`, `Не определено`, or another business-approved value.
+- `priority` — integer priority for choosing the analytical contact when a deal has multiple contacts. Smaller number wins. Use `1` for the most important contact type, then `2`, `3`, etc. If a type should never win analytical-contact selection, mark it clearly for user decision.
+- `is_active` — whether this enum option should become an active normalization rule: `true` / `false` / `TODO_USER`.
+
+Also include a short explanation in `.ai/report.md` that the user only needs to fill the decision columns, not the factual columns.
 
 ## Scope
 
-### 1. Read Local Active Dataset Status
+### 1. Read Workflow And Current State
 
-Use only the configured local DuckDB database. Do not call Bitrix.
+Before implementation, read:
 
-Confirm and report safe status facts:
+- `AGENTS.md`;
+- `docs/workflow.md`;
+- `docs/crm_analytics_system_tz.md`;
+- `.ai/task.md`;
+- `.ai/report.md`;
+- recent `git log` / `git status`.
 
-- active dataset name/kind/state;
-- latest run state;
-- raw/normalized counts;
-- snapshot count only;
-- whether expected tables exist.
+### 2. Extract Bitrix Metadata Safely
 
-Do not print local absolute paths, raw rows, contact names, deal names, webhook URLs, tokens, or generated file contents.
+Use only read-only metadata access for `UF_CRM_1595304971232`.
 
-### 2. Add Safe Dataset Profiling Helpers If Useful
+Allowed Bitrix method class:
 
-If the current code lacks a clean way to compute these aggregates, add a small backend service/helper module and tests. Keep it local-only and deterministic.
+- metadata/fields method needed to inspect contact field enum items, expected path through existing discovery/client code such as `crm.contact.fields`.
 
-Useful safe aggregates:
+Forbidden Bitrix method classes in this task:
 
-- counts by `contact_type_raw`, including null/empty bucket;
-- number of distinct `contact_type_raw` values;
-- contacts missing type;
-- deals without analytical contact;
-- deals without any local link;
-- links whose contact/deal is missing from raw tables;
-- status group counts: won/open/lost;
-- currency counts;
-- category/stage counts by IDs only;
-- date min/max for created/closed dates;
-- normalized contacts still mapped to `Не определено`;
-- normalized deals by `contact_type_normalized` and `region_normalized`.
+- `crm.contact.list`;
+- `crm.deal.list`;
+- `crm.deal.contact.items.get`;
+- any method ending in `.add`, `.update`, `.delete`;
+- any method that returns contact/deal row data instead of field metadata.
 
-Contact type raw values are configuration/domain values, not contact row values; they may be reported as aggregate labels with counts. Do not report contact names, deal names, IDs in samples, phone/email/address/comment/file/activity data, or any row-level personal data.
+If existing discovery code does not expose enum labels, add the smallest reusable helper/API/script that keeps this metadata-only boundary explicit and covered by tests.
 
-### 3. Check Current Normalization Rules
+### 3. Combine With Local Aggregate Counts
 
-Inspect local `contact_type_rules` only as aggregate/config data:
+Use the active local DuckDB dataset only for aggregate counts:
 
-- number of active rules;
-- which real `contact_type_raw` values currently have no active rule;
-- whether current normalized type/region outputs are mostly `Не определено`.
+- contacts count by option ID;
+- raw combination counts that contain each option ID.
 
-Do not invent priorities or regions. If rules are missing, report exactly what user/business input is needed.
+Do not output local absolute paths, raw rows, row samples, contact/deal IDs, contact/deal names, phone, email, address, messenger, comments, files, activity data, webhook URLs, tokens, or generated file contents.
 
-### 4. Optional API Surface
+### 4. Report And Docs
 
-If implementation cost is small and fits existing patterns, add a typed local endpoint such as:
+Update `.ai/report.md` with:
 
-```text
-GET /api/datasets/profile
-```
+- changed files;
+- exact Bitrix metadata methods called and call counts;
+- confirmation that no forbidden CRM methods were called;
+- mapping template table;
+- checks run;
+- assumptions and blockers.
 
-It must return only safe aggregate data. If adding an endpoint would be larger than needed, keep this as a service/helper and report output in `.ai/report.md` only.
-
-### 5. Documentation And Report
-
-Update concise docs only if new service/API/profile behavior is added:
-
-- `docs/data-model.md` — mention safe dataset profiling if added;
-- `docs/development.md` — mention local-only profile endpoint/helper if added;
-- `docs/project-status.md` — update current next step;
-- `.ai/report.md` — include safe aggregate results, changed files, checks, assumptions, unknowns, and next recommendation.
+Update concise docs only if new reusable helper/API behavior is added.
 
 ## Out Of Scope
 
-- Calling Bitrix live API.
-- Re-running sync.
-- Any write methods.
-- Creating or committing `.env`, DuckDB files, Parquet snapshots, CSV exports, logs, caches, raw exports, or generated data.
-- Reporting raw contact/deal rows, contact names, deal names, row IDs as samples, phones, emails, addresses, comments, files, activities, webhook URLs, or tokens.
-- Inventing contact type priorities, normalized regions, or business mapping rules.
-- NBRB integration.
-- Authentication.
-- Frontend or `ui-kits/` work.
-- Scheduler/automatic sync.
-- Production deployment.
-
-## Constraints
-
-- Follow `AGENTS.md`, `docs/workflow.md`, current `.ai/task.md`, and the latest user instruction.
-- Work only from local persisted data for profiling.
-- Do not call Bitrix in this task.
-- Keep output aggregate-only and safe.
-- Do not use `git add .`.
-- Do not modify `ui-kits/`.
-- Do not stage `.env` or generated data under `data/` or `backend/data/`.
-- If local active dataset is missing, report the blocker and do not fabricate profile results.
+- Filling the business mapping decisions.
+- Creating active `contact_type_rules`.
+- Re-running local normalization.
+- Re-running Bitrix sync.
+- Fetching contacts/deals from Bitrix.
+- Any write method in Bitrix.
+- NBRB currency integration.
+- Frontend work.
+- UI kits work.
+- Authentication, deployment, scheduler, or production migration work.
 
 ## Acceptance Criteria
 
-- No Bitrix live calls are made.
-- Active local dataset status is inspected safely.
-- `.ai/report.md` includes safe aggregate profile results or a safe blocker if the dataset is unavailable.
-- Contact type raw distribution is summarized as aggregate labels/counts.
-- Missing/undefined normalization state is summarized.
-- Deal/link integrity is summarized.
-- No raw rows, personal fields, secrets, local absolute paths, or generated file contents are reported.
-- If code is added, tests cover the profiling logic using synthetic/local fixture data.
-- Documentation is updated if a reusable profile helper/API is added.
+- `.ai/report.md` contains a user-fillable mapping table for all observed option IDs listed above.
+- The table includes Bitrix enum labels from metadata and local aggregate counts.
+- User decision columns are clearly marked and left for the user.
+- Bitrix calls are metadata-only and read-only.
+- `.ai/report.md` explicitly lists the methods called and confirms forbidden methods were not called.
+- No contact/deal row data, IDs, names, personal fields, secrets, local absolute paths, or generated data are reported.
+- If code is added, tests cover metadata enum extraction and safe output behavior using mocks/local fixtures.
 - Generated local data artifacts are not staged or committed.
 - The implementation commit uses the exact required message:
 
 ```text
-codex: TASK-2026-06-22-01 Profile live dataset quality
+codex: TASK-2026-06-22-02 Extract contact type enum labels
 ```
 
 ## Checks
@@ -145,19 +157,13 @@ git log --oneline -5
 git status --short
 ```
 
-Run targeted backend tests from `backend/` in the configured dev environment if code changes are made:
+Run targeted backend tests from `backend/` if code changes are made:
 
 ```bash
 python -m pytest
 ```
 
-Use the existing backend dev environment if system Python lacks pytest, and document the exact command used.
-
-Run from repository root:
-
-```bash
-docker compose config
-```
+If system Python lacks pytest, use the existing backend dev environment and document the exact command used.
 
 Before committing:
 
@@ -177,11 +183,11 @@ Codex must not commit until all conditions below are true:
 - the latest relevant commit is this planner commit;
 - `.ai/report.md` is updated;
 - every required check is either run and reported, or explicitly documented as not run with reason;
-- `.ai/report.md` explicitly states that no Bitrix live calls were made;
-- `.ai/report.md` contains only aggregate safe profile data or a safe blocker;
-- staged files are only files intentionally changed for TASK-2026-06-22-01 plus `.ai/report.md`;
+- `.ai/report.md` explicitly states which Bitrix methods were called;
+- `.ai/report.md` explicitly states that no forbidden CRM methods were called;
+- staged files are only files intentionally changed for `TASK-2026-06-22-02` plus `.ai/report.md`;
 - `.env`, generated data, DuckDB files, Parquet snapshots, CSV exports, logs, caches, and `ui-kits/` are not staged;
-- `.ai/task.md` is not staged unless the user explicitly requested changing the task;
+- `.ai/task.md` is not staged by Codex unless the user explicitly requested changing the task;
 - the final commit message exactly matches the required `codex:` message above.
 
 If any condition is not true, stop and report the blocker instead of committing.
