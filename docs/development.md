@@ -72,6 +72,7 @@ Manual Bitrix backend endpoints:
 
 ```text
 GET  http://localhost:8000/api/datasets/status
+GET  http://localhost:8000/api/datasets/profile
 GET  http://localhost:8000/api/bitrix/discovery
 POST http://localhost:8000/api/bitrix/sync/run
 GET  http://localhost:8000/api/bitrix/sync/status
@@ -81,6 +82,15 @@ GET  http://localhost:8000/api/bitrix/sync/status
 metadata with safe messages, counts, UTC timestamps, and relative snapshot
 identifiers. It does not expose raw rows, secrets, webhook URLs, file contents,
 or local absolute paths.
+
+`GET /api/datasets/profile` reports safe local-only aggregate data quality
+metrics for the configured DuckDB dataset. It includes dataset status, expected
+table presence, snapshot count, contact type raw value counts, missing type
+counts, link integrity counts, stage/category ID counts, currency/status counts,
+date ranges, active contact type rule coverage, and undefined normalization
+counts. It does not call Bitrix and does not expose row samples, contact/deal
+names, contact/deal IDs, snapshot paths, local absolute paths, secrets, or raw
+personal fields.
 
 `GET /api/bitrix/discovery` reads Bitrix field metadata and reports whether
 `BITRIX_CONTACT_TYPE_FIELD` exists. Use it to choose the contact type field

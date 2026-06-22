@@ -9,6 +9,7 @@ from app.api.models import (
     ContactAnalyticsPageResponse,
     ContactSummaryPageResponse,
     DatasetStorageStatusResponse,
+    DatasetProfileResponse,
     DealCycleReportResponse,
     FilterMetadataResponse,
     PipelineStatusResponse,
@@ -38,6 +39,7 @@ from app.reports.analytics import (
     list_stale_open_deals,
 )
 from app.reports.local import get_filter_metadata, list_contact_summaries
+from app.reports.profile import get_dataset_profile
 from app.storage.status import get_dataset_storage_status
 
 
@@ -88,6 +90,12 @@ def run_local_synthetic_sync() -> PipelineStatusResponse:
 def dataset_status() -> DatasetStorageStatusResponse:
     status = get_dataset_storage_status(get_connection())
     return DatasetStorageStatusResponse.model_validate(status)
+
+
+@app.get("/api/datasets/profile", response_model=DatasetProfileResponse)
+def dataset_profile() -> DatasetProfileResponse:
+    profile = get_dataset_profile(get_connection())
+    return DatasetProfileResponse.model_validate(profile)
 
 
 @app.get("/api/bitrix/discovery", response_model=BitrixDiscoveryResponse)

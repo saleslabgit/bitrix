@@ -183,6 +183,22 @@ Revenue, ABC, RFM monetary values, concentration, and estimated profit use only 
 
 For deterministic synthetic reports, the default analysis date is the maximum local report date from normalized deals. Last-12-month ABC starts from the same month/day one year before that analysis date.
 
+### Dataset Quality Profile
+
+`backend/app/reports/profile.py` calculates safe local-only dataset quality
+aggregates from the configured DuckDB database. The profile is exposed through
+`GET /api/datasets/profile` and is intended for operator/product decisions about
+contact type, priority, and region configuration.
+
+The profile reports only aggregate data: active/latest dataset status, expected
+table presence, snapshot count, contact type raw value distribution, missing
+type count, active rule coverage, link integrity counts, status/currency counts,
+category and stage ID counts, date ranges, and undefined normalization counts.
+Bitrix empty field representations such as `False` and `[]` are counted in the
+missing contact type bucket for profiling. The profile does not call Bitrix and
+does not expose row samples, contact/deal names, contact/deal IDs, local paths,
+snapshot paths, secrets, or personal fields outside the allowlist.
+
 ## Storage Schema
 
 `backend/app/storage/schema.py` exposes a minimal DuckDB schema API:

@@ -30,6 +30,94 @@ class DatasetStorageStatusResponse(ApiModel):
     latest_run: PipelineStatusResponse | None
 
 
+class DatasetProfileRunResponse(ApiModel):
+    run_id: str | None = None
+    dataset_name: str
+    dataset_kind: str
+    state: str
+    message: str
+    raw_contacts_count: int
+    raw_deals_count: int
+    raw_links_count: int
+    normalized_contacts_count: int
+    normalized_deals_count: int
+    started_at: datetime | None
+    finished_at: datetime | None
+    is_active: bool = False
+
+
+class TablePresenceResponse(ApiModel):
+    table_name: str
+    exists: bool
+
+
+class CountByLabelResponse(ApiModel):
+    label: str
+    count: int
+
+
+class CountByStageResponse(ApiModel):
+    category_id: int | None
+    stage_id: str
+    count: int
+
+
+class CountByTypeRegionResponse(ApiModel):
+    contact_type_normalized: str
+    region_normalized: str
+    count: int
+
+
+class DateRangeResponse(ApiModel):
+    min_created_at: datetime | None
+    max_created_at: datetime | None
+    min_closed_at: datetime | None
+    max_closed_at: datetime | None
+
+
+class NormalizationProfileResponse(ApiModel):
+    normalized_contacts_undefined_type_count: int
+    normalized_contacts_undefined_region_count: int
+    normalized_deals_undefined_type_count: int
+    normalized_deals_undefined_region_count: int
+    normalized_contacts_type_mostly_undefined: bool
+    normalized_contacts_region_mostly_undefined: bool
+    normalized_deals_type_mostly_undefined: bool
+    normalized_deals_region_mostly_undefined: bool
+
+
+class ContactTypeRulesProfileResponse(ApiModel):
+    active_rules_count: int
+    raw_values_without_active_rule: tuple[str, ...]
+
+
+class LinkIntegrityProfileResponse(ApiModel):
+    deals_without_analytical_contact_count: int
+    deals_without_local_link_count: int
+    links_missing_contact_count: int
+    links_missing_deal_count: int
+
+
+class DatasetProfileResponse(ApiModel):
+    active_dataset: DatasetProfileRunResponse | None
+    latest_run: DatasetProfileRunResponse | None
+    snapshot_count: int
+    expected_tables: tuple[TablePresenceResponse, ...]
+    contact_type_raw_counts: tuple[CountByLabelResponse, ...]
+    distinct_contact_type_raw_values_count: int
+    contacts_missing_type_count: int
+    link_integrity: LinkIntegrityProfileResponse
+    status_group_counts: tuple[CountByLabelResponse, ...]
+    currency_counts: tuple[CountByLabelResponse, ...]
+    category_stage_counts: tuple[CountByStageResponse, ...]
+    deal_date_range: DateRangeResponse
+    normalization: NormalizationProfileResponse
+    contact_type_rules: ContactTypeRulesProfileResponse
+    normalized_deal_type_counts: tuple[CountByLabelResponse, ...]
+    normalized_deal_region_counts: tuple[CountByLabelResponse, ...]
+    normalized_deal_type_region_counts: tuple[CountByTypeRegionResponse, ...]
+
+
 class BitrixDiscoveryResponse(ApiModel):
     state: str
     message: str

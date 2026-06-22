@@ -4,6 +4,7 @@ from app import main
 from app.local_database import reset_connection
 from app.main import (
     dataset_status,
+    dataset_profile,
     meta_filters,
     report_abc,
     report_concentration,
@@ -71,6 +72,29 @@ def test_dataset_status_reports_active_and_latest_without_sensitive_paths() -> N
     )
 
 
+def test_dataset_profile_reports_only_safe_aggregate_data() -> None:
+    run_local_synthetic_sync()
+    profile = dataset_profile()
+
+    assert profile.active_dataset is not None
+    assert profile.active_dataset.dataset_kind == "local_synthetic"
+    assert profile.snapshot_count == 4
+    assert all(table.exists for table in profile.expected_tables)
+    assert profile.contact_type_raw_counts
+    assert profile.contact_type_rules.raw_values_without_active_rule == (
+        "synthetic-service",
+    )
+    assert profile.link_integrity.links_missing_contact_count == 0
+    assert profile.link_integrity.links_missing_deal_count == 0
+
+    response_text = repr(profile.model_dump()).lower()
+
+    assert "snapshot_paths" not in response_text
+    assert all(
+        forbidden not in response_text for forbidden in FORBIDDEN_RESPONSE_PARTS
+    )
+
+
 def test_api_contacts_report_supports_filters_and_search() -> None:
     run_local_synthetic_sync()
 
@@ -122,6 +146,7 @@ def test_api_responses_do_not_expose_forbidden_fields() -> None:
     responses = [
         sync_status().model_dump(),
         dataset_status().model_dump(),
+        dataset_profile().model_dump(),
         meta_filters().model_dump(),
         report_contacts(limit=10, offset=0).model_dump(),
         report_contact_analytics(limit=10, offset=0).model_dump(),

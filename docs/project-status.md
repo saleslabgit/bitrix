@@ -52,6 +52,8 @@ Backend/data milestone for the Bitrix sales analytics MVP: local analytics, read
 - Confirmed live Bitrix contact type field `UF_CRM_1595304971232` exists in metadata.
 - Corrected manual Bitrix sync to build deal-contact links locally from downloaded deal fields instead of mass-calling `crm.deal.contact.items.get`.
 - Ran the first successful live read-only manual Bitrix sync with active local dataset status.
+- Added a local-only safe dataset quality profile helper and `GET /api/datasets/profile`.
+- Profiled the first active live Bitrix dataset from local DuckDB aggregates without Bitrix calls.
 
 ## Intentionally Not Done
 
@@ -89,4 +91,4 @@ Backend/data milestone for the Bitrix sales analytics MVP: local analytics, read
 
 ## Next Likely Steps
 
-Review the first live dataset quality, configure contact type/region rules from real values, then plan NBRB currency integration.
+Confirm business mappings for observed contact type raw values, configure active contact type/priority/region rules, rerun local normalization from persisted data, then plan NBRB currency integration.
