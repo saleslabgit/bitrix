@@ -42,6 +42,7 @@ export type DealAnalyticsPage = {
   limit: number;
   offset: number;
   filtered_budget_usd: string;
+  filtered_revenue_usd: string;
   filtered_estimated_profit_usd: string;
   items: DealAnalytics[];
 };

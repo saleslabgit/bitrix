@@ -332,6 +332,7 @@ def test_deal_analytics_filters_by_client_search_and_returns_filtered_totals() -
     assert len(page.items) == 1
     assert page.items[0].deal_id == 5
     assert page.filtered_budget_usd == Decimal("191454.55")
+    assert page.filtered_revenue_usd == Decimal("146454.55")
     assert page.filtered_estimated_profit_usd == Decimal("73227.28")
 
 
@@ -352,6 +353,7 @@ def test_deal_analytics_filters_by_exact_client_id_and_totals_before_pagination(
     assert len(page.items) == 1
     assert {row.deal_id for row in page.items} == {5}
     assert page.filtered_budget_usd == Decimal("191454.55")
+    assert page.filtered_revenue_usd == Decimal("146454.55")
     assert page.filtered_estimated_profit_usd == Decimal("73227.28")
 
 
@@ -370,7 +372,33 @@ def test_deal_analytics_exact_client_id_composes_with_status() -> None:
     assert {row.deal_id for row in page.items} == {5, 6, 15}
     assert all(row.status_group == "won" for row in page.items)
     assert page.filtered_budget_usd == Decimal("146454.55")
+    assert page.filtered_revenue_usd == Decimal("146454.55")
     assert page.filtered_estimated_profit_usd == Decimal("73227.28")
+
+
+def test_deal_analytics_revenue_total_is_zero_for_open_or_lost_status() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        run_synthetic_pipeline(connection)
+
+        open_page = list_deal_analytics(
+            connection,
+            limit=1,
+            status="open",
+        )
+        lost_page = list_deal_analytics(
+            connection,
+            limit=1,
+            status="lost",
+        )
+
+    assert open_page.total >= 1
+    assert open_page.filtered_budget_usd > Decimal("0.00")
+    assert open_page.filtered_revenue_usd == Decimal("0.00")
+    assert open_page.filtered_estimated_profit_usd == Decimal("0.00")
+    assert lost_page.total >= 1
+    assert lost_page.filtered_budget_usd > Decimal("0.00")
+    assert lost_page.filtered_revenue_usd == Decimal("0.00")
+    assert lost_page.filtered_estimated_profit_usd == Decimal("0.00")
 
 
 def test_deal_analytics_exact_client_id_takes_precedence_over_client_search() -> None:
@@ -401,6 +429,7 @@ def test_deal_analytics_empty_filtered_totals_are_zero() -> None:
     assert page.total == 0
     assert page.items == ()
     assert page.filtered_budget_usd == Decimal("0.00")
+    assert page.filtered_revenue_usd == Decimal("0.00")
     assert page.filtered_estimated_profit_usd == Decimal("0.00")
 
 

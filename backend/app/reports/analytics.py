@@ -134,6 +134,7 @@ class DealAnalyticsPage:
     limit: int
     offset: int
     filtered_budget_usd: Decimal
+    filtered_revenue_usd: Decimal
     filtered_estimated_profit_usd: Decimal
     items: tuple[DealAnalyticsRow, ...]
 
@@ -398,6 +399,16 @@ def list_deal_analytics(
         offset=offset,
         filtered_budget_usd=_money(
             sum((row.budget_usd for row in filtered_rows), Decimal("0"))
+        ),
+        filtered_revenue_usd=_money(
+            sum(
+                (
+                    row.budget_usd
+                    for row in filtered_rows
+                    if row.status_group == "won"
+                ),
+                Decimal("0"),
+            )
         ),
         filtered_estimated_profit_usd=_money(
             sum((row.estimated_profit_usd for row in filtered_rows), Decimal("0"))

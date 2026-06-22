@@ -310,6 +310,7 @@ class DealAnalyticsPageResponse(ApiModel):
     limit: int = Field(gt=0, le=100)
     offset: int = Field(ge=0)
     filtered_budget_usd: Decimal
+    filtered_revenue_usd: Decimal
     filtered_estimated_profit_usd: Decimal
     items: tuple[DealAnalyticsResponse, ...]
 

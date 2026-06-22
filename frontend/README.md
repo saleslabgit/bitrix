@@ -8,7 +8,7 @@ Implemented screen:
 - The Contacts table uses `/api/reports/contacts/analytics` and displays sortable local analytics rows, exact contact ID filtering, deal creation date filtering, Bitrix contact-card links, USD budget breakdown, won-only USD revenue, USD estimated profit, latest won close date, and latest deal date. It does not use original-currency sums as the primary financial metric.
 - Contacts table state is persisted in browser local storage under `bitrix-sales.contacts.v1`; reset clears the stored state.
 - `Deals` report table with client search, exact deal ID, status, type, deal creation date filters, pagination, loading, error, empty, reset, Bitrix deal-card links, and sortable local USD budget/profit columns.
-- The Deals table uses `/api/reports/deals/analytics`. `Бюджет` is the single deal amount in local USD, and `Прибыль` is won-only: `budget_usd * 0.50` for `won`, otherwise `0.00`. Filtered budget/profit totals are shown above and below the table and are calculated across all filtered rows before pagination.
+- The Deals table uses `/api/reports/deals/analytics`. `Бюджет` is the single deal amount in local USD, `Выручка` is won-only USD revenue, and `Прибыль` is won-only: `budget_usd * 0.50` for `won`, otherwise `0.00`. Filtered budget/revenue/profit totals are shown above and below the table and are calculated across all filtered rows before pagination.
 - Deals table state is persisted in browser local storage under `bitrix-sales.deals.v1`; reset clears only Deals table state.
 - Last valid filter metadata is persisted under `bitrix-sales.filter-metadata.v1` so transient empty metadata snapshots do not clear dropdown options.
 - Local Vite serves `/favicon.ico` from `frontend/public/favicon.ico`.

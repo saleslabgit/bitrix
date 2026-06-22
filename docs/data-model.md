@@ -232,8 +232,10 @@ exact client ID over local `normalized_deals.analytical_contact_id`, client
 search over local `normalized_deals.analytical_contact_name`, status,
 normalized type, normalized region, and inclusive created-date filters, with
 stable allowlisted sorting before pagination. Deal analytics page totals
-`filtered_budget_usd` and `filtered_estimated_profit_usd` are calculated across
-all filtered rows before pagination.
+`filtered_budget_usd`, `filtered_revenue_usd`, and
+`filtered_estimated_profit_usd` are calculated across all filtered rows before
+pagination. `filtered_revenue_usd` is won-only and sums deal budget only for
+filtered rows where `status_group == "won"`.
 
 USD deal conversion does not require a stored `currency_rates` row because the
 amount is already denominated in the target currency. Non-USD reports still

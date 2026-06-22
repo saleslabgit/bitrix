@@ -177,10 +177,11 @@ with exact `deal_id`, exact local analytical `client_id`, local analytical
 `deal_created_to`, allowlisted `sort`, `order`, `limit`, and `offset`
 parameters. Deal rows expose the deal ID/name, status, normalized type/region,
 USD budget, USD estimated profit, created date, and closed date. The response
-also includes `filtered_budget_usd` and
+also includes `filtered_budget_usd`, `filtered_revenue_usd`, and
 `filtered_estimated_profit_usd`, calculated across all filtered rows before
-pagination. Deal budget is the single deal amount in USD. Deal estimated profit
-is won-only: `budget_usd * 0.50` when `status_group == "won"`, otherwise
+pagination. Deal budget is the single deal amount in USD. Deal revenue is
+won-only and sums budget only for `status_group == "won"`. Deal estimated
+profit is won-only: `budget_usd * 0.50` when `status_group == "won"`, otherwise
 `0.00`. Deals UI state is persisted separately under `bitrix-sales.deals.v1`.
 Shared filter metadata is cached under `bitrix-sales.filter-metadata.v1`;
 resetting either report does not clear the metadata cache.

@@ -1344,11 +1344,15 @@ function DealTotalsBar({ page }: { page: DealAnalyticsPage }) {
   return (
     <div className="totals-bar">
       <div>
-        <span>Бюджет по фильтру</span>
+        <span>Бюджет</span>
         <strong>{formatUsd(page.filtered_budget_usd)}</strong>
       </div>
       <div>
-        <span>Прибыль по фильтру</span>
+        <span>Выручка</span>
+        <strong>{formatUsd(page.filtered_revenue_usd)}</strong>
+      </div>
+      <div>
+        <span>Прибыль</span>
         <strong>{formatUsd(page.filtered_estimated_profit_usd)}</strong>
       </div>
     </div>

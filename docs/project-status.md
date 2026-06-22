@@ -75,6 +75,7 @@ Frontend reporting milestone for the Bitrix sales analytics MVP: local analytics
 - Added a frontend favicon so local browser `/favicon.ico` probing no longer returns 404.
 - Linked non-zero Contacts deal counters to the Deals report with exact local analytical client ID filters and optional status filters.
 - Temporarily hid frontend region filters and region columns while keeping backend region support intact.
+- Added won-only filtered Deals revenue total and simplified visible totals labels to `Бюджет`, `Выручка`, and `Прибыль`.
 
 ## Intentionally Not Done
 
