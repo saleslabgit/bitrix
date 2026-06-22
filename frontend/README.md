@@ -23,7 +23,8 @@ http://localhost:5173
 ```
 
 The Compose frontend service proxies API calls to `http://backend:8000` inside
-the Compose network.
+the Compose network and mounts the repository `ui-kits/` directory read-only for
+design-system CSS imports.
 
 Manual frontend flow:
 

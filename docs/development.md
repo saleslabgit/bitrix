@@ -52,7 +52,9 @@ Frontend: http://localhost:5173
 
 The Compose frontend service runs the Vite dev server on `0.0.0.0:5173` and
 sets `VITE_BACKEND_URL=http://backend:8000`, so frontend `/api` and `/health`
-requests are proxied to the backend service over the Compose network.
+requests are proxied to the backend service over the Compose network. It also
+mounts `./ui-kits` read-only at `/ui-kits` so Vite can resolve the design-system
+CSS imported from `frontend/src/styles.css`.
 
 Run only the backend when needed:
 

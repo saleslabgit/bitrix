@@ -22,6 +22,7 @@ services:
       - "5173:5173"
     volumes:
       - ./frontend:/app
+      - ./ui-kits:/ui-kits:ro
       - /app/node_modules
     depends_on:
       - backend
