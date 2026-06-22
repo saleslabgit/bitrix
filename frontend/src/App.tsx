@@ -11,12 +11,13 @@ import {
   Search
 } from "lucide-react";
 import {
-  fetchContacts,
+  fetchContactAnalytics,
   fetchDatasetStatus,
   fetchFilterMetadata,
   refreshLocalData,
+  type ContactAnalytics,
   type ContactFilters,
-  type ContactSummary
+  type LocalDataRefreshResponse
 } from "./api";
 
 const PAGE_SIZE = 25;
@@ -34,6 +35,9 @@ export function App() {
   const queryClient = useQueryClient();
   const [filters, setFilters] = useState<ContactFilters>(initialFilters);
   const [searchDraft, setSearchDraft] = useState("");
+  const [lastRefreshResult, setLastRefreshResult] = useState<LocalDataRefreshResponse | null>(
+    null
+  );
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -63,13 +67,17 @@ export function App() {
 
   const contactsQuery = useQuery({
     queryKey: ["contacts", filters],
-    queryFn: () => fetchContacts(filters),
+    queryFn: () => fetchContactAnalytics(filters),
     enabled: isDatasetReady
   });
 
   const refreshMutation = useMutation({
     mutationFn: refreshLocalData,
-    onSuccess: async () => {
+    onMutate: () => {
+      setLastRefreshResult(null);
+    },
+    onSuccess: async (result) => {
+      setLastRefreshResult(result);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["dataset-status"] }),
         queryClient.invalidateQueries({ queryKey: ["filter-metadata"] }),
@@ -82,6 +90,7 @@ export function App() {
   });
 
   const total = contactsQuery.data?.total ?? 0;
+  const isRefreshing = refreshMutation.isPending;
   const pageNumber = Math.floor(filters.offset / filters.limit) + 1;
   const totalPages = Math.max(1, Math.ceil(total / filters.limit));
   const hasPreviousPage = filters.offset > 0;
@@ -136,13 +145,26 @@ export function App() {
             <h1>Contacts</h1>
             <p className="page-subtitle">Таблица контактов с поиском и фильтрами по локальным данным.</p>
           </div>
-          <DatasetBadge
-            isLoading={statusQuery.isPending}
-            isError={statusQuery.isError}
-            state={activeDataset?.state}
-            count={activeDataset?.normalized_contacts_count}
-            finishedAt={activeDataset?.finished_at}
-          />
+          <div className="header-actions">
+            <DatasetBadge
+              isLoading={statusQuery.isPending}
+              isError={statusQuery.isError}
+              state={activeDataset?.state}
+              count={activeDataset?.normalized_contacts_count}
+              finishedAt={activeDataset?.finished_at}
+            />
+            {isDatasetReady && (
+              <button
+                className="button button-primary"
+                type="button"
+                disabled={isRefreshing}
+                onClick={() => refreshMutation.mutate()}
+              >
+                <RefreshCcw size={16} strokeWidth={1.5} />
+                {isRefreshing ? "Обновление..." : "Обновить из Bitrix"}
+              </button>
+            )}
+          </div>
         </header>
 
         {isDatasetReady && (
@@ -197,6 +219,18 @@ export function App() {
           />
         )}
 
+        {isDatasetReady && refreshMutation.isError && !isRefreshing && (
+          <InlineAlert
+            title="Не удалось обновить данные"
+            message={refreshMutation.error.message}
+            onRetry={() => refreshMutation.mutate()}
+          />
+        )}
+
+        {lastRefreshResult && !isRefreshing && (
+          <InlineSuccess message={formatRefreshSuccess(lastRefreshResult)} />
+        )}
+
         <section className="table-card" aria-label="Контакты">
           <div className="table-header">
             <div>
@@ -212,11 +246,12 @@ export function App() {
             <TableError message={statusQuery.error.message} onRetry={() => void statusQuery.refetch()} />
           ) : statusQuery.isPending ? (
             <ContactsSkeleton />
+          ) : isRefreshing ? (
+            <RefreshProgressState />
           ) : !isDatasetReady ? (
             <DatabaseNotReadyState
               errorMessage={refreshMutation.isError ? refreshMutation.error.message : null}
-              isRefreshing={refreshMutation.isPending}
-              latestMessage={statusQuery.data?.latest_run?.message}
+              isRefreshing={isRefreshing}
               onRefresh={() => refreshMutation.mutate()}
             />
           ) : contactsQuery.isError ? (
@@ -357,6 +392,18 @@ function InlineAlert({
   );
 }
 
+function InlineSuccess({ message }: { message: string }) {
+  return (
+    <div className="alert alert-success" role="status">
+      <Database size={18} strokeWidth={1.5} />
+      <div>
+        <strong>Обновление завершено</strong>
+        <p>{message}</p>
+      </div>
+    </div>
+  );
+}
+
 function TableError({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
     <div className="state-panel" role="alert">
@@ -387,12 +434,10 @@ function EmptyState({ onReset }: { onReset: () => void }) {
 function DatabaseNotReadyState({
   errorMessage,
   isRefreshing,
-  latestMessage,
   onRefresh
 }: {
   errorMessage: string | null;
   isRefreshing: boolean;
-  latestMessage?: string;
   onRefresh: () => void;
 }) {
   return (
@@ -401,7 +446,6 @@ function DatabaseNotReadyState({
       <h3>Локальная база не подготовлена.</h3>
       <p>Нажмите «Обновить из Bitrix», чтобы загрузить данные.</p>
       <p>Ручное read-only обновление может занять несколько минут.</p>
-      {latestMessage && <p className="state-note">{latestMessage}</p>}
       {errorMessage && (
         <p className="state-error" role="alert">
           {errorMessage}
@@ -421,6 +465,16 @@ function DatabaseNotReadyState({
   );
 }
 
+function RefreshProgressState() {
+  return (
+    <div className="state-panel state-panel-wide" role="status" aria-live="polite">
+      <RefreshCcw className="spin-icon" size={26} strokeWidth={1.5} />
+      <h3>Загрузка данных из Bitrix...</h3>
+      <p>Это может занять несколько минут.</p>
+    </div>
+  );
+}
+
 function ContactsSkeleton() {
   return (
     <div className="skeleton-table" aria-label="Загрузка контактов">
@@ -436,21 +490,22 @@ function ContactsSkeleton() {
   );
 }
 
-function ContactsTable({ contacts }: { contacts: ContactSummary[] }) {
+function ContactsTable({ contacts }: { contacts: ContactAnalytics[] }) {
   return (
     <div className="table-scroll">
       <table>
         <thead>
           <tr>
             <th>Контакт</th>
-            <th>Raw type</th>
             <th>Тип</th>
             <th>Регион</th>
             <th>Всего сделок</th>
             <th>Won</th>
             <th>Open</th>
             <th>Lost</th>
-            <th>Сумма original</th>
+            <th>Выручка USD</th>
+            <th>Расчетная прибыль USD</th>
+            <th>Последняя сделка</th>
           </tr>
         </thead>
         <tbody>
@@ -462,7 +517,6 @@ function ContactsTable({ contacts }: { contacts: ContactSummary[] }) {
                   <small>ID {contact.contact_id}</small>
                 </div>
               </td>
-              <td>{contact.contact_type_raw || "—"}</td>
               <td>
                 <span className="badge badge-neutral">{contact.contact_type_normalized}</span>
               </td>
@@ -471,7 +525,11 @@ function ContactsTable({ contacts }: { contacts: ContactSummary[] }) {
               <td className="number-cell">{contact.won_deals_count}</td>
               <td className="number-cell">{contact.open_deals_count}</td>
               <td className="number-cell">{contact.lost_deals_count}</td>
-              <td className="number-cell">{formatMoney(contact.total_amount_original)}</td>
+              <td className="number-cell money-cell">{formatUsd(contact.revenue_usd)}</td>
+              <td className="number-cell money-cell">
+                {formatUsd(contact.estimated_profit_usd)}
+              </td>
+              <td>{formatDate(contact.latest_deal_date)}</td>
             </tr>
           ))}
         </tbody>
@@ -480,16 +538,30 @@ function ContactsTable({ contacts }: { contacts: ContactSummary[] }) {
   );
 }
 
-function formatMoney(value: string) {
+function formatUsd(value: string) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) {
     return value;
   }
 
   return new Intl.NumberFormat("ru-RU", {
+    style: "currency",
+    currency: "USD",
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   }).format(numeric);
+}
+
+function formatDate(value: string | null) {
+  if (!value) {
+    return "—";
+  }
+
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit"
+  }).format(new Date(value));
 }
 
 function formatDateTime(value: string) {
@@ -500,4 +572,12 @@ function formatDateTime(value: string) {
     hour: "2-digit",
     minute: "2-digit"
   }).format(new Date(value));
+}
+
+function formatRefreshSuccess(result: LocalDataRefreshResponse) {
+  const status = result.status;
+  const contacts = status.normalized_contacts_count.toLocaleString("ru-RU");
+  const deals = status.normalized_deals_count.toLocaleString("ru-RU");
+  const rates = result.currency_rate_rows_loaded.toLocaleString("ru-RU");
+  return `Обновление завершено: ${contacts} контактов, ${deals} сделок, ${rates} курсов загружено.`;
 }

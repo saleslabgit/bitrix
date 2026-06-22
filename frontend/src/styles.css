@@ -110,6 +110,13 @@ button {
   margin: 0 auto var(--space-7);
 }
 
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
 .eyebrow {
   margin: 0 0 var(--space-3);
   color: var(--color-primary-600);
@@ -327,6 +334,16 @@ h1 {
   height: 32px;
 }
 
+.alert-success {
+  border-color: var(--color-green-200);
+  background: var(--color-green-50);
+  color: var(--color-green-700);
+}
+
+.alert-success strong {
+  color: var(--color-green-800);
+}
+
 .table-card {
   margin-top: var(--space-5);
   overflow: hidden;
@@ -383,7 +400,7 @@ h1 {
 
 table {
   width: 100%;
-  min-width: 1080px;
+  min-width: 1180px;
   border-collapse: collapse;
 }
 
@@ -434,6 +451,11 @@ tbody tr:hover {
 .number-cell {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+.money-cell {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-semibold);
 }
 
 .pagination {
@@ -498,6 +520,10 @@ tbody tr:hover {
   font-size: 13px;
 }
 
+.spin-icon {
+  animation: spin 900ms linear infinite;
+}
+
 .skeleton-table {
   padding: var(--space-5) var(--space-6);
 }
@@ -529,6 +555,12 @@ tbody tr:hover {
   }
   to {
     background-position: -100% 0;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 
@@ -571,6 +603,10 @@ tbody tr:hover {
   .pagination {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .header-actions {
+    justify-content: flex-start;
   }
 
   .toolbar {

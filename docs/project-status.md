@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-First frontend milestone for the Bitrix sales analytics MVP: local analytics backend plus a React/Vite Contacts report screen reading local backend endpoints. The local app now has a manual UI-triggered data refresh flow for local testing after `docker compose up --build`.
+First frontend milestone for the Bitrix sales analytics MVP: local analytics backend plus a React/Vite Contacts report screen reading local backend endpoints. The local app now has a manual UI-triggered data refresh flow for local testing after `docker compose up --build`, and the Contacts table uses USD analytics metrics instead of original-currency totals.
 
 ## Done In This Task
 
@@ -65,6 +65,9 @@ First frontend milestone for the Bitrix sales analytics MVP: local analytics bac
 - Added a Contacts empty-state panel for an unprepared local database with an `Обновить из Bitrix` action.
 - The manual refresh flow runs read-only Bitrix ingestion, approved contact type rules, local renormalization, and NBRB rate loading before activating the refreshed dataset.
 - Docker Compose intentionally starts services only; it does not auto-call Bitrix or refresh local data. Local DuckDB databases and generated data remain uncommitted.
+- Updated the Contacts table to use `/api/reports/contacts/analytics` for `revenue_usd`, `estimated_profit_usd`, deal counts, and latest deal dates.
+- Added status filtering support to the contact analytics endpoint so the existing Contacts status filter remains effective.
+- Improved manual refresh UX with blocking progress text and a user-facing success message with refreshed counts.
 
 ## Intentionally Not Done
 

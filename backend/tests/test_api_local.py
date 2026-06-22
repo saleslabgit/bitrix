@@ -121,6 +121,7 @@ def test_api_analytics_reports_return_local_typed_data() -> None:
     run_local_synthetic_sync()
 
     contacts = report_contact_analytics(limit=10, offset=0)
+    open_contacts = report_contact_analytics(limit=10, offset=0, status="open")
     abc = report_abc()
     rfm = report_rfm()
     stale_deals = report_stale_deals()
@@ -130,6 +131,8 @@ def test_api_analytics_reports_return_local_typed_data() -> None:
 
     assert contacts.total == 10
     assert contacts.items[0].revenue_usd > 0
+    assert open_contacts.total >= 1
+    assert all(item.open_deals_count >= 1 for item in open_contacts.items)
     assert len(abc) == 10
     assert any(row.abc_12m == "Нет продаж" for row in abc)
     assert len(rfm) == 10

@@ -1,21 +1,25 @@
-export type ContactSummary = {
+export type ContactAnalytics = {
   contact_id: number;
   contact_name: string;
-  contact_type_raw: string | null;
   contact_type_normalized: string;
   region_normalized: string;
   total_deals_count: number;
   won_deals_count: number;
   open_deals_count: number;
   lost_deals_count: number;
-  total_amount_original: string;
+  revenue_usd: string;
+  estimated_profit_usd: string;
+  first_won_date: string | null;
+  last_won_date: string | null;
+  latest_deal_date: string | null;
+  has_sales: boolean;
 };
 
-export type ContactSummaryPage = {
+export type ContactAnalyticsPage = {
   total: number;
   limit: number;
   offset: number;
-  items: ContactSummary[];
+  items: ContactAnalytics[];
 };
 
 export type FilterMetadata = {
@@ -70,7 +74,9 @@ export type ContactFilters = {
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
 
-export async function fetchContacts(filters: ContactFilters): Promise<ContactSummaryPage> {
+export async function fetchContactAnalytics(
+  filters: ContactFilters
+): Promise<ContactAnalyticsPage> {
   const params = new URLSearchParams({
     limit: String(filters.limit),
     offset: String(filters.offset)
@@ -89,7 +95,7 @@ export async function fetchContacts(filters: ContactFilters): Promise<ContactSum
     params.set("status", filters.status);
   }
 
-  return request<ContactSummaryPage>(`/api/reports/contacts?${params.toString()}`);
+  return request<ContactAnalyticsPage>(`/api/reports/contacts/analytics?${params.toString()}`);
 }
 
 export function fetchFilterMetadata(): Promise<FilterMetadata> {

@@ -5,6 +5,7 @@ React/TypeScript/Vite frontend for the Bitrix sales analytics MVP.
 Implemented screen:
 
 - `Contacts` report table with search, filters, pagination, loading, error, and empty states.
+- The Contacts table uses `/api/reports/contacts/analytics` and displays USD revenue and estimated profit. It does not use original-currency sums as the primary financial metric.
 
 The app reads only the local backend API. It does not call Bitrix.
 

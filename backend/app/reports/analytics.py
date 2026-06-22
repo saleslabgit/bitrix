@@ -208,18 +208,21 @@ def list_contact_analytics(
     search: str | None = None,
     contact_type: str | None = None,
     region: str | None = None,
+    status: str | None = None,
 ) -> ContactAnalyticsPage:
-    contacts = _filtered_contacts(
-        _load_contacts(connection),
-        search=search,
-        contact_type=contact_type,
-        region=region,
-    )
     period_deals = [
         deal
         for deal in _load_deal_facts(connection)
         if _date_in_period(_reporting_date(deal), date_from, date_to)
     ]
+    contacts = _filtered_contacts(
+        _load_contacts(connection),
+        deals=period_deals,
+        search=search,
+        contact_type=contact_type,
+        region=region,
+        status=status,
+    )
 
     rows = tuple(
         _build_contact_analytics_row(contact, period_deals)
@@ -667,9 +670,11 @@ def _select_rate(
 def _filtered_contacts(
     contacts: tuple[_ContactFact, ...],
     *,
+    deals: list[_DealFact],
     search: str | None,
     contact_type: str | None,
     region: str | None,
+    status: str | None,
 ) -> tuple[_ContactFact, ...]:
     filtered = []
     for contact in contacts:
@@ -678,6 +683,12 @@ def _filtered_contacts(
         if contact_type and contact.contact_type_normalized != contact_type:
             continue
         if region and contact.region_normalized != region:
+            continue
+        if status and not any(
+            deal.analytical_contact_id == contact.contact_id
+            and deal.status_group == status
+            for deal in deals
+        ):
             continue
         filtered.append(contact)
     return tuple(filtered)

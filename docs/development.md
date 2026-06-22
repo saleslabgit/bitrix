@@ -146,11 +146,15 @@ VITE_API_BASE_URL=http://localhost:8000
 Frontend endpoints used by the Contacts screen:
 
 ```text
-GET /api/reports/contacts
+GET /api/reports/contacts/analytics
 GET /api/meta/filters
 GET /api/datasets/status
 POST /api/local/refresh-data
 ```
+
+The Contacts screen uses USD analytics fields from `/api/reports/contacts/analytics`
+as its primary financial metrics. It does not present original-currency sums as
+converted revenue.
 
 The frontend must continue to read only local backend endpoints. It must not
 call Bitrix directly or display forbidden personal fields such as phone, email,

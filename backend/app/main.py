@@ -245,6 +245,7 @@ def report_contact_analytics(
     search: str | None = None,
     contact_type: str | None = None,
     region: str | None = None,
+    status: str | None = None,
 ) -> ContactAnalyticsPageResponse:
     page = list_contact_analytics(
         get_connection(),
@@ -255,6 +256,7 @@ def report_contact_analytics(
         search=search,
         contact_type=contact_type,
         region=region,
+        status=status,
     )
     return ContactAnalyticsPageResponse.model_validate(page)
 
