@@ -1,121 +1,157 @@
-# Task: TASK-2026-06-22-26
+# Task: TASK-2026-06-22-27
 
 Status: planned
-Created from: current `main` after accepted `TASK-2026-06-22-25`
+Created from: current `main` after `TASK-2026-06-22-26`
 
 ## Title
 
-Stabilize filter metadata endpoint
+Fix filter metadata 500 root cause
 
 ## Goal
 
-Stop the periodic browser console error:
+Eliminate the intermittent browser console error:
 
 ```text
-GET /api/meta/filters 503 (Service Unavailable)
+GET /api/meta/filters 500 (Internal Server Error)
 ```
 
-The UI currently keeps working because the frontend uses cached filter metadata, but the backend should not produce expected intermittent `503` responses for normal report usage.
+This must be fixed at the backend/root-cause level, not hidden in the frontend.
 
 ## User Request
 
-The user confirmed the ABC layout works, but periodically sees this console error:
+The user still sees periodic console errors on the frontend:
 
 ```text
-GET http://localhost:5173/api/meta/filters 503 (Service Unavailable)
+GET http://localhost:5173/api/meta/filters 500 (Internal Server Error)
 ```
+
+The previous task removed the expected `503`, but the endpoint now sometimes returns a real `500`.
 
 ## Facts
 
-- The frontend calls `GET /api/meta/filters` through React Query when a dataset is ready.
-- The frontend already keeps the last valid filter metadata in browser storage under `bitrix-sales.filter-metadata.v1`.
-- Current frontend logic validates fresh metadata and falls back to cached metadata when fresh metadata is empty/invalid.
-- Current backend route `meta_filters()` intentionally raises `HTTPException(503)` when:
-  - an active successful dataset exists;
-  - `normalized_contacts_count > 0`;
-  - `get_filter_metadata()` returns an empty `contact_types` list.
-- That `503` guard was useful before the frontend cache/fallback behavior, but now it creates a noisy expected network error in the browser console.
-- Contacts, Deals, and ABC reports must continue to read only local backend endpoints.
-- Bitrix must remain read-only and must not be called by report page loads.
+- `TASK-2026-06-22-26` removed the explicit `HTTPException(503)` guard from `meta_filters()`.
+- Current `meta_filters()` now does only:
+
+```python
+filters = get_filter_metadata(get_connection())
+return FilterMetadataResponse.model_validate(filters)
+```
+
+- `get_connection()` in `backend/app/local_database.py` keeps one global DuckDB connection in `_connection`.
+- FastAPI sync endpoints run in a worker threadpool.
+- The frontend can trigger concurrent backend requests, for example:
+  - `GET /api/datasets/status`;
+  - `GET /api/meta/filters`;
+  - `GET /api/reports/contacts/analytics`;
+  - `GET /api/reports/deals/analytics`;
+  - `GET /api/reports/abc/analytics`.
+- A single shared DuckDB connection used concurrently from multiple FastAPI worker threads is a likely root cause of intermittent `500` responses.
+- `get_connection()` also calls `initialize_schema()` on each access, so schema initialization/DDL may happen on hot read paths and under concurrent requests.
+- Report page loads must remain local-only and must not call Bitrix.
 
 ## Assumptions
 
-- The periodic `503` is caused by the explicit guard in `backend/app/main.py`, not by Bitrix or Vite.
-- For normal report usage, `/api/meta/filters` should be a stable local metadata endpoint and return a typed metadata payload whenever the local schema can be read.
-- Unexpected storage/database exceptions can still surface as real backend errors; this task is not meant to hide real crashes.
+- The `500` is caused by backend storage/concurrency behavior, not by Vite or Bitrix.
+- The durable local DuckDB file is the normal runtime storage for Docker/local app usage.
+- In-memory DuckDB is mostly for tests and must not be broken silently.
 
 ## Unknowns
 
-- The exact runtime moment when the empty `contact_types` snapshot appears is not known from GitHub alone.
-- Browser visual/runtime verification may or may not be available to Codex.
+- The exact runtime traceback is not known from GitHub alone.
+- The bug may be caused by shared connection concurrency, repeated schema initialization, a DuckDB lock/conflict, or response validation after an unexpected row type.
+
+## Required Investigation Before Fix
+
+Before implementing the fix, Codex must inspect the actual failure path.
+
+Required actions:
+
+- Run the app/backend enough to call `GET /api/meta/filters` through HTTP if practical.
+- Inspect backend logs/traceback for the `500`.
+- If the exact user timing is hard to reproduce manually, add a focused concurrent test that stresses local metadata/status/report reads against the same prepared DuckDB database.
+- Do not conclude “frontend cache issue” unless backend HTTP status is proven stable.
+
+Record the observed traceback or the reason it could not be reproduced in `.ai/report.md`.
 
 ## Scope
 
-### 1. Backend endpoint behavior
+### 1. Fix backend local DB access stability
 
-Update `GET /api/meta/filters` so it does not return `503` merely because `contact_types` is empty while an active dataset exists.
+Fix the backend so normal concurrent report page requests do not make `/api/meta/filters` return `500`.
+
+Recommended direction:
+
+- Review `backend/app/local_database.py` and `backend/app/storage/connection.py`.
+- Avoid unsafe concurrent use of one global DuckDB connection from multiple FastAPI worker threads.
+- Avoid repeated schema initialization on every hot read request if it contributes to contention.
+- Prefer a small, explicit local database access pattern that matches the current codebase:
+  - either thread-local/read-safe DuckDB connections for file-backed runtime storage;
+  - or a clearly scoped lock/connection helper if that is the least risky option;
+  - or another verified DuckDB-safe pattern.
+
+Important requirements:
+
+- Preserve transaction safety of manual refresh and activation.
+- Preserve tests that rely on temporary DuckDB paths.
+- Preserve `reset_connection()` behavior for tests.
+- Do not introduce a broad background job or queue.
+- Do not make report page loads call Bitrix.
+- Do not swallow real unexpected storage exceptions silently; the goal is to remove the normal intermittent failure, not hide all failures.
+
+### 2. Stabilize `/api/meta/filters`
 
 Required behavior:
 
-- If local schema can be read, return `200` with `FilterMetadataResponse`.
-- Empty `contact_types`, `statuses`, or date ranges are allowed payload states.
-- Do not use `503` as the normal signal for transient or empty filter metadata.
-- Do not call Bitrix from this endpoint.
-- Do not expose secrets, raw rows, or forbidden personal fields.
+- In normal active dataset usage, repeated and concurrent `GET /api/meta/filters` returns `200` with `FilterMetadataResponse`.
+- Empty option lists remain allowed typed payloads.
+- The endpoint must not return `500` because another report/status request happens at the same time.
+- The endpoint must not return `500` because schema initialization runs concurrently on a prepared database.
 
-Recommended approach:
+### 3. Frontend
 
-- Remove the explicit `HTTPException(503)` guard from `meta_filters()`.
-- Let the frontend's existing metadata validation and cache fallback handle empty metadata snapshots.
-- Keep real exceptions unhidden unless there is an existing project pattern for safe storage error mapping.
+Frontend changes are not the primary fix.
 
-### 2. Frontend behavior
+Only change frontend if needed after backend is stable. If changed:
 
-Review `frontend/src/App.tsx` and `frontend/src/api.ts` to ensure the current fallback behavior remains correct after backend no longer returns expected `503`.
+- keep cached filter metadata fallback;
+- do not clear dropdowns on transient empty metadata;
+- do not hide real active report errors that affect table data.
 
-Required behavior:
+### 4. Tests
 
-- If fresh metadata is empty/invalid and cached metadata is valid for the current active dataset, keep using cached metadata.
-- Dropdowns must not be cleared by a transient empty metadata response.
-- Do not show a user-facing error merely because fresh metadata is empty while valid cached metadata exists.
-- Avoid periodic failed `/api/meta/filters` requests in normal active dataset usage.
+Add or update tests to cover the real failure mode.
 
-Only change frontend code if needed to satisfy the above behavior.
+Required backend coverage:
 
-### 3. Tests
+- existing `tests/test_api_local.py` metadata tests still pass;
+- a concurrent read test against a prepared local dataset repeatedly calls metadata/status/report read functions or HTTP endpoints and asserts no exception/500;
+- `meta_filters()` still returns typed empty metadata before dataset preparation;
+- `meta_filters()` still returns typed metadata after synthetic dataset preparation.
 
-Update backend tests that currently expect `503` for empty contact types.
+If the fix touches shared local DB connection management, run the full backend test suite.
 
-Required coverage:
+### 5. Documentation and report
 
-- `meta_filters()` returns `200`/response model with empty metadata before dataset is prepared.
-- `meta_filters()` returns metadata normally after synthetic dataset is prepared.
-- `meta_filters()` no longer raises `HTTPException(503)` when an active dataset exists but contact types are empty.
-- Existing filter metadata extraction tests remain valid.
-
-If frontend code changes, run the frontend build.
-
-### 4. Documentation and report
-
-Update relevant docs only if behavior documentation is materially affected.
+Update relevant docs if local DB access behavior changes.
 
 Update `.ai/report.md` with:
 
-- root cause;
+- actual or reproduced root cause;
+- what changed in DB access or endpoint behavior;
 - changed files;
 - checks run;
-- whether frontend build was needed/run;
-- any remaining risk.
+- whether HTTP/browser/runtime smoke was run;
+- remaining risks.
 
 ## Out Of Scope
 
 - New filters or columns.
 - ABC calculation changes.
-- Contacts/Deals/ABC report data semantics.
-- Re-enabling region filters/columns.
-- Changing manual Bitrix refresh behavior.
+- Contacts/Deals report semantics.
+- Manual Bitrix refresh feature changes beyond preserving safety.
 - Calling Bitrix from report pages.
 - Editing `ui-kits/`.
+- Hiding the console error only by muting frontend logging while backend still returns `500`.
 
 ## Constraints
 
@@ -135,13 +171,14 @@ crm.*.set
 
 ## Acceptance Criteria
 
-- Normal report usage no longer produces periodic `GET /api/meta/filters 503` browser console errors caused by empty metadata snapshots.
-- `/api/meta/filters` returns a valid typed metadata response when local schema is readable, even if lists are empty.
-- Dropdown options are not cleared when fresh metadata is empty and cached metadata is valid.
+- `/api/meta/filters` no longer intermittently returns `500` during normal frontend usage.
+- Concurrent local reads involving `/api/meta/filters` and other report/status reads are covered by a test or documented runtime smoke and do not fail.
+- The fix addresses backend root cause, not only frontend display.
+- Metadata endpoint still returns typed `200` responses for empty metadata states.
+- Manual refresh/activation behavior remains transaction-safe.
 - No Bitrix calls are added to report page load paths.
 - No CRM write methods are added.
-- Relevant backend tests are updated and passing.
-- `.ai/report.md` is updated.
+- Relevant tests pass and `.ai/report.md` is updated.
 
 ## Checks
 
@@ -158,17 +195,28 @@ Backend checks:
 cd backend && python -m pytest tests/test_api_local.py
 ```
 
-If broader impact is found, run full backend tests:
+If shared DB connection/storage code changes, run full backend tests:
 
 ```bash
 cd backend && python -m pytest
 ```
 
-Frontend checks, if frontend code changes:
+Frontend checks, only if frontend code changes:
 
 ```bash
 cd frontend && npm run build
 ```
+
+Runtime smoke if practical:
+
+```bash
+docker compose up --build -d
+curl -f http://localhost:8000/health
+curl -f http://localhost:8000/api/meta/filters
+curl -f http://localhost:8000/api/datasets/status
+```
+
+If using Docker runtime smoke, inspect backend logs for `/api/meta/filters` tracebacks and document the result.
 
 Safety search:
 
@@ -180,15 +228,17 @@ rg "crm\.[A-Za-z0-9_.]*(add|update|delete|set)" backend/app backend/tests fronte
 
 Before committing, verify:
 
-- only files related to this task are staged;
+- only task-related files are staged;
 - no forbidden artifacts are staged;
 - `ui-kits/` is not staged;
-- `.ai/report.md` is updated;
-- relevant tests/checks are recorded in `.ai/report.md`;
+- `.ai/report.md` includes traceback/reproduction findings;
+- backend tests are recorded;
+- full backend tests are recorded if shared DB connection code changed;
+- runtime smoke result is recorded if run;
 - no Bitrix write methods were added.
 
 Commit message:
 
 ```text
-codex: TASK-2026-06-22-26 Stabilize filter metadata endpoint
+codex: TASK-2026-06-22-27 Fix filter metadata 500 root cause
 ```
