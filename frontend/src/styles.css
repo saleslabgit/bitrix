@@ -199,7 +199,7 @@ h1 {
   grid-template-columns:
     minmax(220px, 1.4fr)
     minmax(110px, 0.6fr)
-    repeat(3, minmax(130px, 0.8fr))
+    repeat(2, minmax(130px, 0.8fr))
     repeat(2, minmax(135px, 0.75fr))
     auto
     auto;
@@ -212,7 +212,7 @@ h1 {
   grid-template-columns:
     minmax(220px, 1.15fr)
     minmax(130px, 0.7fr)
-    repeat(3, minmax(150px, 0.85fr))
+    repeat(2, minmax(150px, 0.85fr))
     repeat(2, minmax(135px, 0.75fr))
     auto
     auto;
@@ -475,12 +475,12 @@ h1 {
 
 table {
   width: 100%;
-  min-width: 1620px;
+  min-width: 1500px;
   border-collapse: collapse;
 }
 
 .deals-table {
-  min-width: 1180px;
+  min-width: 1060px;
 }
 
 th,
@@ -582,6 +582,38 @@ tbody tr:hover {
 .number-cell {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+.count-link {
+  display: inline-flex;
+  min-width: 28px;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0;
+  background: transparent;
+  color: var(--color-primary-600);
+  cursor: pointer;
+  font: inherit;
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.count-link:hover,
+.count-link:focus-visible {
+  color: var(--color-primary-700);
+}
+
+.count-value {
+  display: inline-flex;
+  min-width: 28px;
+  justify-content: flex-end;
+  font-variant-numeric: tabular-nums;
+}
+
+.count-value-muted {
+  color: var(--color-text-tertiary);
 }
 
 .money-cell {

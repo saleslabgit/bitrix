@@ -73,6 +73,8 @@ Frontend reporting milestone for the Bitrix sales analytics MVP: local analytics
 - Refined Deals report with local analytical client search and filtered USD budget/profit totals calculated before pagination.
 - Fixed report handling for local datasets with USD deals but no USD rate rows; missing non-USD rates now return a safe service-unavailable error instead of an internal server error.
 - Added a frontend favicon so local browser `/favicon.ico` probing no longer returns 404.
+- Linked non-zero Contacts deal counters to the Deals report with exact local analytical client ID filters and optional status filters.
+- Temporarily hid frontend region filters and region columns while keeping backend region support intact.
 
 ## Intentionally Not Done
 

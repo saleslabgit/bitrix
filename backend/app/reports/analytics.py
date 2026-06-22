@@ -353,6 +353,7 @@ def list_deal_analytics(
     limit: int = 50,
     offset: int = 0,
     deal_id: int | None = None,
+    client_id: int | None = None,
     status: str | None = None,
     contact_type: str | None = None,
     region: str | None = None,
@@ -368,15 +369,19 @@ def list_deal_analytics(
         raise ValueError(f"Unsupported deal analytics sort order: {order}")
 
     normalized_client_search = client_search.strip().lower() if client_search else None
+    if normalized_client_search == "":
+        normalized_client_search = None
     deals = [
         deal
         for deal in _load_deal_facts(connection)
         if (deal_id is None or deal.deal_id == deal_id)
+        and (client_id is None or deal.analytical_contact_id == client_id)
         and (status is None or deal.status_group == status)
         and (contact_type is None or deal.contact_type_normalized == contact_type)
         and (region is None or deal.region_normalized == region)
         and (
-            normalized_client_search is None
+            client_id is not None
+            or normalized_client_search is None
             or normalized_client_search in deal.analytical_contact_name.lower()
         )
         and _date_in_period(deal.created_at.date(), deal_created_from, deal_created_to)

@@ -36,7 +36,6 @@ const CONTACT_SORT_FIELDS: ContactSort[] = [
   "contact_id",
   "contact_name",
   "contact_type_normalized",
-  "region_normalized",
   "total_deals_count",
   "won_deals_count",
   "open_deals_count",
@@ -54,7 +53,6 @@ const DEAL_SORT_FIELDS: DealSort[] = [
   "deal_name",
   "status_group",
   "contact_type_normalized",
-  "region_normalized",
   "budget_usd",
   "estimated_profit_usd",
   "created_date",
@@ -65,7 +63,6 @@ const initialFilters: ContactFilters = {
   search: "",
   contactId: "",
   contactType: "",
-  region: "",
   status: "",
   dealCreatedFrom: "",
   dealCreatedTo: "",
@@ -77,9 +74,9 @@ const initialFilters: ContactFilters = {
 
 const initialDealFilters: DealFilters = {
   dealId: "",
+  clientId: "",
   clientSearch: "",
   contactType: "",
-  region: "",
   status: "",
   dealCreatedFrom: "",
   dealCreatedTo: "",
@@ -272,7 +269,6 @@ export function App() {
         filters.search.trim(),
         filters.contactId.trim(),
         filters.contactType,
-        filters.region,
         filters.status,
         filters.dealCreatedFrom,
         filters.dealCreatedTo
@@ -283,9 +279,8 @@ export function App() {
     () =>
       [
         dealFilters.dealId.trim(),
-        dealFilters.clientSearch.trim(),
+        dealFilters.clientSearch.trim() || dealFilters.clientId.trim(),
         dealFilters.contactType,
-        dealFilters.region,
         dealFilters.status,
         dealFilters.dealCreatedFrom,
         dealFilters.dealCreatedTo
@@ -339,6 +334,34 @@ export function App() {
     const numericValue = value.replace(/\D/g, "");
     setDealIdDraft(numericValue);
     updateDealFilter("dealId", numericValue);
+  }
+
+  function updateDealClientSearch(value: string) {
+    setDealClientSearchDraft(value);
+    setDealFilters((current) =>
+      current.clientId
+        ? {
+            ...current,
+            clientId: "",
+            offset: 0
+          }
+        : current
+    );
+  }
+
+  function openDealsForContact(contact: ContactAnalytics, status?: string) {
+    const nextFilters: DealFilters = {
+      ...initialDealFilters,
+      clientId: String(contact.contact_id),
+      clientSearch: contact.contact_name,
+      status: status ?? ""
+    };
+    setDealIdDraft("");
+    setDealClientSearchDraft(contact.contact_name);
+    setDealReportCreatedDrafts({ from: "", to: "" });
+    setDealFilters(nextFilters);
+    setActiveReport("deals");
+    void queryClient.invalidateQueries({ queryKey: ["deals"] });
   }
 
   function updateSort(sort: ContactSort) {
@@ -517,13 +540,6 @@ export function App() {
               disabled={!filterMetadata}
             />
             <SelectField
-              label="Регион"
-              value={filters.region}
-              onChange={(value) => updateFilter("region", value)}
-              options={filterMetadata?.regions ?? []}
-              disabled={!filterMetadata}
-            />
-            <SelectField
               label="Статус сделки"
               value={filters.status}
               onChange={(value) => updateFilter("status", value)}
@@ -584,7 +600,7 @@ export function App() {
                 <Search size={16} strokeWidth={1.5} />
                 <input
                   value={dealClientSearchDraft}
-                  onChange={(event) => setDealClientSearchDraft(event.target.value)}
+                  onChange={(event) => updateDealClientSearch(event.target.value)}
                   placeholder="Название клиента"
                   type="search"
                 />
@@ -618,13 +634,6 @@ export function App() {
               value={dealFilters.contactType}
               onChange={(value) => updateDealFilter("contactType", value)}
               options={filterMetadata?.contact_types ?? []}
-              disabled={!filterMetadata}
-            />
-            <SelectField
-              label="Регион"
-              value={dealFilters.region}
-              onChange={(value) => updateDealFilter("region", value)}
-              options={filterMetadata?.regions ?? []}
               disabled={!filterMetadata}
             />
 
@@ -759,6 +768,7 @@ export function App() {
               sort={filters.sort}
               order={filters.order}
               onSort={updateSort}
+              onOpenDeals={openDealsForContact}
             />
           ) : (
             <>
@@ -1015,12 +1025,14 @@ function ContactsTable({
   contacts,
   sort,
   order,
-  onSort
+  onSort,
+  onOpenDeals
 }: {
   contacts: ContactAnalytics[];
   sort: ContactSort;
   order: "asc" | "desc";
   onSort: (sort: ContactSort) => void;
+  onOpenDeals: (contact: ContactAnalytics, status?: string) => void;
 }) {
   return (
     <div className="table-scroll">
@@ -1038,13 +1050,6 @@ function ContactsTable({
             <SortableHeader
               label="Тип"
               field="contact_type_normalized"
-              sort={sort}
-              order={order}
-              onSort={onSort}
-            />
-            <SortableHeader
-              label="Регион"
-              field="region_normalized"
               sort={sort}
               order={order}
               onSort={onSort}
@@ -1160,11 +1165,34 @@ function ContactsTable({
               <td>
                 <span className="badge badge-neutral">{contact.contact_type_normalized}</span>
               </td>
-              <td>{contact.region_normalized}</td>
-              <td className="number-cell">{contact.total_deals_count}</td>
-              <td className="number-cell">{contact.won_deals_count}</td>
-              <td className="number-cell">{contact.open_deals_count}</td>
-              <td className="number-cell">{contact.lost_deals_count}</td>
+              <td className="number-cell">
+                <DealCountButton
+                  count={contact.total_deals_count}
+                  label={`Открыть все сделки клиента ${contact.contact_name}`}
+                  onClick={() => onOpenDeals(contact)}
+                />
+              </td>
+              <td className="number-cell">
+                <DealCountButton
+                  count={contact.won_deals_count}
+                  label={`Открыть успешные сделки клиента ${contact.contact_name}`}
+                  onClick={() => onOpenDeals(contact, "won")}
+                />
+              </td>
+              <td className="number-cell">
+                <DealCountButton
+                  count={contact.open_deals_count}
+                  label={`Открыть открытые сделки клиента ${contact.contact_name}`}
+                  onClick={() => onOpenDeals(contact, "open")}
+                />
+              </td>
+              <td className="number-cell">
+                <DealCountButton
+                  count={contact.lost_deals_count}
+                  label={`Открыть проигранные сделки клиента ${contact.contact_name}`}
+                  onClick={() => onOpenDeals(contact, "lost")}
+                />
+              </td>
               <td className="number-cell money-cell">{formatUsd(contact.budget_usd)}</td>
               <td className="number-cell money-cell">{formatUsd(contact.budget_in_work_usd)}</td>
               <td className="number-cell money-cell">{formatUsd(contact.lost_budget_usd)}</td>
@@ -1216,13 +1244,6 @@ function DealsTable({
             <SortableHeader
               label="Тип"
               field="contact_type_normalized"
-              sort={sort}
-              order={order}
-              onSort={onSort}
-            />
-            <SortableHeader
-              label="Регион"
-              field="region_normalized"
               sort={sort}
               order={order}
               onSort={onSort}
@@ -1287,7 +1308,6 @@ function DealsTable({
               <td>
                 <span className="badge badge-neutral">{deal.contact_type_normalized}</span>
               </td>
-              <td>{deal.region_normalized}</td>
               <td className="number-cell money-cell">{formatUsd(deal.budget_usd)}</td>
               <td className="number-cell money-cell">{formatUsd(deal.estimated_profit_usd)}</td>
               <td>{formatDate(deal.created_date)}</td>
@@ -1297,6 +1317,26 @@ function DealsTable({
         </tbody>
       </table>
     </div>
+  );
+}
+
+function DealCountButton({
+  count,
+  label,
+  onClick
+}: {
+  count: number;
+  label: string;
+  onClick: () => void;
+}) {
+  if (count <= 0) {
+    return <span className="count-value count-value-muted">{count}</span>;
+  }
+
+  return (
+    <button className="count-link" type="button" onClick={onClick} aria-label={label}>
+      {count}
+    </button>
   );
 }
 
@@ -1421,7 +1461,6 @@ function loadStoredFilters(): ContactFilters {
       search: stringValue(parsed.search),
       contactId: stringValue(parsed.contactId).replace(/\D/g, ""),
       contactType: stringValue(parsed.contactType),
-      region: stringValue(parsed.region),
       status: stringValue(parsed.status),
       dealCreatedFrom: dateValue(parsed.dealCreatedFrom),
       dealCreatedTo: dateValue(parsed.dealCreatedTo),
@@ -1444,9 +1483,9 @@ function loadStoredDealFilters(): DealFilters {
     const parsed = JSON.parse(stored) as Partial<Record<keyof DealFilters, unknown>>;
     return {
       dealId: stringValue(parsed.dealId).replace(/\D/g, ""),
+      clientId: stringValue(parsed.clientId).replace(/\D/g, ""),
       clientSearch: stringValue(parsed.clientSearch),
       contactType: stringValue(parsed.contactType),
-      region: stringValue(parsed.region),
       status: stringValue(parsed.status),
       dealCreatedFrom: dateValue(parsed.dealCreatedFrom),
       dealCreatedTo: dateValue(parsed.dealCreatedTo),

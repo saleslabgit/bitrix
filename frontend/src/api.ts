@@ -50,7 +50,6 @@ export type ContactSort =
   | "contact_id"
   | "contact_name"
   | "contact_type_normalized"
-  | "region_normalized"
   | "total_deals_count"
   | "won_deals_count"
   | "open_deals_count"
@@ -70,7 +69,6 @@ export type DealSort =
   | "deal_name"
   | "status_group"
   | "contact_type_normalized"
-  | "region_normalized"
   | "budget_usd"
   | "estimated_profit_usd"
   | "created_date"
@@ -121,7 +119,6 @@ export type ContactFilters = {
   search: string;
   contactId: string;
   contactType: string;
-  region: string;
   status: string;
   dealCreatedFrom: string;
   dealCreatedTo: string;
@@ -133,9 +130,9 @@ export type ContactFilters = {
 
 export type DealFilters = {
   dealId: string;
+  clientId: string;
   clientSearch: string;
   contactType: string;
-  region: string;
   status: string;
   dealCreatedFrom: string;
   dealCreatedTo: string;
@@ -164,9 +161,6 @@ export async function fetchContactAnalytics(
   if (filters.contactType) {
     params.set("contact_type", filters.contactType);
   }
-  if (filters.region) {
-    params.set("region", filters.region);
-  }
   if (filters.status) {
     params.set("status", filters.status);
   }
@@ -191,14 +185,14 @@ export async function fetchDealAnalytics(filters: DealFilters): Promise<DealAnal
   if (filters.dealId.trim()) {
     params.set("deal_id", filters.dealId.trim());
   }
+  if (filters.clientId.trim()) {
+    params.set("client_id", filters.clientId.trim());
+  }
   if (filters.clientSearch.trim()) {
     params.set("client_search", filters.clientSearch.trim());
   }
   if (filters.contactType) {
     params.set("contact_type", filters.contactType);
-  }
-  if (filters.region) {
-    params.set("region", filters.region);
   }
   if (filters.status) {
     params.set("status", filters.status);

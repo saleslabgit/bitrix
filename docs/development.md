@@ -163,24 +163,32 @@ also supports allowlisted `sort` and `order` query parameters for stable
 server-side sorting before pagination. Contact analytics rows include USD budget breakdown fields:
 `budget_usd` for all assigned deals, `budget_in_work_usd` for open assigned
 deals, `lost_budget_usd` for lost assigned deals, while `revenue_usd` remains
-won-only and `estimated_profit_usd` remains `revenue_usd * 0.50`. The frontend
-uses those local parameters and fields for the full-width verification table and
-still does not call Bitrix directly. Contacts UI state is persisted locally in
-browser storage under `bitrix-sales.contacts.v1`; it stores filter/sort/page
-settings only, not backend rows, secrets, or raw data.
+won-only and `estimated_profit_usd` remains `revenue_usd * 0.50`. Non-zero deal
+count cells in the Contacts table switch to Deals with an exact local client ID
+filter and optional status filter. The frontend uses those local parameters and
+fields for the full-width verification table and still does not call Bitrix
+directly. Contacts UI state is persisted locally in browser storage under
+`bitrix-sales.contacts.v1`; it stores filter/sort/page settings only, not
+backend rows, secrets, or raw data.
 
 The Deals screen uses `/api/reports/deals/analytics` for local deal-level rows
-with exact `deal_id`, local analytical `client_search`, status, type, region,
-inclusive `deal_created_from` / `deal_created_to`, allowlisted `sort`, `order`,
-`limit`, and `offset` parameters. Deal rows expose the deal ID/name, status,
-normalized type/region, USD budget, USD estimated profit, created date, and
-closed date. The response also includes `filtered_budget_usd` and
+with exact `deal_id`, exact local analytical `client_id`, local analytical
+`client_search`, status, type, region, inclusive `deal_created_from` /
+`deal_created_to`, allowlisted `sort`, `order`, `limit`, and `offset`
+parameters. Deal rows expose the deal ID/name, status, normalized type/region,
+USD budget, USD estimated profit, created date, and closed date. The response
+also includes `filtered_budget_usd` and
 `filtered_estimated_profit_usd`, calculated across all filtered rows before
 pagination. Deal budget is the single deal amount in USD. Deal estimated profit
 is won-only: `budget_usd * 0.50` when `status_group == "won"`, otherwise
 `0.00`. Deals UI state is persisted separately under `bitrix-sales.deals.v1`.
 Shared filter metadata is cached under `bitrix-sales.filter-metadata.v1`;
 resetting either report does not clear the metadata cache.
+
+Region filters and region columns are temporarily hidden in the frontend while
+region detection is unfinished. The frontend does not send region query
+parameters from Contacts or Deals screens, but backend region fields and query
+support remain in place for later use.
 
 Local Vite serves `/favicon.ico` from `frontend/public/favicon.ico`, so browser
 favicon probing should not produce a 404 during development.

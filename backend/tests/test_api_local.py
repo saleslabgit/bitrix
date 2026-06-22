@@ -342,6 +342,13 @@ def test_api_analytics_reports_return_local_typed_data() -> None:
         sort="budget_usd",
         order="desc",
     )
+    client_id_deals = report_deal_analytics(
+        limit=1,
+        offset=0,
+        client_id=2,
+        client_search="does not match",
+        status="won",
+    )
 
     assert contacts.total == 10
     assert contacts.items[0].revenue_usd > 0
@@ -378,6 +385,10 @@ def test_api_analytics_reports_return_local_typed_data() -> None:
     assert client_search_deals.total == 4
     assert client_search_deals.filtered_budget_usd == Decimal("191454.55")
     assert client_search_deals.filtered_estimated_profit_usd == Decimal("73227.28")
+    assert client_id_deals.total == 3
+    assert client_id_deals.items[0].deal_id == 5
+    assert client_id_deals.filtered_budget_usd == Decimal("146454.55")
+    assert client_id_deals.filtered_estimated_profit_usd == Decimal("73227.28")
 
 
 def test_reported_contact_analytics_query_handles_usd_deals_without_rate_rows() -> None:

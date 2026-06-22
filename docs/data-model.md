@@ -228,7 +228,8 @@ Contact analytics budget fields use all assigned deals in local USD: `budget_usd
 Deal analytics budget is the single normalized deal amount in USD. Deal
 estimated profit is won-only: `budget_usd * 0.50` when `status_group == "won"`,
 otherwise `0.00` for open or lost deals. Deal analytics supports exact deal ID,
-client search over local `normalized_deals.analytical_contact_name`, status,
+exact client ID over local `normalized_deals.analytical_contact_id`, client
+search over local `normalized_deals.analytical_contact_name`, status,
 normalized type, normalized region, and inclusive created-date filters, with
 stable allowlisted sorting before pagination. Deal analytics page totals
 `filtered_budget_usd` and `filtered_estimated_profit_usd` are calculated across
