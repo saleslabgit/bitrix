@@ -4,6 +4,7 @@ from fastapi import FastAPI, Query
 
 from app.api.models import (
     AbcResponse,
+    BitrixItemDealContactVerificationResponse,
     BitrixContactDealVerificationResponse,
     BitrixDiscoveryResponse,
     ConcentrationReportResponse,
@@ -49,6 +50,7 @@ from app.reports.contact_deal_diagnostics import (
     get_contact_deal_diagnostic,
     get_explicit_contact_deal_diagnostic,
     reconcile_explicit_contact_deals,
+    verify_bitrix_item_list_contact_links,
     verify_explicit_bitrix_contact_deals,
     verify_bitrix_contact_deals,
 )
@@ -193,6 +195,23 @@ def verify_explicit_contact_deals_in_bitrix(
         deal_ids=tuple(deal_ids),
     )
     return BitrixContactDealVerificationResponse.model_validate(verification)
+
+
+@app.post(
+    "/api/internal/diagnostics/contacts/{contact_id}/verify-bitrix-item-deals",
+    response_model=BitrixItemDealContactVerificationResponse,
+)
+def verify_contact_deals_in_bitrix_items(
+    contact_id: int,
+    deal_ids: list[int] = Query(...),
+) -> BitrixItemDealContactVerificationResponse:
+    client = _build_bitrix_client()
+    verification = verify_bitrix_item_list_contact_links(
+        client=client,
+        contact_id=contact_id,
+        deal_ids=tuple(deal_ids),
+    )
+    return BitrixItemDealContactVerificationResponse.model_validate(verification)
 
 
 @app.post(

@@ -36,8 +36,8 @@ Real Bitrix ingestion stores only the allowed deal columns:
 - `CLOSEDATE` -> `closed_at`;
 - `STAGE_ID` -> `stage_id`;
 - `CATEGORY_ID` -> `category_id`.
-- `CONTACT_ID` and `CONTACT_IDS` are selected only to build local deal-contact
-  links; they are not stored in `raw_deals`.
+- `contactId` and `contactIds` from `crm.item.list` are selected only to build
+  local deal-contact links; they are not stored in `raw_deals`.
 
 `status_group` is derived locally from loaded Bitrix stage semantics.
 
@@ -49,12 +49,12 @@ Current scaffold model: `DealContactLink`.
 
 Current raw storage table: `raw_deal_contact_links`.
 
-Real Bitrix ingestion builds links locally from downloaded deal rows. Current
-live-safe fields are `CONTACT_ID` and `CONTACT_IDS`. A `CONTACT_ID` link is
-stored as primary. Extra IDs from `CONTACT_IDS` are stored as non-primary unless
-they duplicate the primary link. Empty, zero, and missing contact IDs are
-skipped. Sort order and role are stored as `NULL` because the normal sync does
-not call the per-deal link API.
+Real Bitrix ingestion builds links locally from downloaded `crm.item.list` deal
+rows. Current live-safe fields are `contactId` and `contactIds`. A `contactId`
+link is stored as primary. Extra IDs from `contactIds` are stored as
+non-primary unless they duplicate the primary link. Empty, zero, and missing
+contact IDs are skipped. Sort order and role are stored as `NULL` because the
+normal sync does not call the per-deal link API.
 
 The backend also has targeted diagnostics for one contact and an explicit
 bounded list of deal IDs. Diagnostics are read-only by default. A separate

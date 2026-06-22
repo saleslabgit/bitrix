@@ -6,8 +6,10 @@ from datetime import datetime, timezone
 import duckdb
 
 from app.bitrix.client import BitrixClient
+from app.bitrix.allowlist import build_deal_item_select
 from app.bitrix.transform import (
     transform_deal_contact_links,
+    transform_deal_contact_links_from_deals,
     transform_deals,
 )
 from app.domain import ContactSnapshot, ContactTypeRule, DealContactLink, DealSnapshot, StageSnapshot
@@ -103,6 +105,26 @@ class ExplicitContactDealReconciliation:
     status: DatasetRunStatus
     local_after: ExplicitContactDealDiagnostic
     methods_used: tuple[str, ...]
+    explanation: str
+
+
+@dataclass(frozen=True)
+class BitrixItemDealContactRow:
+    deal_id: int
+    returned_contact_ids: tuple[int, ...]
+    has_contact_link: bool
+
+
+@dataclass(frozen=True)
+class BitrixItemDealContactVerification:
+    contact_id: int
+    supplied_deal_ids: tuple[int, ...]
+    selected_fields: tuple[str, ...]
+    contact_related_fields: tuple[str, ...]
+    returned_deal_ids: tuple[int, ...]
+    rows: tuple[BitrixItemDealContactRow, ...]
+    methods_used: tuple[str, ...]
+    is_complete_for_contact: bool
     explanation: str
 
 
@@ -343,6 +365,50 @@ def reconcile_explicit_contact_deals(
             inserted_link_ids=inserted_link_deal_ids,
             skipped_ids=skipped_ids,
         ),
+    )
+
+
+def verify_bitrix_item_list_contact_links(
+    *,
+    client: BitrixClient,
+    contact_id: int,
+    deal_ids: tuple[int, ...],
+) -> BitrixItemDealContactVerification:
+    supplied_ids = _normalize_deal_ids(deal_ids)
+    item_fields = client.get_deal_item_fields()
+    selected_fields = build_deal_item_select(item_fields)
+    item_rows = client.list_deal_items_with_select(
+        selected_fields,
+        filter_={"@id": list(supplied_ids)},
+    )
+    returned_deal_ids = tuple(sorted({_row_deal_id(row) for row in item_rows}))
+    links = transform_deal_contact_links_from_deals(item_rows)
+    contact_ids_by_deal_id: dict[int, list[int]] = {}
+    for link in links:
+        contact_ids_by_deal_id.setdefault(link.deal_id, []).append(link.contact_id)
+    rows = tuple(
+        BitrixItemDealContactRow(
+            deal_id=deal_id,
+            returned_contact_ids=tuple(sorted(contact_ids_by_deal_id.get(deal_id, ()))),
+            has_contact_link=contact_id in contact_ids_by_deal_id.get(deal_id, ()),
+        )
+        for deal_id in supplied_ids
+    )
+    is_complete = set(returned_deal_ids) == set(supplied_ids) and all(
+        row.has_contact_link for row in rows
+    )
+    return BitrixItemDealContactVerification(
+        contact_id=contact_id,
+        supplied_deal_ids=supplied_ids,
+        selected_fields=selected_fields,
+        contact_related_fields=tuple(
+            field for field in selected_fields if "contact" in field.lower()
+        ),
+        returned_deal_ids=returned_deal_ids,
+        rows=rows,
+        methods_used=("crm.item.fields", "crm.item.list"),
+        is_complete_for_contact=is_complete,
+        explanation=_bitrix_item_list_explanation(is_complete),
     )
 
 
@@ -770,3 +836,9 @@ def _reconciliation_explanation(
     if skipped_ids:
         return "Some confirmed deals were skipped because safe deal rows were unavailable."
     return f"Reconciliation inserted {len(inserted_link_ids)} missing local links."
+
+
+def _bitrix_item_list_explanation(is_complete: bool) -> str:
+    if is_complete:
+        return "crm.item.list returned every supplied deal and included the contact relation for each one."
+    return "crm.item.list did not return a complete supplied-deal/contact relation set."

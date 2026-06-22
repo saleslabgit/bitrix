@@ -1,6 +1,6 @@
 import pytest
 
-from app.bitrix.allowlist import build_contact_select, build_deal_select
+from app.bitrix.allowlist import build_contact_select, build_deal_item_select, build_deal_select
 from app.bitrix.client import BitrixApiError, BitrixClient, BitrixConfigurationError
 
 
@@ -30,6 +30,43 @@ def test_bitrix_allowlists_exclude_forbidden_fields_by_default() -> None:
         for field in all_fields
         for forbidden in FORBIDDEN_FIELD_PARTS
     )
+
+
+def test_deal_item_select_uses_only_safe_available_fields() -> None:
+    fields = {
+        "id": {},
+        "title": {},
+        "opportunity": {},
+        "currencyId": {},
+        "createdTime": {},
+        "closedTime": {},
+        "stageId": {},
+        "categoryId": {},
+        "contactId": {},
+        "contactIds": {},
+        "fm": {},
+        "comments": {},
+        "PHONE": {},
+    }
+
+    select = build_deal_item_select(fields)
+
+    assert select == (
+        "id",
+        "title",
+        "opportunity",
+        "currencyId",
+        "createdTime",
+        "closedTime",
+        "stageId",
+        "categoryId",
+        "contactId",
+        "contactIds",
+    )
+    assert "*" not in select
+    assert "fm" not in select
+    assert "comments" not in select
+    assert "PHONE" not in select
 
 
 def test_contact_type_field_is_requested_only_when_configured() -> None:
@@ -132,6 +169,66 @@ def test_client_lists_deals_by_explicit_ids_with_safe_select() -> None:
                 "limit": 50,
             },
         )
+    ]
+
+
+def test_client_allows_read_only_deal_item_fields_and_list() -> None:
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def transport(method: str, params: dict[str, object]) -> dict[str, object]:
+        calls.append((method, params))
+        if method == "crm.item.fields":
+            return {
+                "result": {
+                    "fields": {
+                        "id": {},
+                        "title": {},
+                        "opportunity": {},
+                        "currencyId": {},
+                        "createdTime": {},
+                        "closedTime": {},
+                        "stageId": {},
+                        "categoryId": {},
+                        "contactId": {},
+                        "contactIds": {},
+                        "fm": {},
+                    }
+                }
+            }
+        return {"result": {"items": [{"id": "100", "contactIds": [10, 20]}]}}
+
+    client = BitrixClient(
+        "https://example.bitrix24.com/rest/1/secret-token/",
+        transport=transport,
+    )
+
+    rows = client.list_deal_items_by_ids((100,))
+
+    assert rows == [{"id": "100", "contactIds": [10, 20]}]
+    assert calls == [
+        ("crm.item.fields", {"entityTypeId": 2}),
+        (
+            "crm.item.list",
+            {
+                "entityTypeId": 2,
+                "select": [
+                    "id",
+                    "title",
+                    "opportunity",
+                    "currencyId",
+                    "createdTime",
+                    "closedTime",
+                    "stageId",
+                    "categoryId",
+                    "contactId",
+                    "contactIds",
+                ],
+                "filter": {"@id": [100]},
+                "order": {"id": "ASC"},
+                "start": 0,
+                "limit": 50,
+            },
+        ),
     ]
 
 

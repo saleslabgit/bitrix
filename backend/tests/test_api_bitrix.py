@@ -115,26 +115,26 @@ class RefreshBitrixClient:
             }
         ]
 
-    def list_deals(self) -> list[dict[str, object]]:
+    def list_deal_items(self) -> list[dict[str, object]]:
         return [
             {
-                "ID": "100",
-                "TITLE": "Won deal",
-                "OPPORTUNITY": "150.25",
-                "CURRENCY_ID": "USD",
-                "DATE_CREATE": "2025-01-01T10:00:00+00:00",
-                "CLOSEDATE": "2025-01-02T10:00:00+00:00",
-                "STAGE_ID": "WON",
-                "CATEGORY_ID": "0",
-                "CONTACT_ID": "10",
+                "id": "100",
+                "title": "Won deal",
+                "opportunity": "150.25",
+                "currencyId": "USD",
+                "createdTime": "2025-01-01T10:00:00+00:00",
+                "closedTime": "2025-01-02T10:00:00+00:00",
+                "stageId": "WON",
+                "categoryId": "0",
+                "contactId": "10",
             }
         ]
 
 
 class UnsupportedCurrencyBitrixClient(RefreshBitrixClient):
-    def list_deals(self) -> list[dict[str, object]]:
-        rows = super().list_deals()
-        rows[0]["CURRENCY_ID"] = "JPY"
+    def list_deal_items(self) -> list[dict[str, object]]:
+        rows = super().list_deal_items()
+        rows[0]["currencyId"] = "JPY"
         return rows
 
 

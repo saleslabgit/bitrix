@@ -218,6 +218,24 @@ class ExplicitContactDealReconciliationResponse(ApiModel):
     explanation: str
 
 
+class BitrixItemDealContactRowResponse(ApiModel):
+    deal_id: int
+    returned_contact_ids: tuple[int, ...]
+    has_contact_link: bool
+
+
+class BitrixItemDealContactVerificationResponse(ApiModel):
+    contact_id: int
+    supplied_deal_ids: tuple[int, ...]
+    selected_fields: tuple[str, ...]
+    contact_related_fields: tuple[str, ...]
+    returned_deal_ids: tuple[int, ...]
+    rows: tuple[BitrixItemDealContactRowResponse, ...]
+    methods_used: tuple[str, ...]
+    is_complete_for_contact: bool
+    explanation: str
+
+
 class FilterMetadataResponse(ApiModel):
     contact_types: tuple[str, ...]
     regions: tuple[str, ...]

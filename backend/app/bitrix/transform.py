@@ -46,7 +46,7 @@ def transform_deals(
                 amount_original=_decimal(_first(row, "OPPORTUNITY", "opportunity")),
                 currency_original=_required_str(row, "CURRENCY_ID", "currencyId"),
                 created_at=_required_datetime(row, "DATE_CREATE", "createdTime"),
-                closed_at=_optional_datetime(_first(row, "CLOSEDATE", "closedTime")),
+                closed_at=_optional_datetime(_first(row, "CLOSEDATE", "closedTime", "closedate")),
                 stage_id=stage_id,
                 category_id=category_id,
                 status_group=status_by_key.get(

@@ -1,4 +1,5 @@
 import duckdb
+from datetime import datetime, timezone
 
 from app.bitrix.ingestion import run_bitrix_manual_ingestion
 from app.bitrix.transform import transform_deal_contact_links_from_deals
@@ -45,38 +46,71 @@ class FakeBitrixClient:
             },
         ]
 
-    def list_deals(self) -> list[dict[str, object]]:
+    def list_deal_items(self) -> list[dict[str, object]]:
         return [
             {
-                "ID": "100",
-                "TITLE": "Won deal",
-                "OPPORTUNITY": "150.25",
-                "CURRENCY_ID": "USD",
-                "DATE_CREATE": "2025-01-01T10:00:00+00:00",
-                "CLOSEDATE": "2025-01-05T10:00:00+00:00",
-                "STAGE_ID": "WON",
-                "CATEGORY_ID": "0",
-                "CONTACT_ID": "10",
-                "CONTACT_IDS": ["10", "20"],
+                "id": "100",
+                "title": "Won deal",
+                "opportunity": "150.25",
+                "currencyId": "USD",
+                "createdTime": "2025-01-01T10:00:00+00:00",
+                "closedTime": "2025-01-05T10:00:00+00:00",
+                "stageId": "WON",
+                "categoryId": "0",
+                "contactId": "10",
+                "contactIds": ["10", "20"],
                 "COMMENTS": "hidden",
             },
             {
-                "ID": "200",
-                "TITLE": "Open deal",
-                "OPPORTUNITY": "75",
-                "CURRENCY_ID": "USD",
-                "DATE_CREATE": "2025-02-01T10:00:00+00:00",
-                "STAGE_ID": "OPEN",
-                "CATEGORY_ID": "0",
-                "CONTACT_ID": "20",
+                "id": "200",
+                "title": "Open deal",
+                "opportunity": "75",
+                "currencyId": "USD",
+                "createdTime": "2025-02-01T10:00:00+00:00",
+                "stageId": "OPEN",
+                "categoryId": "0",
+                "contactId": "20",
             },
         ]
 
 
 class DuplicateDealBitrixClient(FakeBitrixClient):
-    def list_deals(self) -> list[dict[str, object]]:
-        rows = super().list_deals()
+    def list_deal_items(self) -> list[dict[str, object]]:
+        rows = super().list_deal_items()
         return [rows[0], rows[0]]
+
+
+class DesignerSecondaryItemBitrixClient(FakeBitrixClient):
+    def list_contacts(self, contact_type_field: str | None) -> list[dict[str, object]]:
+        assert contact_type_field == "UF_CRM_CONTACT_TYPE"
+        return [
+            {
+                "ID": "661",
+                "NAME": "Designer",
+                "UF_CRM_CONTACT_TYPE": "61",
+            },
+            {
+                "ID": "900",
+                "NAME": "Dealer",
+                "UF_CRM_CONTACT_TYPE": "67",
+            },
+        ]
+
+    def list_deal_items(self) -> list[dict[str, object]]:
+        return [
+            {
+                "id": "123",
+                "title": "Historical deal",
+                "opportunity": "100",
+                "currencyId": "USD",
+                "createdTime": "2025-01-01T10:00:00+00:00",
+                "closedTime": "2025-01-02T10:00:00+00:00",
+                "stageId": "WON",
+                "categoryId": "0",
+                "contactId": "900",
+                "contactIds": ["900", "661"],
+            }
+        ]
 
 
 def test_manual_bitrix_ingestion_loads_allowed_raw_data_and_normalizes(tmp_path) -> None:
@@ -156,6 +190,68 @@ def test_manual_bitrix_ingestion_loads_allowed_raw_data_and_normalizes(tmp_path)
         (200, 20, True, None, None),
     ]
     assert normalized_deal == (10, "Partner", "West")
+
+
+def test_manual_bitrix_ingestion_uses_item_contact_ids_for_secondary_designer() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        initialize_schema(connection)
+        connection.executemany(
+            """
+            INSERT INTO contact_type_rules (
+                raw_value,
+                normalized_type,
+                priority,
+                region,
+                is_active
+            )
+            VALUES (?, ?, ?, ?, true)
+            """,
+            [
+                ("61", "Дизайнер", 1, "Беларусь"),
+                ("67", "Дилер", 3, "Беларусь"),
+            ],
+        )
+
+        status = run_bitrix_manual_ingestion(
+            connection,
+            client=DesignerSecondaryItemBitrixClient(),
+            contact_type_field="UF_CRM_CONTACT_TYPE",
+        )
+        connection.execute(
+            """
+            INSERT INTO currency_rates (
+                currency,
+                rate_date,
+                source_rate_byn,
+                usd_rate_byn,
+                rate_source,
+                rate_fetched_at
+            )
+            VALUES ('USD', DATE '2025-01-01', 3.30000000, 3.30000000, 'NBRB', ?)
+            """,
+            [datetime(2025, 1, 1, tzinfo=timezone.utc)],
+        )
+        raw_links = connection.execute(
+            """
+            SELECT deal_id, contact_id, is_primary
+            FROM raw_deal_contact_links
+            ORDER BY deal_id, contact_id
+            """
+        ).fetchall()
+        normalized_deal = connection.execute(
+            """
+            SELECT analytical_contact_id, contact_type_normalized
+            FROM normalized_deals
+            WHERE deal_id = 123
+            """
+        ).fetchone()
+        analytics_page = list_contact_analytics(connection, limit=10)
+        analytics = {row.contact_id: row for row in analytics_page.items}
+
+    assert status.state == "success"
+    assert raw_links == [(123, 661, False), (123, 900, True)]
+    assert normalized_deal == (661, "Дизайнер")
+    assert analytics[661].total_deals_count == 1
 
 
 def test_deal_contact_links_are_built_from_downloaded_deal_rows() -> None:

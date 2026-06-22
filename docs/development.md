@@ -190,6 +190,7 @@ GET  http://localhost:8000/api/internal/diagnostics/contacts/{contact_id}/deal-l
 GET  http://localhost:8000/api/internal/diagnostics/contacts/{contact_id}/explicit-deals?deal_ids=...
 POST http://localhost:8000/api/internal/diagnostics/contacts/{contact_id}/verify-bitrix-deals
 POST http://localhost:8000/api/internal/diagnostics/contacts/{contact_id}/verify-bitrix-explicit-deals?deal_ids=...
+POST http://localhost:8000/api/internal/diagnostics/contacts/{contact_id}/verify-bitrix-item-deals?deal_ids=...
 POST http://localhost:8000/api/internal/reconciliation/contacts/{contact_id}/explicit-deals?deal_ids=...
 POST http://localhost:8000/api/local/refresh-data
 GET  http://localhost:8000/api/bitrix/discovery
@@ -247,6 +248,14 @@ ID-list filter and `crm.deal.contact.items.get` once per supplied deal ID. It
 returns only deal IDs, contact IDs linked to those deals, method names, counts,
 and divergence categories. It does not change local data.
 
+`POST /api/internal/diagnostics/contacts/{contact_id}/verify-bitrix-item-deals`
+is an explicitly invoked, targeted read-only Bitrix verification for an
+explicit bounded list of supplied deal IDs using the universal deal item API. It
+calls `crm.item.fields` for `entityTypeId=2`, builds an explicit safe select
+list, then calls `crm.item.list` for the supplied deal IDs. It returns only
+selected safe field names, returned deal IDs, linked contact IDs, method names,
+and completeness flags. It never requests `*` or `fm`.
+
 `POST /api/internal/reconciliation/contacts/{contact_id}/explicit-deals` is the
 separate mutating operator helper for explicit-ID reconciliation. It uses the
 same bounded read-only Bitrix verification, inserts only confirmed missing
@@ -284,16 +293,17 @@ the NBRB transport. Live use requires network access but does not require
 Bitrix credentials.
 
 `POST /api/bitrix/sync/run` is a manual read-only ingestion entry point. It
-loads allowed contacts, deals, locally reconstructed deal-contact links, and
-stages into local raw DuckDB tables, then runs existing normalization.
+loads allowed contacts, deal items, locally reconstructed deal-contact links,
+and stages into local raw DuckDB tables, then runs existing normalization.
 Successful runs activate the new local dataset. Handled failed runs do not
 activate and do not commit partial raw/normalized replacements. If
 `BITRIX_WEBHOOK_URL` is missing, it returns a safe error status and does not
 call Bitrix.
 
-Normal manual sync builds deal-contact links from downloaded deal fields such
-as `CONTACT_ID` and `CONTACT_IDS`. It must not mass-call
-`crm.deal.contact.items.get` per deal.
+Normal manual sync uses `crm.item.fields` and `crm.item.list` for deals with an
+explicit safe select list. It builds deal-contact links from downloaded item
+fields `contactId` and `contactIds`, preserving secondary contacts without
+mass-calling `crm.deal.contact.items.get` per deal.
 
 Safe local operator flow:
 

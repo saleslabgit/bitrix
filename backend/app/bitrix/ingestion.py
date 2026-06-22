@@ -51,7 +51,7 @@ def run_bitrix_manual_ingestion(
             contact_rows,
             contact_type_field=contact_type_field,
         )
-        deal_rows = client.list_deals()
+        deal_rows = client.list_deal_items()
         deals = transform_deals(deal_rows, stages)
         links = transform_deal_contact_links_from_deals(deal_rows)
         connection.execute("BEGIN TRANSACTION")

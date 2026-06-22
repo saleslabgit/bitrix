@@ -8,6 +8,7 @@ from app.reports.analytics import list_contact_analytics
 from app.reports.contact_deal_diagnostics import (
     get_explicit_contact_deal_diagnostic,
     reconcile_explicit_contact_deals,
+    verify_bitrix_item_list_contact_links,
     verify_explicit_bitrix_contact_deals,
 )
 from app.storage import initialize_schema
@@ -60,6 +61,28 @@ def test_exact_id_bitrix_verification_is_read_only_and_bounded_to_supplied_ids()
     assert verification.confirmed_contact_deal_ids == (1, 5, 7)
     assert relations[5].linked_contact_ids == (661, 900)
     assert relations[5].has_contact_link is True
+
+
+def test_item_list_verification_is_bounded_and_preserves_contact_ids() -> None:
+    client = ItemListVerificationClient()
+
+    verification = verify_bitrix_item_list_contact_links(
+        client=client,
+        contact_id=661,
+        deal_ids=(7, 1, 5, 5),
+    )
+    rows = {row.deal_id: row for row in verification.rows}
+
+    assert client.listed_deal_ids == ((1, 5, 7),)
+    assert verification.methods_used == ("crm.item.fields", "crm.item.list")
+    assert verification.supplied_deal_ids == (1, 5, 7)
+    assert verification.returned_deal_ids == (1, 5, 7)
+    assert verification.contact_related_fields == ("contactId", "contactIds")
+    assert "fm" not in verification.selected_fields
+    assert rows[1].returned_contact_ids == (661,)
+    assert rows[5].returned_contact_ids == (661, 900)
+    assert rows[7].has_contact_link is True
+    assert verification.is_complete_for_contact is True
 
 
 def test_reconciliation_inserts_only_confirmed_missing_links_and_renormalizes() -> None:
@@ -268,6 +291,42 @@ class NoContactRelationClient(ExplicitDealVerificationClient):
         return [{"DEAL_ID": str(deal_id), "CONTACT_ID": "900", "IS_PRIMARY": "Y"}]
 
 
+class ItemListVerificationClient:
+    def __init__(self) -> None:
+        self.listed_deal_ids: tuple[tuple[int, ...], ...] = ()
+
+    def get_deal_item_fields(self) -> dict[str, object]:
+        return {
+            "id": {},
+            "title": {},
+            "opportunity": {},
+            "currencyId": {},
+            "createdTime": {},
+            "closedTime": {},
+            "stageId": {},
+            "categoryId": {},
+            "contactId": {},
+            "contactIds": {},
+            "fm": {},
+        }
+
+    def list_deal_items_with_select(
+        self,
+        select: tuple[str, ...],
+        *,
+        filter_: dict[str, object] | None = None,
+    ) -> list[dict[str, object]]:
+        assert "*" not in select
+        assert "fm" not in select
+        deal_ids = tuple(filter_["@id"])
+        self.listed_deal_ids = (*self.listed_deal_ids, deal_ids)
+        return [
+            _deal_item_row(deal_id)
+            for deal_id in deal_ids
+            if deal_id in SUPPLIED_DEAL_IDS
+        ]
+
+
 def _deal_row(deal_id: int) -> dict[str, object]:
     return {
         "ID": str(deal_id),
@@ -279,4 +338,19 @@ def _deal_row(deal_id: int) -> dict[str, object]:
         "STAGE_ID": "WON",
         "CATEGORY_ID": "0",
         "CONTACT_ID": "661" if deal_id <= 4 else "900",
+    }
+
+
+def _deal_item_row(deal_id: int) -> dict[str, object]:
+    return {
+        "id": str(deal_id),
+        "title": f"Deal {deal_id}",
+        "opportunity": "100.00",
+        "currencyId": "USD",
+        "createdTime": f"2025-01-{deal_id:02d}T00:00:00+00:00",
+        "closedTime": f"2025-01-{deal_id:02d}T00:00:00+00:00",
+        "stageId": "WON",
+        "categoryId": "0",
+        "contactId": "661" if deal_id <= 4 else "900",
+        "contactIds": ["661"] if deal_id <= 4 else ["900", "661"],
     }

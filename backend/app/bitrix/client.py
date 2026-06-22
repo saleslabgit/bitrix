@@ -7,7 +7,12 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
-from app.bitrix.allowlist import BITRIX_STAGE_ENTITY_ID, build_contact_select, build_deal_select
+from app.bitrix.allowlist import (
+    BITRIX_STAGE_ENTITY_ID,
+    build_contact_select,
+    build_deal_item_select,
+    build_deal_select,
+)
 
 
 BitrixTransport = Callable[[str, dict[str, Any]], dict[str, Any]]
@@ -16,6 +21,8 @@ READ_ONLY_METHODS = frozenset(
     {
         "crm.contact.fields",
         "crm.deal.fields",
+        "crm.item.fields",
+        "crm.item.list",
         "crm.contact.list",
         "crm.deal.list",
         "crm.deal.contact.items.get",
@@ -73,6 +80,14 @@ class BitrixClient:
             raise BitrixUnexpectedResponseError("Bitrix deal fields response is invalid.")
         return result
 
+    def get_deal_item_fields(self) -> dict[str, Any]:
+        result = self._call("crm.item.fields", {"entityTypeId": 2})
+        if isinstance(result, dict) and isinstance(result.get("fields"), dict):
+            return result["fields"]
+        if isinstance(result, dict):
+            return result
+        raise BitrixUnexpectedResponseError("Bitrix deal item fields response is invalid.")
+
     def list_contacts(self, contact_type_field: str | None = None) -> list[dict[str, Any]]:
         return list(
             self._list_method(
@@ -91,6 +106,41 @@ class BitrixClient:
                 {
                     "select": list(build_deal_select()),
                     "order": {"ID": "ASC"},
+                },
+            )
+        )
+
+    def list_deal_items(self) -> list[dict[str, Any]]:
+        item_fields = self.get_deal_item_fields()
+        return self.list_deal_items_with_select(build_deal_item_select(item_fields))
+
+    def list_deal_items_by_ids(self, deal_ids: Iterable[int]) -> list[dict[str, Any]]:
+        ids = sorted({int(deal_id) for deal_id in deal_ids})
+        if not ids:
+            return []
+        item_fields = self.get_deal_item_fields()
+        return self.list_deal_items_with_select(
+            build_deal_item_select(item_fields),
+            filter_={"@id": ids},
+        )
+
+    def list_deal_items_with_select(
+        self,
+        select: Iterable[str],
+        *,
+        filter_: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        select_list = list(select)
+        if not select_list:
+            raise BitrixConfigurationError("Bitrix deal item select is empty.")
+        return list(
+            self._list_method(
+                "crm.item.list",
+                {
+                    "entityTypeId": 2,
+                    "select": select_list,
+                    "filter": filter_ or {},
+                    "order": {"id": "ASC"},
                 },
             )
         )
