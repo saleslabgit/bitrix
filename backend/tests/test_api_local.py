@@ -1,3 +1,5 @@
+from datetime import date
+
 import pytest
 
 from app import main
@@ -123,6 +125,12 @@ def test_api_analytics_reports_return_local_typed_data() -> None:
     contacts = report_contact_analytics(limit=10, offset=0)
     open_contacts = report_contact_analytics(limit=10, offset=0, status="open")
     contact_by_id = report_contact_analytics(limit=10, offset=0, contact_id=4)
+    created_range_contacts = report_contact_analytics(
+        limit=10,
+        offset=0,
+        deal_created_from=date(2025, 1, 1),
+        deal_created_to=date(2025, 12, 31),
+    )
     sorted_contacts = report_contact_analytics(
         limit=1,
         offset=0,
@@ -145,6 +153,8 @@ def test_api_analytics_reports_return_local_typed_data() -> None:
     assert all(item.open_deals_count >= 1 for item in open_contacts.items)
     assert contact_by_id.total == 1
     assert contact_by_id.items[0].contact_id == 4
+    assert created_range_contacts.total >= 1
+    assert all(item.total_deals_count >= 1 for item in created_range_contacts.items)
     assert sorted_contacts.items[0].contact_id == 1
     assert len(abc) == 10
     assert any(row.abc_12m == "Нет продаж" for row in abc)

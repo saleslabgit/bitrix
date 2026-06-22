@@ -91,6 +91,8 @@ export type ContactFilters = {
   contactType: string;
   region: string;
   status: string;
+  dealCreatedFrom: string;
+  dealCreatedTo: string;
   sort: ContactSort;
   order: SortOrder;
   limit: number;
@@ -121,6 +123,12 @@ export async function fetchContactAnalytics(
   }
   if (filters.status) {
     params.set("status", filters.status);
+  }
+  if (filters.dealCreatedFrom) {
+    params.set("deal_created_from", filters.dealCreatedFrom);
+  }
+  if (filters.dealCreatedTo) {
+    params.set("deal_created_to", filters.dealCreatedTo);
   }
   params.set("sort", filters.sort);
   params.set("order", filters.order);

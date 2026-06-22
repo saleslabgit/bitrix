@@ -159,6 +159,69 @@ def test_contact_analytics_sorts_before_pagination_by_budget() -> None:
     assert page.items[0].budget_usd == Decimal("354242.42")
 
 
+def test_contact_analytics_filters_by_deal_creation_date_not_closed_date() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        _load_creation_date_filter_dataset(connection)
+
+        created_2024 = list_contact_analytics(
+            connection,
+            limit=10,
+            deal_created_from=date(2024, 1, 1),
+            deal_created_to=date(2024, 12, 31),
+        )
+        created_2025 = list_contact_analytics(
+            connection,
+            limit=10,
+            deal_created_from=date(2025, 1, 1),
+            deal_created_to=date(2025, 12, 31),
+        )
+
+    assert created_2024.total == 1
+    assert created_2024.items[0].contact_id == 1
+    assert created_2024.items[0].budget_usd == Decimal("100.00")
+    assert created_2024.items[0].revenue_usd == Decimal("100.00")
+    assert created_2025.total == 1
+    assert created_2025.items[0].contact_id == 2
+    assert created_2025.items[0].budget_usd == Decimal("50.00")
+    assert created_2025.items[0].budget_in_work_usd == Decimal("50.00")
+
+
+def test_contact_analytics_composes_status_and_deal_creation_filters() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        _load_creation_date_filter_dataset(connection)
+
+        page = list_contact_analytics(
+            connection,
+            limit=10,
+            deal_created_from=date(2025, 1, 1),
+            deal_created_to=date(2025, 12, 31),
+            status="open",
+        )
+
+    assert page.total == 1
+    assert page.items[0].contact_id == 2
+    assert page.items[0].total_deals_count == 1
+    assert page.items[0].open_deals_count == 1
+    assert page.items[0].budget_usd == Decimal("50.00")
+    assert page.items[0].revenue_usd == Decimal("0.00")
+
+
+def test_contact_analytics_existing_report_date_filter_still_uses_closed_date() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        _load_creation_date_filter_dataset(connection)
+
+        page = list_contact_analytics(
+            connection,
+            limit=10,
+            date_from=date(2025, 1, 1),
+            date_to=date(2025, 12, 31),
+        )
+
+    assert page.total == 2
+    assert {row.contact_id for row in page.items} == {1, 2}
+    assert page.items[0].revenue_usd == Decimal("100.00")
+
+
 def test_contact_analytics_sort_tie_breaks_by_contact_id() -> None:
     with duckdb.connect(database=":memory:") as connection:
         _load_equal_revenue_dataset(connection)
@@ -448,6 +511,84 @@ def _load_equal_revenue_dataset(connection: duckdb.DuckDBPyConnection) -> None:
                 datetime(2025, 1, 2, tzinfo=timezone.utc),
                 2,
                 "Tie Contact 2",
+            ),
+        ],
+    )
+
+
+def _load_creation_date_filter_dataset(connection: duckdb.DuckDBPyConnection) -> None:
+    initialize_schema(connection)
+    connection.executemany(
+        """
+        INSERT INTO normalized_contacts (
+            contact_id,
+            contact_name,
+            contact_type_raw,
+            contact_type_normalized,
+            region_normalized
+        )
+        VALUES (?, ?, NULL, 'Synthetic Type', 'Synthetic Region')
+        """,
+        [
+            (1, "Created Contact 1"),
+            (2, "Created Contact 2"),
+        ],
+    )
+    connection.execute(
+        """
+        INSERT INTO currency_rates (
+            currency,
+            rate_date,
+            source_rate_byn,
+            usd_rate_byn,
+            rate_source,
+            rate_fetched_at
+        )
+        VALUES ('USD', DATE '2024-01-01', 3.30000000, 3.30000000, 'NBRB', ?)
+        """,
+        [datetime(2025, 1, 2, tzinfo=timezone.utc)],
+    )
+    connection.executemany(
+        """
+        INSERT INTO normalized_deals (
+            deal_id,
+            deal_name,
+            amount_original,
+            currency_original,
+            created_at,
+            closed_at,
+            stage_id,
+            category_id,
+            status_group,
+            analytical_contact_id,
+            analytical_contact_name,
+            contact_type_normalized,
+            region_normalized
+        )
+        VALUES (?, ?, ?, 'USD', ?, ?, ?, 1, ?, ?, ?, 'Synthetic Type', 'Synthetic Region')
+        """,
+        [
+            (
+                1,
+                "Created In 2024 Closed In 2025",
+                Decimal("100.00"),
+                datetime(2024, 6, 1, tzinfo=timezone.utc),
+                datetime(2025, 2, 1, tzinfo=timezone.utc),
+                "SYN:WON",
+                "won",
+                1,
+                "Created Contact 1",
+            ),
+            (
+                2,
+                "Created In 2025 Open",
+                Decimal("50.00"),
+                datetime(2025, 3, 1, tzinfo=timezone.utc),
+                None,
+                "SYN:OPEN",
+                "open",
+                2,
+                "Created Contact 2",
             ),
         ],
     )

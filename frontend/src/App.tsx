@@ -22,6 +22,24 @@ import {
 } from "./api";
 
 const PAGE_SIZE = 25;
+const CONTACTS_STORAGE_KEY = "bitrix-sales.contacts.v1";
+const CONTACT_SORT_FIELDS: ContactSort[] = [
+  "contact_id",
+  "contact_name",
+  "contact_type_normalized",
+  "region_normalized",
+  "total_deals_count",
+  "won_deals_count",
+  "open_deals_count",
+  "lost_deals_count",
+  "budget_usd",
+  "budget_in_work_usd",
+  "lost_budget_usd",
+  "revenue_usd",
+  "estimated_profit_usd",
+  "last_won_date",
+  "latest_deal_date"
+];
 
 const initialFilters: ContactFilters = {
   search: "",
@@ -29,6 +47,8 @@ const initialFilters: ContactFilters = {
   contactType: "",
   region: "",
   status: "",
+  dealCreatedFrom: "",
+  dealCreatedTo: "",
   sort: "contact_id",
   order: "asc",
   limit: PAGE_SIZE,
@@ -37,12 +57,16 @@ const initialFilters: ContactFilters = {
 
 export function App() {
   const queryClient = useQueryClient();
-  const [filters, setFilters] = useState<ContactFilters>(initialFilters);
-  const [searchDraft, setSearchDraft] = useState("");
-  const [contactIdDraft, setContactIdDraft] = useState("");
+  const [filters, setFilters] = useState<ContactFilters>(() => loadStoredFilters());
+  const [searchDraft, setSearchDraft] = useState(filters.search);
+  const [contactIdDraft, setContactIdDraft] = useState(filters.contactId);
   const [lastRefreshResult, setLastRefreshResult] = useState<LocalDataRefreshResponse | null>(
     null
   );
+  const isDealCreatedRangeInvalid =
+    Boolean(filters.dealCreatedFrom) &&
+    Boolean(filters.dealCreatedTo) &&
+    filters.dealCreatedFrom > filters.dealCreatedTo;
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -55,6 +79,10 @@ export function App() {
 
     return () => window.clearTimeout(timer);
   }, [searchDraft]);
+
+  useEffect(() => {
+    storeFilters(filters);
+  }, [filters]);
 
   const statusQuery = useQuery({
     queryKey: ["dataset-status"],
@@ -73,7 +101,7 @@ export function App() {
   const contactsQuery = useQuery({
     queryKey: ["contacts", filters],
     queryFn: () => fetchContactAnalytics(filters),
-    enabled: isDatasetReady
+    enabled: isDatasetReady && !isDealCreatedRangeInvalid
   });
 
   const refreshMutation = useMutation({
@@ -115,7 +143,9 @@ export function App() {
         filters.contactId.trim(),
         filters.contactType,
         filters.region,
-        filters.status
+        filters.status,
+        filters.dealCreatedFrom,
+        filters.dealCreatedTo
       ].filter(Boolean).length,
     [filters]
   );
@@ -131,6 +161,7 @@ export function App() {
   function resetFilters() {
     setSearchDraft("");
     setContactIdDraft("");
+    window.localStorage.removeItem(CONTACTS_STORAGE_KEY);
     setFilters(initialFilters);
     void queryClient.invalidateQueries({ queryKey: ["contacts"] });
   }
@@ -246,6 +277,30 @@ export function App() {
               disabled={filterQuery.isPending || filterQuery.isError}
             />
 
+            <label className="field">
+              <span>Создана с</span>
+              <input
+                className="date-input"
+                value={filters.dealCreatedFrom}
+                onChange={(event) => updateFilter("dealCreatedFrom", event.target.value)}
+                min={dateOnly(filterQuery.data?.min_created_at)}
+                max={dateOnly(filterQuery.data?.max_created_at)}
+                type="date"
+              />
+            </label>
+
+            <label className="field">
+              <span>Создана по</span>
+              <input
+                className="date-input"
+                value={filters.dealCreatedTo}
+                onChange={(event) => updateFilter("dealCreatedTo", event.target.value)}
+                min={dateOnly(filterQuery.data?.min_created_at)}
+                max={dateOnly(filterQuery.data?.max_created_at)}
+                type="date"
+              />
+            </label>
+
             <button className="button button-secondary" type="button" onClick={resetFilters}>
               <Filter size={16} strokeWidth={1.5} />
               Сбросить
@@ -273,6 +328,10 @@ export function App() {
           <InlineSuccess message={formatRefreshSuccess(lastRefreshResult)} />
         )}
 
+        {isDatasetReady && isDealCreatedRangeInvalid && (
+          <InlineValidation message="Дата «Создана с» должна быть не позже даты «Создана по»." />
+        )}
+
         <section className="table-card" aria-label="Контакты">
           <div className="table-header">
             <div>
@@ -298,6 +357,8 @@ export function App() {
             />
           ) : contactsQuery.isError ? (
             <TableError message={contactsQuery.error.message} onRetry={() => void contactsQuery.refetch()} />
+          ) : isDealCreatedRangeInvalid ? (
+            <EmptyState onReset={resetFilters} />
           ) : contactsQuery.isPending ? (
             <ContactsSkeleton />
           ) : contactsQuery.data.items.length === 0 ? (
@@ -445,6 +506,18 @@ function InlineSuccess({ message }: { message: string }) {
       <Database size={18} strokeWidth={1.5} />
       <div>
         <strong>Обновление завершено</strong>
+        <p>{message}</p>
+      </div>
+    </div>
+  );
+}
+
+function InlineValidation({ message }: { message: string }) {
+  return (
+    <div className="alert" role="alert">
+      <AlertCircle size={18} strokeWidth={1.5} />
+      <div>
+        <strong>Проверьте диапазон дат</strong>
         <p>{message}</p>
       </div>
     </div>
@@ -778,4 +851,68 @@ function formatRefreshSuccess(result: LocalDataRefreshResponse) {
   const deals = status.normalized_deals_count.toLocaleString("ru-RU");
   const rates = result.currency_rate_rows_loaded.toLocaleString("ru-RU");
   return `Обновление завершено: ${contacts} контактов, ${deals} сделок, ${rates} курсов загружено.`;
+}
+
+function loadStoredFilters(): ContactFilters {
+  try {
+    const stored = window.localStorage.getItem(CONTACTS_STORAGE_KEY);
+    if (!stored) {
+      return initialFilters;
+    }
+    const parsed = JSON.parse(stored) as Partial<Record<keyof ContactFilters, unknown>>;
+    return {
+      search: stringValue(parsed.search),
+      contactId: stringValue(parsed.contactId).replace(/\D/g, ""),
+      contactType: stringValue(parsed.contactType),
+      region: stringValue(parsed.region),
+      status: stringValue(parsed.status),
+      dealCreatedFrom: dateValue(parsed.dealCreatedFrom),
+      dealCreatedTo: dateValue(parsed.dealCreatedTo),
+      sort: sortValue(parsed.sort),
+      order: parsed.order === "desc" ? "desc" : "asc",
+      limit: positiveNumberValue(parsed.limit, PAGE_SIZE),
+      offset: nonNegativeNumberValue(parsed.offset)
+    };
+  } catch {
+    return initialFilters;
+  }
+}
+
+function storeFilters(filters: ContactFilters) {
+  if (areDefaultFilters(filters)) {
+    window.localStorage.removeItem(CONTACTS_STORAGE_KEY);
+    return;
+  }
+  window.localStorage.setItem(CONTACTS_STORAGE_KEY, JSON.stringify(filters));
+}
+
+function areDefaultFilters(filters: ContactFilters) {
+  return JSON.stringify(filters) === JSON.stringify(initialFilters);
+}
+
+function stringValue(value: unknown) {
+  return typeof value === "string" ? value : "";
+}
+
+function dateValue(value: unknown) {
+  const string = stringValue(value);
+  return /^\d{4}-\d{2}-\d{2}$/.test(string) ? string : "";
+}
+
+function sortValue(value: unknown): ContactSort {
+  return typeof value === "string" && CONTACT_SORT_FIELDS.includes(value as ContactSort)
+    ? (value as ContactSort)
+    : initialFilters.sort;
+}
+
+function positiveNumberValue(value: unknown, fallback: number) {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
+function nonNegativeNumberValue(value: unknown) {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 0;
+}
+
+function dateOnly(value: string | null | undefined) {
+  return value ? value.slice(0, 10) : undefined;
 }

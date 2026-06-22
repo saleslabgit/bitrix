@@ -245,6 +245,8 @@ def list_contact_analytics(
     offset: int = 0,
     date_from: date | None = None,
     date_to: date | None = None,
+    deal_created_from: date | None = None,
+    deal_created_to: date | None = None,
     search: str | None = None,
     contact_type: str | None = None,
     region: str | None = None,
@@ -262,7 +264,13 @@ def list_contact_analytics(
         deal
         for deal in _load_deal_facts(connection)
         if _date_in_period(_reporting_date(deal), date_from, date_to)
+        and _date_in_period(
+            deal.created_at.date(),
+            deal_created_from,
+            deal_created_to,
+        )
     ]
+    require_matching_deals = deal_created_from is not None or deal_created_to is not None
     contacts = _filtered_contacts(
         _load_contacts(connection),
         deals=period_deals,
@@ -271,6 +279,7 @@ def list_contact_analytics(
         region=region,
         status=status,
         contact_id=contact_id,
+        require_matching_deals=require_matching_deals,
     )
 
     rows = _sort_contact_analytics_rows(
@@ -729,9 +738,13 @@ def _filtered_contacts(
     region: str | None,
     status: str | None,
     contact_id: int | None,
+    require_matching_deals: bool,
 ) -> tuple[_ContactFact, ...]:
     filtered = []
     for contact in contacts:
+        contact_deals = [
+            deal for deal in deals if deal.analytical_contact_id == contact.contact_id
+        ]
         if contact_id is not None and contact.contact_id != contact_id:
             continue
         if search and search.lower() not in contact.contact_name.lower():
@@ -740,11 +753,9 @@ def _filtered_contacts(
             continue
         if region and contact.region_normalized != region:
             continue
-        if status and not any(
-            deal.analytical_contact_id == contact.contact_id
-            and deal.status_group == status
-            for deal in deals
-        ):
+        if require_matching_deals and not contact_deals:
+            continue
+        if status and not any(deal.status_group == status for deal in contact_deals):
             continue
         filtered.append(contact)
     return tuple(filtered)
