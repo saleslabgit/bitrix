@@ -54,6 +54,7 @@ Backend/data milestone for the Bitrix sales analytics MVP: local analytics, read
 - Ran the first successful live read-only manual Bitrix sync with active local dataset status.
 - Added a local-only safe dataset quality profile helper and `GET /api/datasets/profile`.
 - Profiled the first active live Bitrix dataset from local DuckDB aggregates without Bitrix calls.
+- Added a metadata-only contact type enum label extraction helper and local aggregate mapping helper.
 
 ## Intentionally Not Done
 
@@ -91,4 +92,4 @@ Backend/data milestone for the Bitrix sales analytics MVP: local analytics, read
 
 ## Next Likely Steps
 
-Confirm business mappings for observed contact type raw values, configure active contact type/priority/region rules, rerun local normalization from persisted data, then plan NBRB currency integration.
+Fill the contact type mapping decision columns from `.ai/report.md`, configure active contact type/priority/region rules, rerun local normalization from persisted data, then plan NBRB currency integration.

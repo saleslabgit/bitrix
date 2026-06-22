@@ -97,6 +97,12 @@ personal fields.
 code before running real ingestion. The response does not include webhook values
 or contact/deal field values.
 
+For contact type mapping preparation, backend helpers can extract enum labels
+from `crm.contact.fields` metadata and combine them with local DuckDB aggregate
+counts from `raw_contacts`. This metadata-only flow must not call
+`crm.contact.list`, `crm.deal.list`, `crm.deal.contact.items.get`, or Bitrix
+write methods.
+
 `POST /api/bitrix/sync/run` is a manual read-only ingestion entry point. It
 loads allowed contacts, deals, locally reconstructed deal-contact links, and
 stages into local raw DuckDB tables, then runs existing normalization.

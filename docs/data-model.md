@@ -199,6 +199,12 @@ missing contact type bucket for profiling. The profile does not call Bitrix and
 does not expose row samples, contact/deal names, contact/deal IDs, local paths,
 snapshot paths, secrets, or personal fields outside the allowlist.
 
+`backend/app/bitrix/contact_type_metadata.py` extracts contact type enum option
+IDs and labels from Bitrix contact field metadata. `backend/app/reports/contact_type_mapping.py`
+combines those metadata labels with local DuckDB aggregate counts by option ID
+and raw option combination. This helper is metadata/local-aggregate only: it
+does not fetch contact/deal rows and does not create normalization rules.
+
 ## Storage Schema
 
 `backend/app/storage/schema.py` exposes a minimal DuckDB schema API:
