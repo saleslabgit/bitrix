@@ -1,151 +1,180 @@
-# Task: TASK-2026-06-22-02
+# Task: TASK-2026-06-22-03
 
 Status: planned
-Created from: current `main` after accepted `TASK-2026-06-22-01`
+Created from: current `main` after accepted `TASK-2026-06-22-02`
 
 ## Title
 
-Extract contact type enum labels
+Apply live data rules and rates
 
 ## Goal
 
-Prepare the exact business mapping input table that the user needs before the next large backend/data readiness milestone.
+Complete one large backend/data-readiness milestone for the active live Bitrix dataset before frontend work:
 
-Read Bitrix metadata for the contact type field `UF_CRM_1595304971232` and extract the human-readable enum labels for the raw option IDs observed in the active local dataset. Then write a safe mapping template into `.ai/report.md` so the user can fill the business decisions: normalized type, region, priority, and active/inactive rule.
+- apply the user-approved contact type, region, and priority mapping;
+- update normalization so rules are based on Bitrix enum option IDs inside `contact_type_raw`, not only exact raw combinations;
+- treat missing contact type as `Конечный клиент / Без региона / priority 4 / active`;
+- rerun local normalization from the already persisted active dataset without a new Bitrix sync;
+- add real currency-rate loading needed for USD analytics on the active dataset;
+- verify existing analytics endpoints on the live local dataset;
+- update documentation and `.ai/report.md` with useful current status.
 
-This task is metadata-only. It must not call CRM row-listing methods, must not rerun sync, and must not create/update/delete anything in Bitrix CRM.
+This task must not call Bitrix sync or Bitrix row-listing methods. Bitrix remains read-only and no CRM write methods are allowed.
 
-## Context
+## User-Approved Contact Type Mapping
 
-- The active live local dataset was profiled in `TASK-2026-06-22-01`.
-- The contact type field is `UF_CRM_1595304971232`.
-- Local profiling found `54` distinct non-empty `contact_type_raw` combinations, built from these unique option IDs:
+Use this exact mapping.
 
-```text
-59
-61
-65
-67
-151
-245
-247
-249
-251
-253
-255
-469
-1943
-1945
-2341
-2343
-2345
-2785
-2829
-```
+Priority semantics:
 
-- There are currently `0` active `contact_type_rules`, so normalized type and region are still `Не определено` for the live dataset.
-- The next large backend/data readiness milestone must not start until the user has a clear mapping table to fill.
+- `1` is the highest priority.
+- Smaller numeric priority wins over larger numeric priority.
+- `4` is lower than `1`, `2`, and `3`.
+- `99` means effectively does not participate in analytical contact selection.
+- `is_active=false` means the option is stored/known but must not be used for active normalization or analytical contact selection.
 
-## Required Output For The User
+| bitrix_option_id | bitrix_option_label | normalized_type | region | priority | is_active |
+|---:|---|---|---|---:|---|
+| 59 | Подрядчик | Подрядчик | Беларусь | 3 | true |
+| 61 | Дизайнер / архитектор | Дизайнер | Беларусь | 1 | true |
+| 65 | Конечный клиент | Конечный клиент | Без региона | 4 | true |
+| 67 | Поставщик | Поставщик | Без региона | 99 | false |
+| 151 | Дилер | Дилер | Беларусь | 2 | true |
+| 245 | Другое | Другое | Без региона | 99 | false |
+| 247 | Проектировщик | Проектировщик | Беларусь | 3 | true |
+| 249 | Конкурент | Другое | Без региона | 99 | false |
+| 251 | Дилер РБ | Дилер | Беларусь | 2 | true |
+| 253 | Мастер-класс | Другое | Без региона | 99 | false |
+| 255 | РФ Дизайнер/Архитектор | Дизайнер | Россия | 1 | true |
+| 469 | Перевозчик | Другое | Без региона | 99 | false |
+| 1943 | Партнер | Партнер | Без региона | 99 | false |
+| 1945 | маркетинг | Другое | Без региона | 99 | false |
+| 2341 | Дилер РФ | Дилер | Россия | 2 | true |
+| 2343 | Подрядчик РФ | Подрядчик | Россия | 3 | true |
+| 2345 | Проектировщик РФ | Подрядчик | Россия | 3 | true |
+| 2785 | Строители РФ | Подрядчик | Россия | 3 | true |
+| 2829 | Прораб РБ | Подрядчик | Беларусь | 3 | true |
 
-In `.ai/report.md`, include a table with one row per observed Bitrix enum option ID.
+Missing/empty type rule:
 
-Codex must fill these factual columns:
+| source | normalized_type | region | priority | is_active |
+|---|---|---|---:|---|
+| no ID / empty field / `NULL` / empty string / `False` / `[]` | Конечный клиент | Без региона | 4 | true |
 
-- `bitrix_option_id` — numeric enum option ID from Bitrix, e.g. `65`.
-- `bitrix_option_label` — human-readable enum option label from Bitrix metadata.
-- `contacts_count` — aggregate count of contacts whose raw type contains this option ID, calculated from the local DuckDB dataset.
-- `observed_raw_combinations` — safe aggregate list/count summary of raw combinations containing this option ID. Do not include contact IDs, contact names, deal IDs, deal names, or row samples.
+Important business notes:
 
-Codex must leave these decision columns blank or marked `TODO_USER`:
+- End clients have no region tracking in source data, so all end clients must be `Без региона`.
+- Contacts without contact type must also be normalized as end clients.
 
-- `normalized_type` — the analytics group name the user wants in reports, e.g. `Клиент`, `Дилер`, `Партнер`, `Поставщик`, `Не определено`, or another business-approved value.
-- `region` — the analytics region group the user wants in reports, e.g. `РБ`, `РФ`, `СНГ`, `Европа`, `Другое`, `Не определено`, or another business-approved value.
-- `priority` — integer priority for choosing the analytical contact when a deal has multiple contacts. Smaller number wins. Use `1` for the most important contact type, then `2`, `3`, etc. If a type should never win analytical-contact selection, mark it clearly for user decision.
-- `is_active` — whether this enum option should become an active normalization rule: `true` / `false` / `TODO_USER`.
+## Required Behavior
 
-Also include a short explanation in `.ai/report.md` that the user only needs to fill the decision columns, not the factual columns.
+### 1. Rule Storage And Configuration
 
-## Scope
+Implement the mapping as configuration/data, not scattered business logic.
 
-### 1. Read Workflow And Current State
+Acceptable approaches:
 
-Before implementation, read:
+- source-controlled configuration file plus a loader that upserts local `contact_type_rules` into DuckDB; or
+- a revised local config table schema plus a deterministic seed/apply helper.
 
-- `AGENTS.md`;
-- `docs/workflow.md`;
-- `docs/crm_analytics_system_tz.md`;
-- `.ai/task.md`;
-- `.ai/report.md`;
-- recent `git log` / `git status`.
+Keep the system reproducible after a fresh checkout and local DB initialization. Do not commit generated DuckDB files, Parquet snapshots, `.env`, CSV exports, or local data artifacts.
 
-### 2. Extract Bitrix Metadata Safely
+If the current `contact_type_rules` table shape is too exact-raw-value oriented, migrate/extend it carefully. The new behavior must support rules by individual enum option ID because live raw values can be combinations such as `[59, 65]` and `[61, 59, 65]`.
 
-Use only read-only metadata access for `UF_CRM_1595304971232`.
+### 2. Contact Normalization
 
-Allowed Bitrix method class:
+For each contact:
 
-- metadata/fields method needed to inspect contact field enum items, expected path through existing discovery/client code such as `crm.contact.fields`.
+- parse `contact_type_raw` into option IDs when present;
+- ignore inactive options for active normalization;
+- choose the active option with highest priority, where priority `1` wins over `2`, `3`, `4`;
+- if multiple active options have the same priority, use deterministic tie-breakers and document them;
+- if `contact_type_raw` is missing/empty/`False`/`[]`, apply the missing-type rule: `Конечный клиент / Без региона / priority 4`;
+- if a non-empty raw value contains only inactive/unknown options, normalize to the existing undefined value and do not treat it as an end client.
 
-Forbidden Bitrix method classes in this task:
+### 3. Analytical Contact Selection
 
-- `crm.contact.list`;
-- `crm.deal.list`;
-- `crm.deal.contact.items.get`;
-- any method ending in `.add`, `.update`, `.delete`;
-- any method that returns contact/deal row data instead of field metadata.
+For each deal with linked contacts:
 
-If existing discovery code does not expose enum labels, add the smallest reusable helper/API/script that keeps this metadata-only boundary explicit and covered by tests.
+- select the analytical contact using only active normalized contacts/rules;
+- priority `1` is highest and must win over `2`, `3`, and `4`;
+- contacts based only on inactive/unknown options must not win analytical selection;
+- if priorities tie, keep or introduce deterministic tie-breakers consistent with the existing domain rules, such as Bitrix primary flag and then contact ID;
+- a deal with no eligible active contact should remain without analytical contact rather than selecting an inactive type.
 
-### 3. Combine With Local Aggregate Counts
+### 4. Local Re-Normalization Without Bitrix Sync
 
-Use the active local DuckDB dataset only for aggregate counts:
+Add a safe local operation/helper/API/CLI path, following existing patterns, that:
 
-- contacts count by option ID;
-- raw combination counts that contain each option ID.
+- applies/upserts the approved rules;
+- reruns normalization for the current active local dataset from existing DuckDB raw tables;
+- updates normalized tables and safe local status/reporting as needed;
+- does not call Bitrix at all;
+- does not overwrite raw Bitrix tables;
+- is covered by tests with local/synthetic data.
 
-Do not output local absolute paths, raw rows, row samples, contact/deal IDs, contact/deal names, phone, email, address, messenger, comments, files, activity data, webhook URLs, tokens, or generated file contents.
+If an API endpoint is added, it must be clearly local-only and safe. If a CLI/helper is more consistent with the current codebase, use that instead.
 
-### 4. Report And Docs
+### 5. Currency Rates For USD Analytics
 
-Update `.ai/report.md` with:
+The current live data contains multiple currencies. Add the first real currency-rate loading path required for USD analytics.
 
-- changed files;
-- exact Bitrix metadata methods called and call counts;
-- confirmation that no forbidden CRM methods were called;
-- mapping template table;
-- checks run;
-- assumptions and blockers.
+Requirements:
 
-Update concise docs only if new reusable helper/API behavior is added.
+- use a read-only external rate source consistent with the project spec, expected NBRB where applicable;
+- persist rates locally in `currency_rates`;
+- cover currencies observed in the active dataset, currently including at least `BYN`, `EUR`, `RUB`, and `USD`;
+- support historical report calculations by choosing the latest local rate on or before the deal date, consistent with existing report behavior;
+- keep tests deterministic by mocking the external rate source or using local fixtures;
+- do not call Bitrix for currency work;
+- document any limitation if a currency/rate/date cannot be resolved.
+
+If full historical backfill is too large for one implementation pass, implement a bounded but correct loader for the date range present in local deals and clearly report what was loaded and what remains.
+
+### 6. Live Dataset Verification
+
+After applying rules and rates locally, run safe verification against the active live local dataset and include aggregate results in `.ai/report.md`:
+
+- active dataset name/kind/state;
+- raw and normalized counts;
+- count of active contact type rules;
+- normalized contacts/deals by type and region;
+- count of contacts still undefined by type/region;
+- count of deals without analytical contact;
+- analytics endpoints smoke results for contacts, ABC, RFM, stale deals, deal cycle, concentration, and type/region reports;
+- currency rates loaded by currency/date range/source;
+- no row-level contact/deal data, no names, no IDs in samples, no local absolute paths, no secrets.
 
 ## Out Of Scope
 
-- Filling the business mapping decisions.
-- Creating active `contact_type_rules`.
-- Re-running local normalization.
-- Re-running Bitrix sync.
-- Fetching contacts/deals from Bitrix.
-- Any write method in Bitrix.
-- NBRB currency integration.
-- Frontend work.
-- UI kits work.
-- Authentication, deployment, scheduler, or production migration work.
+- Any Bitrix CRM write method.
+- New Bitrix sync or row listing from Bitrix.
+- `crm.contact.list`, `crm.deal.list`, `crm.deal.contact.items.get`.
+- Companies, leads, products, activities, comments, files, phones, emails, addresses, messengers, requisites.
+- Frontend screens or `ui-kits/` work.
+- Authentication.
+- Scheduler/automatic sync.
+- Production deployment.
+- CSV export.
 
 ## Acceptance Criteria
 
-- `.ai/report.md` contains a user-fillable mapping table for all observed option IDs listed above.
-- The table includes Bitrix enum labels from metadata and local aggregate counts.
-- User decision columns are clearly marked and left for the user.
-- Bitrix calls are metadata-only and read-only.
-- `.ai/report.md` explicitly lists the methods called and confirms forbidden methods were not called.
-- No contact/deal row data, IDs, names, personal fields, secrets, local absolute paths, or generated data are reported.
-- If code is added, tests cover metadata enum extraction and safe output behavior using mocks/local fixtures.
+- User mapping above is implemented exactly.
+- Missing contact type normalizes as `Конечный клиент / Без региона / priority 4`.
+- Option-ID combinations are handled correctly, not as unrelated exact strings.
+- Priority semantics are correct: `1` is highest and `99` does not participate.
+- Inactive options do not win active normalization or analytical contact selection.
+- Local re-normalization runs from persisted raw tables without a Bitrix sync.
+- USD analytics use persisted local rates loaded through the new real-rate path, with deterministic tests.
+- Existing analytics endpoints work after live local re-normalization.
+- `.ai/report.md` includes safe aggregate before/after or after-only verification results.
+- `.ai/report.md` explicitly states that no Bitrix sync/row-listing/write methods were called.
+- Documentation is updated for rule semantics, local re-normalization, and currency-rate loading.
 - Generated local data artifacts are not staged or committed.
 - The implementation commit uses the exact required message:
 
 ```text
-codex: TASK-2026-06-22-02 Extract contact type enum labels
+codex: TASK-2026-06-22-03 Apply live data rules and rates
 ```
 
 ## Checks
@@ -157,13 +186,21 @@ git log --oneline -5
 git status --short
 ```
 
-Run targeted backend tests from `backend/` if code changes are made:
+Run backend tests from `backend/`:
 
 ```bash
 python -m pytest
 ```
 
 If system Python lacks pytest, use the existing backend dev environment and document the exact command used.
+
+Run syntax/compile checks if consistent with the previous tasks.
+
+Run from repository root if Docker is available:
+
+```bash
+docker compose config
+```
 
 Before committing:
 
@@ -183,9 +220,8 @@ Codex must not commit until all conditions below are true:
 - the latest relevant commit is this planner commit;
 - `.ai/report.md` is updated;
 - every required check is either run and reported, or explicitly documented as not run with reason;
-- `.ai/report.md` explicitly states which Bitrix methods were called;
-- `.ai/report.md` explicitly states that no forbidden CRM methods were called;
-- staged files are only files intentionally changed for `TASK-2026-06-22-02` plus `.ai/report.md`;
+- `.ai/report.md` explicitly states that no Bitrix sync, Bitrix row-listing, or Bitrix write methods were called;
+- staged files are only files intentionally changed for `TASK-2026-06-22-03` plus `.ai/report.md`;
 - `.env`, generated data, DuckDB files, Parquet snapshots, CSV exports, logs, caches, and `ui-kits/` are not staged;
 - `.ai/task.md` is not staged by Codex unless the user explicitly requested changing the task;
 - the final commit message exactly matches the required `codex:` message above.
