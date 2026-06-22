@@ -1,215 +1,131 @@
-# Task: TASK-2026-06-22-11
+# Task: TASK-2026-06-22-12
 
 Status: planned
-Created from: current `main` after `9344093 codex: TASK-2026-06-22-10 Reconcile contact 661 explicit deal IDs`
+Created from: current `main` after `80475ba codex: TASK-2026-06-22-11 Test crm.item.list deal contact links`
 
 ## Title
 
-Test `crm.item.list` as the fast deal-contact link source
+Fix empty refresh writes
 
 ## Goal
 
-Determine whether Bitrix universal CRM methods can provide complete deal-contact links fast enough for normal manual refresh, without doing `crm.deal.contact.items.get` once per deal.
-
-The immediate decision point is the known `contact_id=661` case. Bitrix shows these seven deals for contact `661`:
+Fix the manual refresh failure reported by the user after switching normal sync to `crm.item.list`:
 
 ```text
-123
-343
-1239
-14773
-19149
-23989
-24761
+Invalid Input Error: executemany requires a non-empty list of parameter sets to be provided
 ```
 
-`TASK-2026-06-22-10` proved that deals `123`, `343`, and `1239` were missed by the normal sync because `crm.deal.list` row fields did not include the secondary relation to contact `661`, while `crm.deal.contact.items.get` did confirm the relation.
-
-This task must run a bounded read-only `crm.item.list` test for these exact deal IDs, decide whether it returns a complete contact list for deals, and implement the fastest safe normal-refresh path if the test proves it.
-
-## Official API Facts To Verify Against
-
-Use official Bitrix REST documentation as the source for API behavior.
-
-Known documented facts:
-
-- `crm.deal.list` is deprecated and its development is halted; Bitrix says to use `crm.item.list`.
-- `crm.deal.list` does not support `CONTACT_IDS`; Bitrix says to use `crm.item.list` for deals with a contact list and for contact filtering.
-- `crm.item.list` is read-only for users with read permission and uses `entityTypeId=2` for deals.
-- `crm.item.list` must use explicit safe `select`; do not use `select: ["*"]` because `*` can return `fm` multiple fields such as phones, e-mail, and messengers.
-- Available item fields should be discovered with `crm.item.fields` for `entityTypeId=2`.
-- `batch` supports up to 50 sub-requests and is only a fallback, not the preferred normal sync path.
+The refresh must not fail with a low-level DuckDB `executemany` error when an intermediate row list is empty. It must either safely skip an empty insert where empty data is acceptable, or return a clear user-safe error explaining which required data was absent.
 
 ## Facts
 
 - Bitrix is read-only.
-- CRM write methods remain forbidden:
-  - `crm.*.add`
-  - `crm.*.update`
-  - `crm.*.delete`
-  - `crm.*.set`
-- Main analytics entity is the contact.
-- A deal is counted once by selecting one analytical contact from all loaded deal-contact links.
-- Contact `661` has designer type `[61]`, normalized type `Дизайнер`, region `Беларусь`, priority `1`.
-- Priority is not the root cause of the `661` mismatch.
-- Normal manual sync currently builds links from deal row fields such as `CONTACT_ID` and `CONTACT_IDS` returned by `crm.deal.list`.
-- Normal manual sync must not call `crm.deal.contact.items.get` once per deal.
-- `TASK-2026-06-22-10` added a bounded explicit reconciliation helper, but it is not a scalable normal-refresh solution.
+- Normal manual sync now uses `crm.item.fields` + `crm.item.list` for deal items and `contactId` / `contactIds` for links.
+- The user hit the error from the UI manual refresh flow: `POST /api/local/refresh-data`.
+- `backend/app/storage/loaders.py` already uses `_executemany_if_rows()` for raw Bitrix inserts.
+- Other code paths still call `connection.executemany(...)` directly with possibly empty lists.
+- Known direct `executemany` risk areas from current GitHub files:
+  - `backend/app/pipeline/normalization.py` inserts `normalized_contacts` and `normalized_deals` without empty-row guards.
+  - `backend/app/pipeline/currency_rates.py` inserts `currency_rates` without an empty-row guard and can produce an empty `rows` list if NBRB/source/common-date data resolves to no insertable rows.
+  - `backend/app/pipeline/approved_contact_type_rules.py` inserts approved rules without an empty-row guard; default rules are non-empty, but the helper should still be robust for tests/custom calls.
+- This is not a Bitrix write issue and must not add any Bitrix write methods.
 
 ## Assumptions
 
-- `crm.item.list` for deals may expose a field such as `contactIds` that contains the full list of contacts linked to each deal.
-- If `crm.item.list` returns complete contact IDs for the seven known deals, it should be used for normal deal extraction/link extraction instead of `crm.deal.list`.
-- If `crm.item.list` does not return complete contact IDs on this portal, the scalable alternative may be a separate explicit/deep relation sync using `batch`, not a per-deal HTTP loop in the normal refresh.
+- The immediate user error likely comes from one of the unguarded `executemany` calls after Bitrix data was fetched: normalization or currency-rate loading.
+- Empty raw links can be acceptable; empty contacts/deals/rates may or may not be acceptable depending on stage of the flow.
+- The fix should make the failing step identifiable from the UI-safe status message without exposing raw rows, secrets, local paths, or stack traces.
 
 ## Unknowns
 
-- The exact field names returned by `crm.item.fields` for deal contacts on this Bitrix portal.
-- Whether `crm.item.list` can select and return the complete deal contact list for deals `123`, `343`, and `1239`.
-- Whether `crm.item.list` supports safe filtering by explicit deal IDs on this portal.
-- Whether switching normal sync to `crm.item.list` requires field-name mapping changes for current raw deal transformation.
+- Which exact direct `executemany` triggered the user's current failure.
+- Whether the live refresh fetched zero deal items, zero contacts, or fetched deals but no insertable NBRB currency-rate rows.
+- Whether `crm.item.list` full normal sync returned zero rows on this user's run due to Bitrix behavior, field selection, pagination, or a transient issue.
 
 ## Scope
 
-### 1. Add safe Bitrix universal item client support
+### 1. Audit direct `executemany` usage
 
-Add read-only support for:
+Search backend app/tests for direct `executemany` calls.
 
-```text
-crm.item.fields
-crm.item.list
-```
+For production code, ensure no call can receive an empty parameter list unless it is guarded or intentionally raises a clear domain error before DuckDB is called.
 
-Only for explicit read-only use. Keep the method allowlist strict.
+Do not change unrelated test fixture setup unless needed for coverage.
 
-For `crm.item.fields`, call it with:
+### 2. Fix normalization empty-row handling
 
-```json
-{"entityTypeId": 2}
-```
+In `normalize_local_data()`:
 
-For `crm.item.list`, use:
+- If there are zero raw contacts, skip normalized contact insert safely.
+- If there are zero raw deals, skip normalized deal insert safely.
+- Ensure this does not mask errors for malformed non-empty data.
+- Keep deals without links supported: they should still normalize as `Без контакта` / `Не определено`.
 
-```json
-{"entityTypeId": 2, "select": [...], "filter": {...}, "order": {...}}
-```
+### 3. Fix currency-rate empty-row handling
 
-Do not add `crm.item.add`, `crm.item.update`, `crm.item.delete`, or any other write-capable method.
+In `load_currency_rates_for_raw_deals()`:
 
-### 2. Discover the safe deal item field set
-
-Implement a helper that inspects `crm.item.fields` for `entityTypeId=2` and determines the available safe deal fields needed for the current raw model and links.
-
-Minimum desired deal data fields, using the actual supported names from `crm.item.fields`:
-
-- deal ID;
-- title/name;
-- amount/opportunity;
-- currency;
-- created time;
-- closed time;
-- stage;
-- category;
-- primary contact if available;
-- full contact ID list if available.
-
-Hard safety rules:
-
-- never request `*`;
-- never request `fm`;
-- never request phones, email, addresses, messengers, comments, files, requisites, activities, or arbitrary non-allowlisted custom fields;
-- if a field is not known safe, do not select it.
-
-### 3. Run the bounded live `crm.item.list` test
-
-Add an explicitly invoked backend diagnostic or script/helper, then run it if live Bitrix credentials are available in the execution environment.
-
-The test must be bounded to exactly these deal IDs:
+- If there are no raw deals, continue returning `None` as today.
+- If raw deals exist but computed currency-rate insert rows are empty, do not call DuckDB `executemany` with an empty list.
+- Prefer a clear `ValueError` with a safe message, for example:
 
 ```text
-123, 343, 1239, 14773, 19149, 23989, 24761
+No currency rate rows were loaded for observed deal currencies/date range.
 ```
 
-It must call only read-only methods:
+- Preserve existing supported-currency checks and USD-required checks.
+- Do not expose external response payloads or raw deal rows.
 
-```text
-crm.item.fields
-crm.item.list
-```
+### 4. Fix approved rules helper robustness
 
-It must report only safe ID-level facts in `.ai/report.md`:
+In `replace_contact_type_rules()`:
 
-- method names used;
-- selected safe field names;
-- whether all seven deal IDs were returned;
-- for each deal ID, the returned linked contact IDs;
-- whether contact `661` is present;
-- whether `crm.item.list` agrees with the `TASK-10` `crm.deal.contact.items.get` result;
-- whether `crm.item.list` is sufficient for normal refresh.
+- If called with an empty rule tuple, clear rules and return `0` without calling empty `executemany`.
+- Preserve current behavior for the default approved rules.
 
-Do not include raw Bitrix payloads, webhook values, secrets, personal fields, contact names, comments, files, local paths, or generated data contents.
+### 5. Improve refresh failure message if needed
 
-If live Bitrix credentials are not available, commit the code/tests/report as `blocked` or `partial` with the exact reason. Do not fake the result.
+If the low-level DuckDB message can still surface from manual refresh, wrap or convert it to a clearer safe status message.
 
-### 4. Decide and implement the normal refresh path
+Do not expose stack traces, local paths, webhook values, raw Bitrix payloads, phone/email/address/messenger/comment/file/requisite/activity data, or arbitrary custom fields.
 
-If the bounded live test proves that `crm.item.list` returns the complete contact ID list for all seven known deals, update normal manual Bitrix deal ingestion to use `crm.item.list` for deal rows and deal-contact link extraction.
-
-Requirements for the switched path:
-
-- preserve current raw deal columns and semantics;
-- extract all contact links from the complete item contact list;
-- preserve primary-contact information when available;
-- keep `raw_deal_contact_links` uniqueness by `deal_id + contact_id`;
-- keep one analytical contact per deal through existing normalization rules;
-- ensure contact `661` would naturally get all seven supplied deals after a normal refresh, without explicit reconciliation;
-- keep Docker Compose startup unchanged: no automatic Bitrix refresh;
-- keep UI refresh manual via existing operator action.
-
-If `crm.item.list` does not return complete contact IDs or cannot safely expose the needed field, do not switch normal sync. Instead, document the fastest safe fallback design in `.ai/report.md`: a separate explicit/deep relation sync using Bitrix `batch` with up to 50 `crm.deal.contact.items.get` sub-requests per HTTP call, guarded by progress/status and not run automatically.
-
-### 5. Tests
+### 6. Tests
 
 Add focused backend tests for:
 
-- `crm.item.fields` and `crm.item.list` are allowed read-only methods;
-- CRM write methods remain rejected/not introduced;
-- `crm.item.list` request uses explicit safe select and never `*` or `fm`;
-- explicit-ID `crm.item.list` diagnostic is bounded to the supplied deal IDs;
-- transform/parsing supports Bitrix item field casing used by `crm.item.list`;
-- multi-contact deal links from the item contact list are not lost;
-- designer priority `1` still wins when a deal has primary lower-priority contact plus designer `661` as secondary;
-- analytics count matches normalized/link facts in a scenario equivalent to the seven supplied deal IDs;
-- forbidden personal fields are not returned/logged by diagnostics.
+- `normalize_local_data()` with zero raw contacts and zero raw deals does not raise `executemany requires...` and leaves normalized tables empty.
+- `normalize_local_data()` with deals but no links still creates normalized deals with no analytical contact.
+- `load_currency_rates_for_raw_deals()` with raw deals but no insertable rate rows returns/raises a clear safe error and does not call empty `executemany`.
+- `replace_contact_type_rules(connection, rules=())` clears rules and returns `0` without raising.
+- Manual refresh failure status for this class of issue is safe and understandable.
+- Existing item-list ingestion tests still pass, including secondary designer contact `661`.
+- CRM write methods remain rejected/not introduced.
 
-### 6. Documentation/report
+### 7. Report
 
 Update `.ai/report.md` with:
 
-- the exact `crm.item.fields` contact-related field names discovered;
-- the exact bounded `crm.item.list` result for the seven deal IDs, as safe ID-level facts only;
-- the decision: switch normal sync to `crm.item.list`, or do not switch and use fallback design;
-- if switched, changed files and how normal refresh now builds complete links;
-- if not switched, why the test failed or was unavailable;
-- all checks run;
-- confirmation that no write methods were added or called.
-
-Update `docs/development.md` and `docs/data-model.md` if normal sync behavior changes.
+- exact root cause found in code;
+- whether it was normalization, currency rates, approved rules, or multiple guarded sites;
+- changed files;
+- tests run;
+- confirmation that no Bitrix write methods were added or called;
+- whether frontend build was skipped and why.
 
 ## Out Of Scope
 
-- New frontend screens or UI redesign.
-- Automatic background refresh or scheduled sync.
-- Broad unbounded per-deal `crm.deal.contact.items.get` scan in normal refresh.
-- Companies, leads, products, calls, emails, comments, activities, files, requisites.
-- Any Bitrix write operation.
-- Exporting raw Bitrix data.
-- Changing contact type priority rules.
-- Changing analytics formulas, revenue, profit, ABC, or RFM semantics.
-- Modifying `ui-kits/`.
+- New frontend UI.
+- Changing the `crm.item.list` decision from TASK-11.
+- Reverting to `crm.deal.list` for normal sync.
+- Adding broad `crm.deal.contact.items.get` scans.
+- Changing analytics formulas, contact priority rules, revenue/profit/ABC/RFM semantics.
+- Automatic refresh, scheduler, queues, or background jobs.
+- Bitrix write operations.
+- Exporting raw data.
 
 ## Constraints
 
+- Work only on current GitHub repository files.
 - Bitrix remains read-only.
 - Do not add or call methods matching:
 
@@ -220,31 +136,26 @@ crm.*.delete
 crm.*.set
 ```
 
-- Do not use `select: ["*"]`.
-- Do not request or expose `fm`, phones, emails, addresses, messengers, comments, files, requisites, activities, or arbitrary non-allowlisted custom fields.
+- Do not request or expose forbidden personal fields.
 - Do not print webhook URLs or tokens.
 - Do not commit `.env`, local databases, Parquet snapshots, raw exports, logs, caches, build artifacts, `node_modules`, `frontend/dist`, or `ui-kits/` changes.
-- Do not make Docker Compose auto-refresh Bitrix data.
-- Keep the live test bounded to the seven supplied deal IDs.
-- If a broad relation-refresh design is needed, document it but do not run it in this task.
+- Keep changes backend-focused and minimal.
 
 ## Acceptance Criteria
 
-- `.ai/report.md` states whether `crm.item.list` returned complete contact IDs for deals `123`, `343`, `1239`, `14773`, `19149`, `23989`, and `24761`.
-- `.ai/report.md` states whether contact `661` was present for each of those seven deals in the `crm.item.list` result.
-- The decision is explicit: normal sync switched to `crm.item.list`, or normal sync not switched with a clear reason.
-- If switched, a normal refresh path no longer relies on `crm.deal.list CONTACT_IDS` for complete deal-contact links.
-- If switched, backend tests prove multi-contact links are preserved and designer `661` wins over lower-priority primary contacts.
-- If not switched, no risky partial implementation is left behind; fallback is documented as a separate future operator/deep-sync path.
-- Diagnostics and reports expose only safe ID-level facts.
+- The reported `executemany requires a non-empty list of parameter sets` class of failure is fixed or converted into a clear safe domain error.
+- Empty optional inserts are skipped safely.
+- Required empty-data cases produce understandable safe messages.
+- Normal refresh still uses `crm.item.list` for deal items.
+- Multi-contact links from `contactIds` are still preserved.
+- Designer `661` secondary-contact case remains covered by tests.
 - No Bitrix write methods are added or called.
-- No forbidden personal fields are selected, stored, logged, returned, or documented.
-- Relevant backend tests pass.
-- Frontend build is run only if frontend code changes.
-- The implementation commit uses the exact required message:
+- Backend tests pass.
+- `.ai/report.md` explains the fix and checks.
+- Commit message exactly:
 
 ```text
-codex: TASK-2026-06-22-11 Test crm.item.list deal contact links
+codex: TASK-2026-06-22-12 Fix empty refresh writes
 ```
 
 ## Checks
@@ -272,16 +183,6 @@ cd frontend
 npm run build
 ```
 
-Run Compose smoke checks only if runtime/operator startup behavior changes:
-
-```bash
-docker compose config
-docker compose up --build -d
-curl -f http://localhost:8000/health
-curl -f http://localhost:5173/
-docker compose down -v
-```
-
 Run safety search before committing:
 
 ```bash
@@ -301,18 +202,12 @@ git diff --check -- ':!AGENTS.md' ':!.ai/task.md'
 
 Codex must not commit until all conditions below are true:
 
-- the latest relevant commit is this planner commit;
-- official Bitrix docs were checked for `crm.deal.list`, `crm.item.fields`, `crm.item.list`, and `batch` constraints;
-- the `crm.item.list` live test was either run for exactly the seven supplied deal IDs or explicitly reported as unavailable with reason;
-- if the live test was run, `.ai/report.md` includes only safe ID-level results;
-- if normal sync is switched, backend tests cover multi-contact link completeness and designer priority for a secondary contact;
-- if normal sync is not switched, no incomplete normal-sync migration remains in the code;
+- latest relevant commit is this planner commit;
+- direct production `executemany` calls have been audited;
+- empty-row behavior is fixed or explicitly made a safe domain error;
+- backend tests cover the reported class of failure;
 - every required check is either run and reported, or explicitly documented as not run with reason;
-- `.ai/report.md` explicitly states whether any live Bitrix call was or was not run;
-- `.ai/report.md` explicitly states that no Bitrix write methods were added or called;
-- staged files are only files intentionally changed for `TASK-2026-06-22-11` plus `.ai/report.md`;
-- `.env`, generated data, DuckDB files, Parquet snapshots, CSV exports, logs, caches, `node_modules`, `frontend/dist`, and `ui-kits/` are not staged;
-- `.ai/task.md` is not staged by Codex unless the user explicitly requested changing the task;
-- the final commit message exactly matches the required `codex:` message above.
-
-If any condition is not true, stop and report the blocker instead of committing.
+- `.ai/report.md` states that no Bitrix write methods were added or called;
+- staged files are only task files plus `.ai/report.md`;
+- forbidden artifacts are not staged;
+- final commit message exactly matches the required `codex:` message above.
