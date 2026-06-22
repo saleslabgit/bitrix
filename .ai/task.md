@@ -5,41 +5,48 @@ Created from: current `main` after `TASK-2026-06-22-27`
 
 ## Title
 
-Add sticky tables and contact revenue chart
+Add report workspace layout and contact revenue chart
 
 ## Goal
 
-Improve report table usability and add a customer-level revenue chart from the Contacts table.
+Rework report screens into a denser full-height workspace and add a customer-level revenue chart from the Contacts table.
 
 User-facing goals:
 
-- report tables should use only the available viewport height;
-- table top and bottom controls should stay visible while scrolling table rows;
-- clicking a customer name in the Contacts table should open a modal with a chart of closed won deals for that customer.
+- remove the large report title/subtitle area because it wastes vertical space;
+- move report filters into a right-side popup/drawer opened by a filter button;
+- make the table card fill the remaining viewport height down to the bottom;
+- keep table header and bottom controls visible while table rows scroll;
+- clicking a customer name in the Contacts table opens a popup with a chart of closed won deals for that customer.
 
 ## User Request
 
-The user confirmed the previous `/api/meta/filters` issue no longer happens and asked for the next task:
+The user confirmed the previous `/api/meta/filters` issue no longer happens and asked for:
 
-- In tables, pin the top and bottom and make tables only as tall as the screen.
-- In the clients table, clicking a client name should open a popup with a chart of closed deals for the selected filter period.
-- X axis: deal close dates.
-- Y axis: revenue.
+1. Remove the report title and subtitle because they take too much space.
+2. Move filters into a popup that opens from the right.
+3. Make the table extend to the bottom of the screen.
+4. In the clients table, clicking a client name should open a popup with a chart of closed deals for the selected filter period.
+5. X axis: deal close dates.
+6. Y axis: revenue.
+
+The latest screenshot marks the current problems:
+
+- large header block above the table;
+- inline filters taking a full row;
+- unused empty space below the table card.
 
 ## Facts
 
 - Frontend currently has Contacts, Deals, and ABC report screens in `frontend/src/App.tsx`.
+- The current report header renders `Reports`, a large `h1`, subtitle, dataset badge, and refresh button.
+- Filters are currently inline `section.toolbar` blocks above the table for Contacts, Deals, and ABC.
 - Tables currently live inside `.table-card` with `.table-scroll` using horizontal scroll only.
 - Pagination lives below the table inside the same card.
-- Deals and ABC reports also show totals bars above and below their tables.
+- Deals and ABC reports show totals bars above and below their tables.
 - Contacts rows currently show contact name as plain text inside `.contact-cell`.
-- Contacts filters currently include:
-  - search;
-  - exact contact ID;
-  - contact type;
-  - deal status;
-  - deal creation date range labeled `Создана с` / `Создана по`.
-- Backend contact analytics already supports `date_from` / `date_to` over reporting dates and `deal_created_from` / `deal_created_to` over deal creation dates, but the current Contacts UI exposes only deal creation dates.
+- Contacts filters currently include search, exact contact ID, contact type, deal status, and deal creation date range labeled `Создана с` / `Создана по`.
+- Backend contact analytics supports `date_from` / `date_to` over reporting dates and `deal_created_from` / `deal_created_to` over deal creation dates, but the current Contacts UI exposes only deal creation dates.
 - Revenue is always won-only USD.
 - The frontend package currently has no charting library dependency.
 - Project requirements allow charts through Recharts or ECharts.
@@ -48,25 +55,58 @@ The user confirmed the previous `/api/meta/filters` issue no longer happens and 
 
 ## Product Semantics
 
+### Dense report workspace
+
+The report screens should behave like an operational data workspace, not a marketing/page-title layout.
+
+Required layout direction:
+
+- Remove the large `Reports` eyebrow, page `h1`, and subtitle from the visible report workspace.
+- Keep the left sidebar navigation.
+- Keep dataset status and `Обновить из Bitrix` available in a compact top action area.
+- Add a compact `Фильтры` button for the active report, ideally near dataset/refresh actions or table header.
+- Show active filter count near the filter button or in the table header.
+- The main content should use `height: 100vh` or equivalent viewport-bounded layout and avoid a large page-level vertical scroll.
+- The table card should start near the top of the working area and extend to the bottom of the viewport.
+- There should not be a large unused blank area below the table card at common desktop widths.
+
+### Right-side filter drawer
+
+Inline filter bars should be removed from the main page.
+
+Required behavior:
+
+- Contacts, Deals, and ABC filters move into a right-side drawer/popup.
+- The drawer opens from the right for the currently active report.
+- The drawer contains the same filter controls the active report currently has.
+- The drawer has a visible title, close button, and reset/apply actions where applicable.
+- Existing draft/apply date behavior must be preserved.
+- Existing search debounce behavior should remain where currently used, unless moving it into the drawer makes explicit apply/reset clearer.
+- Closing the drawer must not reset filters.
+- Reset still resets only the active report filters.
+- The drawer must not expose region filters/columns while region logic is hidden.
+- Use accessible dialog/drawer semantics (`role="dialog"`, `aria-modal="true"`) and close on backdrop or close button. Escape close is preferred if practical.
+
 ### Sticky table workspace
 
-Apply the table workspace behavior consistently to Contacts, Deals, and ABC reports.
+Apply table workspace behavior consistently to Contacts, Deals, and ABC reports.
 
 Definitions:
 
-- `Top` means the table column header row must remain visible while scrolling table rows.
-- `Bottom` means pagination and bottom totals, when present, must remain visible while scrolling table rows.
-- The table body area should scroll inside the card instead of making the whole page grow indefinitely.
+- `Top` means the table column header row remains visible while scrolling table rows.
+- `Bottom` means pagination and bottom totals, when present, remain visible while scrolling table rows.
+- The table body area scrolls inside the card instead of making the whole page grow indefinitely.
 
-Expected report behavior:
+Expected behavior:
 
-- The visible report card should fit within the current viewport as much as practical after the page header and filters.
-- Table rows scroll vertically inside the table area.
+- Contacts, Deals, and ABC table cards are viewport-bounded and fill the remaining vertical space.
+- Table rows scroll vertically inside `.table-scroll` or equivalent body area.
 - Table rows still scroll horizontally when the table is wider than the viewport.
-- Contacts, Deals, and ABC table headers remain visible while vertical scrolling rows.
+- `thead th` are sticky at the top of the scroll area.
 - Pagination remains visible at the bottom of the card.
-- For Deals and ABC, totals bars must remain readable; the bottom totals bar should stay with the bottom controls or remain visible in the fixed bottom area.
-- Do not break existing sorting, pagination, empty/error/loading states, or horizontal scroll.
+- For Deals and ABC, totals bars remain readable; the bottom totals bar should stay with the bottom area or otherwise remain visible without scrolling to the last row.
+- Existing sorting, pagination, empty/error/loading states, and horizontal scroll keep working.
+- No overlap, clipping, or unreadable controls at common desktop widths.
 
 ### Contact revenue chart popup
 
@@ -81,18 +121,18 @@ Chart rules:
 - X axis is `closed_at` date.
 - Y axis is won revenue in USD.
 - If multiple won deals have the same close date, aggregate/sum them for that date.
-- Points must be sorted by close date ascending.
-- The modal should show customer name and ID.
-- Show total revenue and deal count for the charted period.
-- Show loading, error, and empty states.
+- Points are sorted by close date ascending.
+- Modal shows customer name and ID.
+- Modal shows total revenue and won deal count for the charted period.
+- Modal has loading, error, and empty states.
 - Closing the modal must not reset table filters, sorting, or pagination.
 
 Period semantics for this task:
 
 - The chart period should follow the current Contacts screen date filters as the user's selected period.
-- Because the current Contacts UI exposes `Создана с` / `Создана по`, pass those values from the Contacts state to the chart request as the selected period context.
+- Because the current Contacts UI exposes `Создана с` / `Создана по`, pass those values from the Contacts state to the chart request as the selected period context for now.
 - The backend endpoint should support explicit closed-date filtering parameters (`date_from` / `date_to`) because the chart itself is by close date.
-- Frontend should map the current Contacts date filter to the chart period for now and clearly label the modal period so the behavior is understandable.
+- The modal must clearly label the period being applied so the behavior is understandable.
 - If no date filter is selected, show all closed won deals for that contact.
 
 If implementation finds that current date semantics are too misleading, document the concern in `.ai/report.md` and choose the smallest safe behavior that still lets the user inspect closed won deal revenue by close date.
@@ -152,7 +192,24 @@ Add backend dataclasses/models/tests consistently with current patterns in:
 - `backend/app/main.py`;
 - backend tests.
 
-### 2. Frontend modal and chart
+### 2. Frontend right filter drawer
+
+Replace inline filter toolbars with a drawer component for the active report.
+
+Required implementation:
+
+- Add state for drawer open/closed.
+- Render one drawer whose contents change by active report.
+- Move existing Contacts filters into drawer.
+- Move existing Deals filters into drawer.
+- Move existing ABC filters into drawer.
+- Keep active report filter state storage behavior unchanged.
+- Keep metadata-backed dropdown fallback behavior unchanged.
+- Keep region filters hidden.
+- Keep reset behavior per report.
+- Use existing design tokens/styles; do not edit `ui-kits/`.
+
+### 3. Frontend modal and chart
 
 Add a Contacts table interaction:
 
@@ -160,11 +217,11 @@ Add a Contacts table interaction:
 - Clicking it opens a modal.
 - The modal fetches the new backend endpoint for that contact and current Contacts selected period.
 - Modal must not navigate away and must not modify report filters.
-- Modal must be keyboard accessible enough for current UI standards:
+- Modal must be reasonably accessible:
   - visible close button;
-  - click backdrop or close button closes;
-  - `Escape` closes if practical;
-  - use dialog semantics (`role="dialog"`, `aria-modal="true"`).
+  - backdrop click or close button closes;
+  - Escape closes if practical;
+  - `role="dialog"`, `aria-modal="true"`.
 
 Chart implementation:
 
@@ -173,36 +230,39 @@ Chart implementation:
 - Use a compact line or bar chart suitable for revenue over dates.
 - Format Y values as USD using existing money formatting conventions.
 - Format X values as close dates.
-- Render a useful empty state when there are no won closed deals in the period.
-- Keep the chart readable in a modal on desktop and usable on narrower screens.
+- Render useful empty/error/loading states.
+- Keep chart readable in a modal on desktop and usable on narrower screens.
 
-### 3. Sticky table workspace
+### 4. Full-height sticky table workspace
 
-Update `frontend/src/App.tsx` and `frontend/src/styles.css` so Contacts, Deals, and ABC tables use a viewport-bounded card layout.
+Update `frontend/src/App.tsx` and `frontend/src/styles.css` so Contacts, Deals, and ABC reports use a viewport-bounded card layout.
 
 Required behavior:
 
-- The table card has a bounded height based on the viewport.
+- Remove visible large report title/subtitle block.
+- Make `.main-panel` / report content fill viewport height.
+- Make `.table-card` flex vertically and fill available height.
 - `.table-scroll` supports vertical and horizontal scrolling.
 - `thead th` are sticky at the top of the scroll area.
 - Pagination is visible at the bottom without scrolling to the last row.
 - Bottom totals, where present, remain visible with the bottom area or otherwise do not disappear while scrolling rows.
 - Long tables should not make the whole page vertically huge.
-- Existing empty/loading/error states still look acceptable.
-- No overlap, clipping, or unreadable controls at common desktop widths.
+- Existing empty/loading/error states still look acceptable in the bounded card.
 
-### 4. Documentation and report
+### 5. Documentation and report
 
 Update relevant docs:
 
 - `docs/development.md` for new endpoint and frontend behavior;
 - `docs/data-model.md` for the contact won revenue series output if needed;
-- `frontend/README.md` for the modal/chart and sticky table behavior.
+- `docs/project-status.md` if current phase summary changes;
+- `frontend/README.md` for drawer filters, modal/chart, and full-height sticky tables.
 
 Update `.ai/report.md` with:
 
 - changed files;
 - backend endpoint semantics;
+- frontend drawer behavior;
 - frontend chart/modal behavior;
 - sticky table implementation notes;
 - checks run;
@@ -218,7 +278,7 @@ Update `.ai/report.md` with:
 - Showing phone, email, address, messengers, comments, files, requisites, or raw Bitrix fields.
 - Calling Bitrix from the chart/modal or report page load.
 - Editing `ui-kits/`.
-- Reworking the whole app navigation.
+- Reworking the whole app navigation beyond the report workspace/header/filter drawer.
 
 ## Constraints
 
@@ -239,14 +299,25 @@ crm.*.set
 
 ## Acceptance Criteria
 
+### Layout and filters
+
+- Large visible report title/subtitle is removed from Contacts, Deals, and ABC workspaces.
+- Dataset status and manual refresh remain available in a compact top action area.
+- Active report filters open in a right-side drawer.
+- Inline filter toolbar no longer consumes vertical space above the table.
+- Closing the drawer does not reset filters.
+- Reset still resets only the active report filters.
+- Active filter count remains visible somewhere compact.
+
 ### Table UX
 
-- Contacts, Deals, and ABC report cards are viewport-bounded.
+- Contacts, Deals, and ABC report cards are viewport-bounded and extend to the bottom of the screen.
 - Table rows scroll inside the table area.
 - Table headers stay visible while scrolling rows.
 - Pagination stays visible at the bottom of the card.
 - Deals and ABC totals remain readable and usable with the bounded table layout.
 - Existing sorting and pagination continue to work.
+- There is no large unused blank area under the table card at common desktop widths.
 
 ### Contact chart
 
@@ -308,7 +379,10 @@ curl -f http://localhost:5173/
 
 Then verify in browser:
 
+- no large title/subtitle block is visible;
+- filters open from the right and close correctly;
 - Contacts/Deals/ABC table header and bottom controls stay visible while rows scroll;
+- table card reaches the bottom of the viewport;
 - Contacts name click opens modal;
 - chart loads and closes correctly.
 
@@ -335,5 +409,5 @@ Before committing, verify:
 Commit message:
 
 ```text
-codex: TASK-2026-06-22-28 Add sticky tables and contact revenue chart
+codex: TASK-2026-06-22-28 Add report workspace layout and contact revenue chart
 ```
