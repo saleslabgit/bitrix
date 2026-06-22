@@ -1,129 +1,126 @@
-# Task: TASK-2026-06-22-25
+# Task: TASK-2026-06-22-26
 
 Status: planned
-Created from: current `main` after `TASK-2026-06-22-24`
+Created from: current `main` after accepted `TASK-2026-06-22-25`
 
 ## Title
 
-Fix ABC filter layout and changed-only UX
+Stabilize filter metadata endpoint
 
 ## Goal
 
-Fix the ABC report header/filter layout so controls never overflow outside the visible report workspace.
+Stop the periodic browser console error:
 
-Also make the changed-only filter understandable and safe: it should clearly mean "show only customers whose ABC segment changed between the `Было` and `Стало` periods".
+```text
+GET /api/meta/filters 503 (Service Unavailable)
+```
+
+The UI currently keeps working because the frontend uses cached filter metadata, but the backend should not produce expected intermittent `503` responses for normal report usage.
 
 ## User Request
 
-The user reported that the ABC filter block overflows horizontally: controls such as `Стало с`, `Стало по`, `Применить стало`, and `Сбросить` run outside the report area on the current screen width.
+The user confirmed the ABC layout works, but periodically sees this console error:
 
-The user also does not understand the current checkbox labeled `Только изменения`.
+```text
+GET http://localhost:5173/api/meta/filters 503 (Service Unavailable)
+```
 
 ## Facts
 
-- `TASK-2026-06-22-23` added the ABC frontend screen.
-- `TASK-2026-06-22-24` corrected ABC comparison direction to `Было -> Стало` and relabeled the period inputs.
-- Current ABC filter controls are too wide for the current report card/work area and do not wrap or constrain correctly.
-- ABC UI state is stored under `bitrix-sales.abc.v1`.
-- Contacts and Deals report behavior must remain unchanged.
-- Region filters and region columns remain hidden in the frontend.
-- ABC report pages read only local backend endpoint `GET /api/reports/abc/analytics`.
+- The frontend calls `GET /api/meta/filters` through React Query when a dataset is ready.
+- The frontend already keeps the last valid filter metadata in browser storage under `bitrix-sales.filter-metadata.v1`.
+- Current frontend logic validates fresh metadata and falls back to cached metadata when fresh metadata is empty/invalid.
+- Current backend route `meta_filters()` intentionally raises `HTTPException(503)` when:
+  - an active successful dataset exists;
+  - `normalized_contacts_count > 0`;
+  - `get_filter_metadata()` returns an empty `contact_types` list.
+- That `503` guard was useful before the frontend cache/fallback behavior, but now it creates a noisy expected network error in the browser console.
+- Contacts, Deals, and ABC reports must continue to read only local backend endpoints.
+- Bitrix must remain read-only and must not be called by report page loads.
 
 ## Assumptions
 
-- This is a frontend-only task unless implementation inspection proves a small API parameter guard is required.
-- The table itself may keep horizontal scrolling if needed, but filter/header controls must stay inside the visible page/workspace.
-- It is acceptable to change CSS layout classes used by the shared report shell as long as Contacts and Deals do not regress visually.
+- The periodic `503` is caused by the explicit guard in `backend/app/main.py`, not by Bitrix or Vite.
+- For normal report usage, `/api/meta/filters` should be a stable local metadata endpoint and return a typed metadata payload whenever the local schema can be read.
+- Unexpected storage/database exceptions can still surface as real backend errors; this task is not meant to hide real crashes.
 
 ## Unknowns
 
-- Browser visual verification environment may or may not be available to Codex.
-- Exact user viewport width is not known; the screenshot appears to be around a common laptop/desktop width with sidebar enabled.
+- The exact runtime moment when the empty `contact_types` snapshot appears is not known from GitHub alone.
+- Browser visual/runtime verification may or may not be available to Codex.
 
 ## Scope
 
-### 1. Fix ABC filter layout overflow
+### 1. Backend endpoint behavior
 
-Update `frontend/src/App.tsx` and `frontend/src/styles.css` as needed so the ABC filter area is responsive.
+Update `GET /api/meta/filters` so it does not return `503` merely because `contact_types` is empty while an active dataset exists.
 
 Required behavior:
 
-- ABC filter controls must wrap to additional rows or use a responsive grid/flex layout.
-- No filter control may extend outside the report card or outside the main visible workspace.
-- The left side of the filter row must not be clipped.
-- The page must not gain accidental horizontal overflow because of the ABC filter toolbar.
-- Date inputs and action buttons should keep usable widths and not collapse into unreadable controls.
-- The layout must work with the sidebar visible.
-- Keep the existing compact operational style from the current UI.
+- If local schema can be read, return `200` with `FilterMetadataResponse`.
+- Empty `contact_types`, `statuses`, or date ranges are allowed payload states.
+- Do not use `503` as the normal signal for transient or empty filter metadata.
+- Do not call Bitrix from this endpoint.
+- Do not expose secrets, raw rows, or forbidden personal fields.
 
 Recommended approach:
 
-- Prefer a responsive CSS grid/flex layout for the ABC filter toolbar.
-- Allow filter groups to wrap.
-- Use `min-width: 0`, `max-width: 100%`, and sane control widths where needed.
-- Avoid fixed widths that assume a wide screen.
+- Remove the explicit `HTTPException(503)` guard from `meta_filters()`.
+- Let the frontend's existing metadata validation and cache fallback handle empty metadata snapshots.
+- Keep real exceptions unhidden unless there is an existing project pattern for safe storage error mapping.
 
-### 2. Clarify changed-only checkbox
+### 2. Frontend behavior
 
-Replace the unclear visible copy:
-
-```text
-Только изменения
-```
-
-with clearer copy, for example:
-
-```text
-Только изменившие сегмент
-```
-
-or an equivalent concise Russian label.
+Review `frontend/src/App.tsx` and `frontend/src/api.ts` to ensure the current fallback behavior remains correct after backend no longer returns expected `503`.
 
 Required behavior:
 
-- The label must make it clear that the filter is about ABC segment changes.
-- The filter must only apply when the `Стало` period is actually enabled/applied.
-- If no `Стало` period is enabled, the checkbox should either be hidden or disabled.
-- If hidden/disabled while persisted state has `changedOnly = true`, the frontend must not silently send `changed_only=true` for a single-period ABC report.
-- When `Стало` is enabled, the checkbox should filter to rows where `segment_changed = true` according to `Было -> Стало` semantics.
+- If fresh metadata is empty/invalid and cached metadata is valid for the current active dataset, keep using cached metadata.
+- Dropdowns must not be cleared by a transient empty metadata response.
+- Do not show a user-facing error merely because fresh metadata is empty while valid cached metadata exists.
+- Avoid periodic failed `/api/meta/filters` requests in normal active dataset usage.
 
-### 3. Preserve existing behavior
+Only change frontend code if needed to satisfy the above behavior.
 
-Do not change:
+### 3. Tests
 
-- backend ABC calculation logic from `TASK-2026-06-22-24`;
-- Contacts report filters, columns, and navigation behavior;
-- Deals report filters, columns, totals, and navigation behavior;
-- Bitrix refresh flow;
-- region hidden state;
-- `ui-kits/` files.
+Update backend tests that currently expect `503` for empty contact types.
+
+Required coverage:
+
+- `meta_filters()` returns `200`/response model with empty metadata before dataset is prepared.
+- `meta_filters()` returns metadata normally after synthetic dataset is prepared.
+- `meta_filters()` no longer raises `HTTPException(503)` when an active dataset exists but contact types are empty.
+- Existing filter metadata extraction tests remain valid.
+
+If frontend code changes, run the frontend build.
 
 ### 4. Documentation and report
 
-Update only the documentation that is materially affected by this UX behavior.
+Update relevant docs only if behavior documentation is materially affected.
 
-Always update `.ai/report.md` with:
+Update `.ai/report.md` with:
 
-- what changed;
-- which files changed;
+- root cause;
+- changed files;
 - checks run;
-- whether browser visual verification was run;
+- whether frontend build was needed/run;
 - any remaining risk.
 
 ## Out Of Scope
 
-- New backend ABC metrics.
-- New report screens.
-- Reworking the whole layout system.
-- Changing ABC segment thresholds or migration priorities.
+- New filters or columns.
+- ABC calculation changes.
+- Contacts/Deals/ABC report data semantics.
 - Re-enabling region filters/columns.
+- Changing manual Bitrix refresh behavior.
+- Calling Bitrix from report pages.
 - Editing `ui-kits/`.
 
 ## Constraints
 
-- Work only in the GitHub repository state.
-- Keep Bitrix read-only; this task must not add Bitrix calls.
-- Do not expose or commit secrets, `.env`, local databases, generated data, logs, caches, `node_modules`, `frontend/dist`, or raw data.
+- Work only from current GitHub repository files.
+- Keep Bitrix read-only.
 - Do not add CRM write methods matching:
 
 ```text
@@ -133,18 +130,17 @@ crm.*.delete
 crm.*.set
 ```
 
+- Do not commit `.env`, DuckDB, Parquet, CSV, raw data, generated data, logs, caches, `node_modules`, `frontend/dist`, or `ui-kits/` changes.
 - Do not use `git add .`.
 
 ## Acceptance Criteria
 
-- On the ABC screen, the filter/header controls stay inside the visible report workspace at common desktop widths with the sidebar open.
-- The ABC filter block no longer overflows to the right as shown in the user screenshot.
-- The ABC filter block can wrap to multiple rows without clipping controls.
-- The changed-only checkbox has a clear label about segment changes.
-- `changed_only=true` is not sent for single-period ABC mode when `Стало` is not enabled.
-- With `Стало` enabled, changed-only mode still filters only changed ABC transitions.
-- Contacts and Deals screens still build successfully and are not intentionally changed.
-- No Bitrix write methods are added.
+- Normal report usage no longer produces periodic `GET /api/meta/filters 503` browser console errors caused by empty metadata snapshots.
+- `/api/meta/filters` returns a valid typed metadata response when local schema is readable, even if lists are empty.
+- Dropdown options are not cleared when fresh metadata is empty and cached metadata is valid.
+- No Bitrix calls are added to report page load paths.
+- No CRM write methods are added.
+- Relevant backend tests are updated and passing.
 - `.ai/report.md` is updated.
 
 ## Checks
@@ -156,7 +152,19 @@ git log --oneline -5
 git status --short
 ```
 
-Frontend checks:
+Backend checks:
+
+```bash
+cd backend && python -m pytest tests/test_api_local.py
+```
+
+If broader impact is found, run full backend tests:
+
+```bash
+cd backend && python -m pytest
+```
+
+Frontend checks, if frontend code changes:
 
 ```bash
 cd frontend && npm run build
@@ -168,21 +176,19 @@ Safety search:
 rg "crm\.[A-Za-z0-9_.]*(add|update|delete|set)" backend/app backend/tests frontend/src
 ```
 
-If browser verification is practical, run a real visual check for the ABC page width behavior and document the result. If not practical, say so in `.ai/report.md`.
-
 ## Hard Workflow Gate
 
 Before committing, verify:
 
-- only task-related files are staged;
+- only files related to this task are staged;
 - no forbidden artifacts are staged;
 - `ui-kits/` is not staged;
 - `.ai/report.md` is updated;
-- frontend build result is recorded;
-- safety search result is recorded.
+- relevant tests/checks are recorded in `.ai/report.md`;
+- no Bitrix write methods were added.
 
 Commit message:
 
 ```text
-codex: TASK-2026-06-22-25 Fix ABC filter layout
+codex: TASK-2026-06-22-26 Stabilize filter metadata endpoint
 ```
