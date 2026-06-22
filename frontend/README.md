@@ -7,6 +7,7 @@ Implemented screen:
 - `Contacts` report table with search, filters, pagination, loading, error, and empty states.
 - The Contacts table uses `/api/reports/contacts/analytics` and displays sortable local analytics rows, exact contact ID filtering, deal creation date filtering, Bitrix contact-card links, USD budget breakdown, won-only USD revenue, USD estimated profit, latest won close date, and latest deal date. It does not use original-currency sums as the primary financial metric.
 - Contacts table state is persisted in browser local storage under `bitrix-sales.contacts.v1`; reset clears the stored state.
+- Last valid Contacts filter metadata is persisted under `bitrix-sales.filter-metadata.v1` so transient empty metadata snapshots do not clear dropdown options.
 
 The app reads only the local backend API. It does not call Bitrix.
 

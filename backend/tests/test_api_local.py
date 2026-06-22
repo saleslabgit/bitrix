@@ -2,9 +2,10 @@ from datetime import date
 
 import duckdb
 import pytest
+from fastapi import HTTPException
 
 from app import main
-from app.local_database import reset_connection
+from app.local_database import get_connection, reset_connection
 from app.main import (
     dataset_status,
     dataset_profile,
@@ -85,6 +86,20 @@ def test_meta_filters_returns_empty_metadata_before_dataset_is_prepared() -> Non
     assert filters_response.max_created_at is None
     assert filters_response.min_closed_at is None
     assert filters_response.max_closed_at is None
+
+
+def test_meta_filters_rejects_empty_contact_types_for_active_non_empty_dataset() -> None:
+    run_local_synthetic_sync()
+    get_connection().execute("DELETE FROM normalized_contacts")
+
+    with pytest.raises(HTTPException) as exc_info:
+        meta_filters()
+
+    assert exc_info.value.status_code == 503
+    assert (
+        exc_info.value.detail
+        == "Filter metadata is temporarily unavailable. Keep previous options and retry."
+    )
 
 
 def test_filter_metadata_handles_empty_contacts_and_no_closed_deals() -> None:

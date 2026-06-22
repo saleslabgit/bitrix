@@ -1,7 +1,7 @@
 from datetime import date
 from typing import Annotated, Literal
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, HTTPException, Query, status
 
 from app.api.models import (
     AbcResponse,
@@ -327,7 +327,20 @@ def refresh_local_data() -> LocalDataRefreshResponse:
 
 @app.get("/api/meta/filters", response_model=FilterMetadataResponse)
 def meta_filters() -> FilterMetadataResponse:
-    filters = get_filter_metadata(get_connection())
+    connection = get_connection()
+    filters = get_filter_metadata(connection)
+    dataset = get_dataset_storage_status(connection).active_dataset
+    if (
+        dataset is not None
+        and dataset.state == "success"
+        and dataset.is_active
+        and dataset.normalized_contacts_count > 0
+        and not filters.contact_types
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Filter metadata is temporarily unavailable. Keep previous options and retry.",
+        )
     return FilterMetadataResponse.model_validate(filters)
 
 

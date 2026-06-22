@@ -24,6 +24,7 @@ import {
 
 const PAGE_SIZE = 25;
 const CONTACTS_STORAGE_KEY = "bitrix-sales.contacts.v1";
+const FILTER_METADATA_STORAGE_KEY = "bitrix-sales.filter-metadata.v1";
 const CONTACT_SORT_FIELDS: ContactSort[] = [
   "contact_id",
   "contact_name",
@@ -65,7 +66,9 @@ export function App() {
     from: filters.dealCreatedFrom,
     to: filters.dealCreatedTo
   });
-  const [lastFilterMetadata, setLastFilterMetadata] = useState<FilterMetadata | null>(null);
+  const [lastFilterMetadata, setLastFilterMetadata] = useState<FilterMetadata | null>(() =>
+    loadStoredFilterMetadata()
+  );
   const [lastRefreshResult, setLastRefreshResult] = useState<LocalDataRefreshResponse | null>(
     null
   );
@@ -107,13 +110,27 @@ export function App() {
 
   const activeDataset = statusQuery.data?.active_dataset;
   const isDatasetReady = activeDataset?.state === "success" && activeDataset.is_active;
+  const activeContactsCount = activeDataset?.normalized_contacts_count;
 
   const filterQuery = useQuery({
     queryKey: ["filter-metadata"],
     queryFn: fetchFilterMetadata,
     enabled: isDatasetReady
   });
-  const filterMetadata = filterQuery.data ?? lastFilterMetadata;
+  const isFreshFilterMetadataValid = isFilterMetadataValidForDataset(
+    filterQuery.data,
+    activeContactsCount
+  );
+  const isStoredFilterMetadataValid = isFilterMetadataValidForDataset(
+    lastFilterMetadata,
+    activeContactsCount
+  );
+  const isFreshFilterMetadataInvalid = Boolean(filterQuery.data) && !isFreshFilterMetadataValid;
+  const filterMetadata = isFreshFilterMetadataValid
+    ? filterQuery.data
+    : isStoredFilterMetadataValid
+      ? lastFilterMetadata
+      : null;
 
   const contactsQuery = useQuery({
     queryKey: ["contacts", filters],
@@ -140,10 +157,11 @@ export function App() {
   });
 
   useEffect(() => {
-    if (filterQuery.data) {
+    if (isFreshFilterMetadataValid && filterQuery.data) {
       setLastFilterMetadata(filterQuery.data);
+      storeFilterMetadata(filterQuery.data);
     }
-  }, [filterQuery.data]);
+  }, [filterQuery.data, isFreshFilterMetadataValid]);
 
   const total = contactsQuery.data?.total ?? 0;
   const isRefreshing = refreshMutation.isPending;
@@ -365,10 +383,18 @@ export function App() {
           </section>
         )}
 
-        {isDatasetReady && filterQuery.isError && (
+        {isDatasetReady && (filterQuery.isError || isFreshFilterMetadataInvalid) && (
           <InlineAlert
-            title="Не удалось загрузить фильтры"
-            message={filterQuery.error.message}
+            title={
+              filterMetadata
+                ? "Фильтры показаны из кэша"
+                : "Не удалось загрузить фильтры"
+            }
+            message={
+              filterQuery.isError
+                ? filterQuery.error.message
+                : "Backend вернул пустые фильтры для активной базы. Повторите загрузку фильтров."
+            }
             onRetry={() => void filterQuery.refetch()}
           />
         )}
@@ -939,12 +965,37 @@ function loadStoredFilters(): ContactFilters {
   }
 }
 
+function loadStoredFilterMetadata(): FilterMetadata | null {
+  try {
+    const stored = window.localStorage.getItem(FILTER_METADATA_STORAGE_KEY);
+    if (!stored) {
+      return null;
+    }
+    const parsed = JSON.parse(stored) as Partial<Record<keyof FilterMetadata, unknown>>;
+    return {
+      contact_types: stringArrayValue(parsed.contact_types),
+      regions: stringArrayValue(parsed.regions),
+      statuses: stringArrayValue(parsed.statuses),
+      min_created_at: nullableStringValue(parsed.min_created_at),
+      max_created_at: nullableStringValue(parsed.max_created_at),
+      min_closed_at: nullableStringValue(parsed.min_closed_at),
+      max_closed_at: nullableStringValue(parsed.max_closed_at)
+    };
+  } catch {
+    return null;
+  }
+}
+
 function storeFilters(filters: ContactFilters) {
   if (areDefaultFilters(filters)) {
     window.localStorage.removeItem(CONTACTS_STORAGE_KEY);
     return;
   }
   window.localStorage.setItem(CONTACTS_STORAGE_KEY, JSON.stringify(filters));
+}
+
+function storeFilterMetadata(metadata: FilterMetadata) {
+  window.localStorage.setItem(FILTER_METADATA_STORAGE_KEY, JSON.stringify(metadata));
 }
 
 function areDefaultFilters(filters: ContactFilters) {
@@ -955,9 +1006,42 @@ function stringValue(value: unknown) {
   return typeof value === "string" ? value : "";
 }
 
+function nullableStringValue(value: unknown) {
+  return typeof value === "string" ? value : null;
+}
+
+function stringArrayValue(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return Array.from(
+    new Set(value.filter((item): item is string => typeof item === "string" && item.trim() !== ""))
+  );
+}
+
 function dateValue(value: unknown) {
   const string = stringValue(value);
   return /^\d{4}-\d{2}-\d{2}$/.test(string) ? string : "";
+}
+
+function isFilterMetadataValidForDataset(
+  metadata: FilterMetadata | null | undefined,
+  normalizedContactsCount: number | undefined
+) {
+  if (!metadata) {
+    return false;
+  }
+  if (!isStringArray(metadata.contact_types) || !isStringArray(metadata.regions) || !isStringArray(metadata.statuses)) {
+    return false;
+  }
+  if ((normalizedContactsCount ?? 0) > 0 && metadata.contact_types.length === 0) {
+    return false;
+  }
+  return true;
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
 function isEmptyOrCompleteIsoDate(value: string) {
