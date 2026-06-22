@@ -1,309 +1,208 @@
-# Task: TASK-2026-06-22-23
+# Task: TASK-2026-06-22-24
 
 Status: planned
-Created from: current `main` after accepted `TASK-2026-06-22-22`
+Created from: current `main` after reviewed `TASK-2026-06-22-23`
 
 ## Title
 
-Build ABC customer report
+Fix ABC comparison direction
 
 ## Goal
 
-Implement a full customer ABC report screen over local analytics data.
+Correct the ABC comparison model so period transitions always mean:
 
-The report must support classic ABC analysis for a selected period and optional comparison with another period in the same table. When comparison is enabled, the table still shows current-period ABC values, while previous-period ABC values and segment changes are shown as additional columns/markers.
+```text
+Было -> Стало
+```
+
+A customer who had revenue and ABC segment in the source/baseline period but has no won revenue in the compared/result period must be shown as a loss, for example:
+
+```text
+A -> Нет продаж = срочно
+```
+
+The current implementation from `TASK-2026-06-22-23` is conceptually wrong for the product workflow because it treats the comparison period as the previous segment and the main period as the current segment. This can make a lost customer look like a growth case such as `развивать` or `закрепить`.
 
 ## User Request
 
-Add an ABC analysis report by customers.
+The user found that a customer with deals before 2023, when compared with 2025, is shown as `развивать`. This is wrong.
 
-The report should include:
+If a customer stopped buying, the transition must be from the old segment to `Нет продаж`:
 
-- classic ABC analysis for a selected period;
-- comparison between periods to see who moved from one segment to another;
-- comparison should not be a separate table. When a comparison range is selected, the same table updates for the new/current dates and marks rows where there was a transition from one state to another.
+```text
+A -> Нет продаж
+```
+
+The whole transition logic must be reviewed and fixed, not only one label.
 
 ## Facts
 
+- `TASK-2026-06-22-23` added `GET /api/reports/abc/analytics` and a frontend `ABC` report screen.
+- Current backend implementation calculates transition direction as:
+
+```text
+comparison segment -> current/main segment
+```
+
+- Current docs also state the same direction.
+- This direction does not match the user's intended workflow.
+- The intended workflow is:
+
+```text
+source/baseline period -> compared/result period
+```
+
+- ABC is still based only on won USD revenue by `closed_at` period.
 - Bitrix is read-only and report page loads must not call Bitrix.
-- All report filters and calculations run against local DuckDB-backed normalized data.
-- Main analytics entity is the contact/customer.
-- Revenue means won-only USD revenue.
-- Estimated profit is always `revenue_usd * 0.50`, but ABC itself is based on revenue, not profit.
-- Deals are assigned to exactly one analytical contact through current normalization rules.
-- ABC logic already exists in `backend/app/reports/analytics.py` as `get_abc_report()`, but the current implementation is fixed to full-period vs last-12-month comparison and is not a paginated frontend report screen.
-- Current frontend has Contacts and Deals screens in `frontend/src/App.tsx`, using local backend APIs through `frontend/src/api.ts`.
-- Contacts and Deals table state is persisted in browser local storage.
-- Region filters and columns are temporarily hidden in the frontend while region detection is unfinished.
-- Existing report endpoints do not persist analytics output tables.
+- Region UI remains hidden while region logic is unfinished.
+
+## Product Semantics To Implement
+
+The ABC screen must have two unambiguous period roles:
+
+| Role | Meaning |
+|---|---|
+| `Было` / source period | the earlier or baseline period from which the transition starts |
+| `Стало` / result period | the period being compared against the baseline |
+
+Transition direction is always:
+
+```text
+ABC было -> ABC стало
+```
+
+Examples:
+
+| Было | Стало | Correct transition | Correct priority |
+|---|---|---|---|
+| customer was A before 2023 | no won revenue in 2025 | `A -> Нет продаж` | `срочно` |
+| customer was B before 2023 | no won revenue in 2025 | `B -> Нет продаж` | `важно` |
+| customer was C before 2023 | no won revenue in 2025 | `C -> Нет продаж` | `наблюдать` |
+| no won revenue before 2023 | became A in 2025 | `Нет продаж -> A` | `закрепить` |
+| B or C before | became A later | `B/C -> A` | `развивать` |
 
 ## Assumptions
 
-- Customer and contact mean the same entity for this report.
-- The primary/current period is the period selected by the main date range.
-- The optional comparison period is a separate date range used only to calculate previous ABC values and transition markers.
-- When comparison is enabled, include contacts that have won revenue in either the current period or the comparison period. This is required to show transitions into `Нет продаж`, for example `A -> Нет продаж`.
-- When comparison is not enabled, include contacts that have won revenue in the current period.
-- A contact with no won revenue in a period gets segment `Нет продаж` for that period.
-- Default primary/current period should be all available won-deal history unless the user selects dates.
-- Comparison is disabled by default.
-- First click on sortable numeric/date columns should sort from high to low / newest to oldest, consistent with the current table behavior.
-- Frontend region controls remain hidden in this task.
-
-## Unknowns
-
-- Browser-level visual verification depends on the execution environment. If unavailable, document the limitation in `.ai/report.md`.
-- Exact visual treatment for changed rows is not specified. Use a simple, readable marker/badge that fits the existing UI style.
+- The current UI labels `Период` and `Сравнение` are ambiguous and should be replaced with explicit `Было` and `Стало` labels.
+- It is acceptable to change the new ABC analytics response shape introduced in the previous task because it has not yet been accepted by the user as correct.
+- Existing Contacts and Deals screens must remain unchanged.
+- Existing legacy `GET /api/reports/abc` should remain compatible unless a focused test proves it must change.
 
 ## Scope
 
-### 1. Backend ABC analytics endpoint
+### 1. Backend ABC direction fix
 
-Implement or extend a backend local-only ABC analytics page endpoint, recommended:
+Update `backend/app/reports/analytics.py` and API models/routes so ABC analytics uses explicit before/after semantics.
 
-```text
-GET /api/reports/abc/analytics
-```
+Recommended implementation:
 
-The endpoint must support classic ABC for the current period and optional comparison in one response.
+- Treat `date_from` / `date_to` as the source/baseline period (`Было`).
+- Treat `compare_date_from` / `compare_date_to` as the result period (`Стало`).
+- Keep query parameter names if that is the smallest safe change, but internally and in response naming prefer clear concepts:
+  - `base_*` / `target_*`, or
+  - `before_*` / `after_*`, or
+  - `previous_*` / `current_*`.
+- Do not keep misleading response names if they cause frontend confusion. If names change, update `frontend/src/api.ts`, tests, and docs together.
 
-Required query parameters:
-
-```text
-limit
-offset
-sort
-order
-```
-
-Recommended filters:
+Required row semantics:
 
 ```text
-contact_id
-search
-contact_type
-segment
-migration_priority
-changed_only
-date_from
-date_to
-compare_date_from
-compare_date_to
+segment_change = <base_segment> -> <target_segment>
+migration_priority = priority(base_segment, target_segment)
+segment_changed = base_segment != target_segment
 ```
 
-Do not expose frontend region filters for this task. Backend may keep internal/backend region support if it already exists, but frontend must not show or send region controls.
+Rows included:
 
-ABC calculation rules:
+- without a target/result period selected, the report can behave as a single-period ABC table over the source/base period;
+- with a target/result period selected, include customers with won revenue in either period, so lost and newly active customers are visible.
 
-- Use only won deals.
-- Use `closed_at` for period filtering.
-- Use local USD revenue.
-- Group by analytical contact ID.
-- Sort by revenue descending, then `contact_id` ascending for classification.
-- Calculate `revenue_share_percent` and `cumulative_share_percent` for the period being classified.
-- Segment rules:
-  - `A` when cumulative share before the current row is below 80%;
-  - `B` when cumulative share before the current row is from 80% to below 95%;
-  - `C` when cumulative share before the current row is 95% or above;
-  - the current row is included in the segment that crosses the threshold, so the largest customer is always `A`.
-- If total revenue for a period is zero, no positive rows are classified and contacts in that period are `Нет продаж`.
+Required migration priority mapping:
 
-Response row should include at minimum:
+| Transition | Priority |
+|---|---|
+| `A -> Нет продаж` | `срочно` |
+| `A -> C` | `срочно` |
+| `A -> B` | `важно` |
+| `B -> Нет продаж` | `важно` |
+| `B -> C` | `наблюдать` |
+| `C -> Нет продаж` | `наблюдать` |
+| `B -> A` | `развивать` |
+| `C -> A` | `развивать` |
+| `Нет продаж -> A` | `закрепить` |
+| unchanged | `без изменений` |
+| any other changed transition | `изменение` |
 
-```text
-contact_id
-contact_name
-contact_type_normalized
-current_revenue_usd
-current_revenue_share_percent
-current_cumulative_share_percent
-current_segment
-current_won_deals_count
-current_last_won_date
-compare_revenue_usd
-compare_segment
-segment_change
-migration_priority
-segment_changed
-```
+Do not let a loss of revenue become a growth priority.
 
-Response page should include at minimum:
+### 2. Frontend ABC labels and table semantics
 
-```text
-total
-limit
-offset
-current_total_revenue_usd
-compare_total_revenue_usd
-current_segment_counts
-compare_segment_counts
-migration_priority_counts
-items
-```
+Update `frontend/src/App.tsx`, `frontend/src/api.ts`, and styles only as needed.
 
-Segment change examples:
+Required UI language:
 
-```text
-A -> B
-A -> Нет продаж
-Нет продаж -> A
-Без изменений
-```
-
-Migration priority rules:
-
-- `A -> Нет продаж`: `срочно`
-- `A -> C`: `срочно`
-- `A -> B`: `важно`
-- `B -> Нет продаж`: `важно`
-- `B -> C`: `наблюдать`
-- `B -> A` or `C -> A`: `развивать`
-- `Нет продаж -> A`: `закрепить`
-- unchanged rows: `без изменений`
-- any other changed row not listed above: `изменение`
-
-Sorting must be allowlisted and stable. Recommended sort fields:
-
-```text
-contact_id
-contact_name
-contact_type_normalized
-current_revenue_usd
-current_revenue_share_percent
-current_cumulative_share_percent
-current_segment
-current_won_deals_count
-current_last_won_date
-compare_revenue_usd
-compare_segment
-segment_change
-migration_priority
-```
-
-Filtering semantics:
-
-- `contact_id` is exact numeric customer ID.
-- `search` matches local contact name only.
-- `contact_type` filters normalized contact type.
-- `segment` filters current segment.
-- `migration_priority` filters migration priority.
-- `changed_only=true` returns only rows with `segment_changed=true`.
-- Pagination is applied after filtering and sorting.
-- Totals/counts are calculated for the filtered set before pagination unless explicitly documented otherwise.
-
-Preserve existing `GET /api/reports/abc` behavior if current tests depend on it, or update tests/docs consistently if it is intentionally replaced. Do not break existing report endpoints.
-
-### 2. Frontend ABC report screen
-
-Add an `ABC` report to the existing frontend navigation alongside Contacts and Deals.
-
-The screen must use only local backend endpoints.
-
-Filters:
-
-- ID клиента;
-- client search by customer name;
-- Тип;
-- ABC сегмент;
-- Приоритет перехода;
-- checkbox/toggle `Только изменения`;
-- current period date range;
-- optional comparison period date range.
-
-Date UX requirements:
-
-- Follow the current applied-date pattern from Contacts/Deals: typing in a date input should not refetch the table until dates are applied.
-- Invalid ranges should show a clear validation message and should not query the endpoint.
-- Comparison is disabled when both comparison dates are empty.
-- If only one comparison date is filled, treat the comparison range as incomplete and do not query until the range is complete or cleared.
-
-Table columns:
-
-- ID + Bitrix contact link;
-- Клиент;
-- Тип;
-- Выручка;
-- Доля;
-- Накопленная доля;
-- ABC;
-- Успешные сделки;
-- Последняя успешная сделка;
-- Выручка сравнения;
-- ABC сравнения;
-- Переход;
-- Приоритет.
-
-When comparison is disabled, comparison-specific columns may be hidden or shown empty, but the UI must remain clear and not misleading. Prefer hiding comparison columns until comparison is enabled.
-
-Rows where `segment_changed=true` must be visibly marked using the existing style system, for example a badge or subtle row highlight.
-
-Top/bottom summary should show at least:
-
-- current total revenue;
-- comparison total revenue when comparison is enabled;
-- counts by current ABC segment;
-- changed rows count when comparison is enabled.
-
-State/persistence:
-
-- Persist ABC filters, sort, pagination, and comparison settings in browser local storage under a new key, for example `bitrix-sales.abc.v1`.
-- Reset clears only ABC report state, not Contacts/Deals state and not filter metadata cache.
-- Existing Contacts and Deals behavior must remain unchanged.
-
-Layout:
-
-- Keep the full-width work area style already used for large Contacts/Deals tables.
-- Use horizontal scroll for wide tables.
-- Keep loading, error, empty, invalid-date, and database-not-ready states consistent with existing screens.
-- Do not reintroduce region filters or region columns.
+- Rename period inputs to clearly express direction:
+  - `Было с`
+  - `Было по`
+  - `Стало с`
+  - `Стало по`
+- Rename table/summary labels to avoid `current` / `compare` ambiguity:
+  - `Выручка было`
+  - `ABC было`
+  - `Выручка стало`
+  - `ABC стало`
+  - `Переход`
+  - `Приоритет`
+- The transition displayed in the table must match `ABC было -> ABC стало`.
+- `Только изменения` must filter by this corrected direction.
+- Summary totals should be clear, for example `Выручка было` and `Выручка стало` when the result period is enabled.
+- When result period is not enabled, the table should remain a normal single-period ABC report and should not show misleading transition columns.
+- Keep separate `bitrix-sales.abc.v1` state. If persisted old values/sort fields become invalid after response field renaming, safely fall back to defaults.
 
 ### 3. Tests
 
-Add focused backend tests for:
+Add or update backend tests so the bug cannot return.
 
-- ABC segment assignment at 80/95 boundaries;
-- largest revenue contact is always `A`;
-- tie-breaker by `contact_id` for equal revenue;
-- won-only revenue and `closed_at` period filtering;
-- current period single-mode rows, shares, cumulative shares, and totals;
-- comparison mode includes contacts from both periods;
-- `A -> Нет продаж`, `Нет продаж -> A`, and unchanged transitions;
-- migration priority mapping;
-- `changed_only`, `segment`, `migration_priority`, `contact_id`, `search`, and `contact_type` filters;
-- sorting and pagination are applied after filtering;
-- response does not expose forbidden personal fields.
+Required test scenarios:
 
-Add/adjust API tests for the new endpoint and response model.
+- customer was `A` in base period and has no won revenue in target period -> `A -> Нет продаж`, priority `срочно`;
+- customer was `B` in base and has no won revenue in target -> `B -> Нет продаж`, priority `важно`;
+- customer was `C` in base and has no won revenue in target -> `C -> Нет продаж`, priority `наблюдать`;
+- customer had no won revenue in base and becomes `A` in target -> `Нет продаж -> A`, priority `закрепить`;
+- customer moves `B/C -> A` -> priority `развивать`;
+- unchanged rows stay `Без изменений` / `без изменений`;
+- `changed_only` uses corrected direction;
+- filters and sorting still apply after corrected row construction;
+- API response does not expose forbidden personal fields.
 
-Frontend tests are not currently established; run the frontend build.
+Update existing tests that currently assume the old direction.
 
 ### 4. Documentation and report
 
-Update relevant docs:
+Update docs so future work does not reintroduce the bug:
 
-- `docs/development.md` for the new endpoint and UI flow;
-- `docs/data-model.md` for ABC analytics page semantics;
-- `docs/project-status.md` for the new ABC report screen;
-- `frontend/README.md` for the frontend report behavior.
+- `docs/development.md`;
+- `docs/data-model.md`;
+- `frontend/README.md`;
+- `docs/project-status.md` if useful.
 
 Update `.ai/report.md` with:
 
-- backend endpoint implemented;
-- ABC algorithm and comparison semantics;
-- frontend screen and state persistence;
+- root cause: direction was wrong/ambiguous;
+- exact corrected direction;
+- backend and frontend files changed;
 - tests/checks run;
-- confirmation that no Bitrix calls/write methods were added.
+- confirmation no Bitrix calls/write methods were added.
 
 ## Out Of Scope
 
-- RFM report screen.
-- Reactivation report screen.
-- Charts/graphs for ABC.
+- Changing ABC thresholds or ABC classification algorithm itself.
+- Adding charts.
+- RFM/reactivation reports.
 - CSV/export.
 - Authentication.
-- Persisted analytics tables or migrations.
-- Changing Bitrix ingestion, refresh, reconciliation, contact-deal link extraction, NBRB rate loading, or normalization rules.
-- Live Bitrix diagnostics or any external service calls from report endpoints.
+- Bitrix ingestion, refresh, reconciliation, contact-deal link extraction, NBRB rate loading, or normalization rule changes.
+- Live Bitrix diagnostics or external service calls from report endpoints.
 - Region filter/columns in the frontend.
 - Editing `ui-kits/`.
 - Showing phone, email, address, messenger, comments, files, requisites, raw Bitrix rows, webhook values, or arbitrary custom fields.
@@ -327,24 +226,20 @@ crm.*.set
 - Do not expose webhook values, raw rows, local absolute paths, stack traces, or forbidden personal fields.
 - Keep all financial values in USD.
 - Keep revenue semantics won-only.
-- Keep estimated profit formula unchanged, though profit is not required in the ABC table.
 
 ## Acceptance Criteria
 
-- A new ABC report is available in the frontend navigation.
-- ABC report loads from a local backend endpoint only.
-- Current-period ABC is calculated from won USD revenue by `closed_at` period.
-- ABC segment assignment follows the documented 80/95 cumulative-share algorithm.
-- Current-period table includes customer ID/link, customer name, type, revenue, share, cumulative share, ABC segment, won deals count, and last won date.
-- Optional comparison period can be selected in the same report screen.
-- When comparison is enabled, the same table shows comparison revenue/segment and marks segment transitions.
-- Comparison mode includes contacts with won revenue in either current or comparison period so lost customers can appear as `A -> Нет продаж`.
-- `changed_only` shows only changed segment rows.
-- Filters, sorting, reset, pagination, loading, error, empty, and invalid-date states work clearly.
-- ABC frontend state persists separately from Contacts and Deals.
-- Region filters/columns are not shown in the ABC frontend.
+- ABC comparison direction is corrected to `Было -> Стало`.
+- A customer with `A` in the source/base period and no won revenue in the target/result period displays `A -> Нет продаж` with priority `срочно`.
+- A customer with no base revenue and target `A` displays `Нет продаж -> A` with priority `закрепить`.
+- Loss transitions never appear as `развивать` or other growth priorities.
+- Frontend labels make the direction clear: `Было` and `Стало`.
+- Table columns show `Выручка было`, `ABC было`, `Выручка стало`, `ABC стало`, `Переход`, `Приоритет` when comparison is enabled.
+- `Только изменения`, segment/priority filters, sorting, pagination, and totals use the corrected direction.
+- Single-period ABC still works when the target/result period is not selected.
 - Existing Contacts and Deals behavior is not regressed.
-- Backend tests cover ABC algorithm, comparison, filters, sorting, pagination, and safe fields.
+- Region filters/columns are not shown in ABC frontend.
+- Backend tests cover the corrected transition matrix.
 - Frontend build passes.
 - No Bitrix calls or external service calls are added to report page loads.
 - No Bitrix write methods are added.
@@ -352,7 +247,7 @@ crm.*.set
 - Commit message exactly:
 
 ```text
-codex: TASK-2026-06-22-23 Build ABC customer report
+codex: TASK-2026-06-22-24 Fix ABC comparison direction
 ```
 
 ## Checks
@@ -412,10 +307,9 @@ If Docker/browser checks cannot be run, document the reason in `.ai/report.md`.
 Codex must not commit until all conditions below are true:
 
 - latest relevant commit is this planner commit;
-- ABC backend endpoint and frontend screen are implemented, tested, and documented;
-- comparison is implemented in the same table, not as a separate report/table;
-- transition rows are visibly marked;
-- comparison mode includes both-period contacts so lost/reappeared customers are visible;
+- ABC transition direction is corrected and covered by tests;
+- `A -> Нет продаж` loss scenario is tested and passes;
+- frontend wording no longer leaves direction ambiguous;
 - no frontend region filters/columns are added;
 - existing Contacts and Deals behavior remains intact;
 - no frontend Bitrix calls are added;
