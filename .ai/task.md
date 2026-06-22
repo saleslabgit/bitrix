@@ -1,46 +1,44 @@
-# Task: TASK-2026-06-22-10
+# Task: TASK-2026-06-22-11
 
 Status: planned
-Created from: current `main` at `92674a6` after review of `TASK-2026-06-22-09`
+Created from: current `main` after `9344093 codex: TASK-2026-06-22-10 Reconcile contact 661 explicit deal IDs`
 
 ## Title
 
-Reconcile contact 661 explicit deal IDs
+Test `crm.item.list` as the fast deal-contact link source
 
 ## Goal
 
-Finish the contact-deal completeness investigation using the exact Bitrix deal IDs now supplied by the user.
+Determine whether Bitrix universal CRM methods can provide complete deal-contact links fast enough for normal manual refresh, without doing `crm.deal.contact.items.get` once per deal.
 
-The user says Bitrix shows these 7 deals for `contact_id=661`:
+The immediate decision point is the known `contact_id=661` case. Bitrix shows these seven deals for contact `661`:
 
 ```text
-24761
-23989
-19149
-14773
-1239
-343
 123
-```
-
-`TASK-2026-06-22-09` found that local data and `crm.deal.list` filtered by `CONTACT_ID=661` both return only 4 deals:
-
-```text
+343
+1239
 14773
 19149
 23989
 24761
 ```
 
-Therefore the concrete missing deals are:
+`TASK-2026-06-22-10` proved that deals `123`, `343`, and `1239` were missed by the normal sync because `crm.deal.list` row fields did not include the secondary relation to contact `661`, while `crm.deal.contact.items.get` did confirm the relation.
 
-```text
-123
-343
-1239
-```
+This task must run a bounded read-only `crm.item.list` test for these exact deal IDs, decide whether it returns a complete contact list for deals, and implement the fastest safe normal-refresh path if the test proves it.
 
-This task must determine exactly where these three IDs diverge from the current pipeline and implement the smallest safe fix so contact analytics for `661` can be reconciled to the explicit Bitrix-visible deal list when the Bitrix per-deal relation data confirms the contact relationship.
+## Official API Facts To Verify Against
+
+Use official Bitrix REST documentation as the source for API behavior.
+
+Known documented facts:
+
+- `crm.deal.list` is deprecated and its development is halted; Bitrix says to use `crm.item.list`.
+- `crm.deal.list` does not support `CONTACT_IDS`; Bitrix says to use `crm.item.list` for deals with a contact list and for contact filtering.
+- `crm.item.list` is read-only for users with read permission and uses `entityTypeId=2` for deals.
+- `crm.item.list` must use explicit safe `select`; do not use `select: ["*"]` because `*` can return `fm` multiple fields such as phones, e-mail, and messengers.
+- Available item fields should be discovered with `crm.item.fields` for `entityTypeId=2`.
+- `batch` supports up to 50 sub-requests and is only a fallback, not the preferred normal sync path.
 
 ## Facts
 
@@ -50,142 +48,165 @@ This task must determine exactly where these three IDs diverge from the current 
   - `crm.*.update`
   - `crm.*.delete`
   - `crm.*.set`
-- Contact `661` has raw type `[61]`, normalized type `Дизайнер`, region `Беларусь`, priority `1`.
-- Priority is not the root cause. `Дизайнер` priority `1` should win over lower-priority linked contacts.
-- `TASK-2026-06-22-09` added local diagnostics and a `crm.deal.list CONTACT_ID` verification endpoint.
-- `TASK-2026-06-22-09` was not accepted in review because it did not explain the three concrete missing deals and added a mutating `apply_local_correction` diagnostic path that bypasses dataset run/activation semantics.
-- The existing normal sync source reconstructs links from `crm.deal.list` fields `CONTACT_ID` and `CONTACT_IDS`.
-- The previous broad per-deal `crm.deal.contact.items.get` scan was removed from normal sync because it was too slow/heavy.
-- Targeted use of `crm.deal.contact.items.get` for a supplied small list of deal IDs is acceptable if explicitly invoked, bounded, read-only, and reported without raw private rows.
+- Main analytics entity is the contact.
+- A deal is counted once by selecting one analytical contact from all loaded deal-contact links.
+- Contact `661` has designer type `[61]`, normalized type `Дизайнер`, region `Беларусь`, priority `1`.
+- Priority is not the root cause of the `661` mismatch.
+- Normal manual sync currently builds links from deal row fields such as `CONTACT_ID` and `CONTACT_IDS` returned by `crm.deal.list`.
+- Normal manual sync must not call `crm.deal.contact.items.get` once per deal.
+- `TASK-2026-06-22-10` added a bounded explicit reconciliation helper, but it is not a scalable normal-refresh solution.
 
 ## Assumptions
 
-- The three missing deals may be present in local `raw_deals` but missing a local `raw_deal_contact_links` row for contact `661`.
-- Or the deals may be absent from local `raw_deals` entirely.
-- Or Bitrix per-deal contact relation data may show contact `661` even though `crm.deal.list CONTACT_ID=661` does not.
-- Or the user-visible Bitrix card may count a relation that is not available through the currently allowed read-only relation methods.
+- `crm.item.list` for deals may expose a field such as `contactIds` that contains the full list of contacts linked to each deal.
+- If `crm.item.list` returns complete contact IDs for the seven known deals, it should be used for normal deal extraction/link extraction instead of `crm.deal.list`.
+- If `crm.item.list` does not return complete contact IDs on this portal, the scalable alternative may be a separate explicit/deep relation sync using `batch`, not a per-deal HTTP loop in the normal refresh.
 
 ## Unknowns
 
-- Whether deals `123`, `343`, and `1239` exist in local `raw_deals`.
-- Whether local `raw_deal_contact_links` contains any links for those deal IDs, and whether any link points to `661`.
-- Whether local `normalized_deals` assigns those deal IDs to another analytical contact, no contact, or contact `661`.
-- Whether Bitrix `crm.deal.contact.items.get` for deal IDs `123`, `343`, and `1239` includes contact `661`.
-- Whether `crm.deal.list` filtered by explicit deal IDs returns safe deal rows for all seven supplied IDs.
+- The exact field names returned by `crm.item.fields` for deal contacts on this Bitrix portal.
+- Whether `crm.item.list` can select and return the complete deal contact list for deals `123`, `343`, and `1239`.
+- Whether `crm.item.list` supports safe filtering by explicit deal IDs on this portal.
+- Whether switching normal sync to `crm.item.list` requires field-name mapping changes for current raw deal transformation.
 
 ## Scope
 
-### 1. Add exact-ID local diagnostic
+### 1. Add safe Bitrix universal item client support
 
-Extend the backend diagnostic capability to compare one contact ID against an explicit supplied deal ID list.
+Add read-only support for:
 
-For contact `661` and deal IDs `123`, `343`, `1239`, `14773`, `19149`, `23989`, `24761`, it must report safe ID-level facts only:
+```text
+crm.item.fields
+crm.item.list
+```
 
-- supplied contact ID;
-- supplied deal IDs;
-- which supplied deals exist in `raw_deals`;
-- which supplied deals have a local `raw_deal_contact_links` row to contact `661`;
-- all local linked contact IDs for each supplied deal, without contact phones/emails/addresses/etc.;
-- normalized analytical contact ID for each supplied deal;
-- whether each supplied deal would count in contact `661` analytics;
-- concise per-deal divergence reason.
+Only for explicit read-only use. Keep the method allowlist strict.
 
-Do not expose forbidden personal fields, raw API payloads, webhook values, comments, files, requisites, phone, email, address, messengers, arbitrary custom fields, local paths, or generated data contents.
+For `crm.item.fields`, call it with:
 
-### 2. Add exact-ID read-only Bitrix verification
+```json
+{"entityTypeId": 2}
+```
 
-Add or adjust a targeted live verification path for explicit deal IDs.
+For `crm.item.list`, use:
 
-It must be explicitly invoked only; no Docker startup, page load, report endpoint, or normal refresh may call it automatically.
+```json
+{"entityTypeId": 2, "select": [...], "filter": {...}, "order": {...}}
+```
 
-Allowed targeted read-only methods for this task:
+Do not add `crm.item.add`, `crm.item.update`, `crm.item.delete`, or any other write-capable method.
 
-- `crm.deal.list` with safe `select` from the existing deal allowlist and a filter bounded to the supplied deal IDs;
-- `crm.deal.contact.items.get` for exactly the supplied deal IDs, one call per supplied ID, with a hard count bound.
+### 2. Discover the safe deal item field set
 
-Do not add `crm.deal.get` unless there is a clear reason and the implementation prevents forbidden fields from being stored, logged, or returned. Prefer `crm.deal.list` with explicit safe `select`.
+Implement a helper that inspects `crm.item.fields` for `entityTypeId=2` and determines the available safe deal fields needed for the current raw model and links.
 
-The verification must report only aggregate/ID-level facts:
+Minimum desired deal data fields, using the actual supported names from `crm.item.fields`:
 
-- which supplied deal IDs Bitrix returned via safe deal list;
-- for each supplied deal ID, whether `crm.deal.contact.items.get` contains contact `661`;
-- returned contact IDs for each supplied deal link set, if safe and needed;
+- deal ID;
+- title/name;
+- amount/opportunity;
+- currency;
+- created time;
+- closed time;
+- stage;
+- category;
+- primary contact if available;
+- full contact ID list if available.
+
+Hard safety rules:
+
+- never request `*`;
+- never request `fm`;
+- never request phones, email, addresses, messengers, comments, files, requisites, activities, or arbitrary non-allowlisted custom fields;
+- if a field is not known safe, do not select it.
+
+### 3. Run the bounded live `crm.item.list` test
+
+Add an explicitly invoked backend diagnostic or script/helper, then run it if live Bitrix credentials are available in the execution environment.
+
+The test must be bounded to exactly these deal IDs:
+
+```text
+123, 343, 1239, 14773, 19149, 23989, 24761
+```
+
+It must call only read-only methods:
+
+```text
+crm.item.fields
+crm.item.list
+```
+
+It must report only safe ID-level facts in `.ai/report.md`:
+
 - method names used;
-- counts and divergence categories.
+- selected safe field names;
+- whether all seven deal IDs were returned;
+- for each deal ID, the returned linked contact IDs;
+- whether contact `661` is present;
+- whether `crm.item.list` agrees with the `TASK-10` `crm.deal.contact.items.get` result;
+- whether `crm.item.list` is sufficient for normal refresh.
 
-### 3. Fix the data path for this reconciliation
+Do not include raw Bitrix payloads, webhook values, secrets, personal fields, contact names, comments, files, local paths, or generated data contents.
 
-If Bitrix per-deal relation data confirms that deals `123`, `343`, and `1239` are linked to contact `661`, implement a safe correction path so local analytics can include them for `661`.
+If live Bitrix credentials are not available, commit the code/tests/report as `blocked` or `partial` with the exact reason. Do not fake the result.
 
-Important: do not keep a mutating diagnostic endpoint that silently edits local raw tables outside dataset run/activation semantics.
+### 4. Decide and implement the normal refresh path
 
-Acceptable approaches:
+If the bounded live test proves that `crm.item.list` returns the complete contact ID list for all seven known deals, update normal manual Bitrix deal ingestion to use `crm.item.list` for deal rows and deal-contact link extraction.
 
-- make the explicit-ID correction a deliberate backend/operator helper that records a local dataset run/status and reruns normalization; or
-- integrate a bounded, explicitly invoked reconciliation function into the existing local refresh/ingestion pipeline without changing Docker startup behavior; or
-- if only a diagnostic result is safe in this task, remove/disable mutating `apply_local_correction` and mark the task `blocked` with exact evidence and the next required product decision.
+Requirements for the switched path:
 
-If a correction is applied, it must:
+- preserve current raw deal columns and semantics;
+- extract all contact links from the complete item contact list;
+- preserve primary-contact information when available;
+- keep `raw_deal_contact_links` uniqueness by `deal_id + contact_id`;
+- keep one analytical contact per deal through existing normalization rules;
+- ensure contact `661` would naturally get all seven supplied deals after a normal refresh, without explicit reconciliation;
+- keep Docker Compose startup unchanged: no automatic Bitrix refresh;
+- keep UI refresh manual via existing operator action.
 
-- affect only supplied deal IDs and supplied contact ID;
-- use only read-only Bitrix data;
-- preserve all existing deal fields from local raw data when the deal already exists;
-- insert only allowed safe deal fields if a supplied deal is missing from local `raw_deals`;
-- insert only allowed link fields into `raw_deal_contact_links`;
-- rerun normalization;
-- keep each deal counted only once through analytical contact selection;
-- ensure contact `661` wins for these deals when its confirmed link exists and lower-priority contacts are also linked;
-- avoid changing unrelated contacts/deals.
-
-### 4. Clean up TASK-09 diagnostic mutation risk
-
-Review the `apply_local_correction` path added in `TASK-2026-06-22-09`.
-
-Do one of the following:
-
-- remove the public/API ability to mutate local raw/normalized data through `/api/internal/diagnostics/.../verify-bitrix-deals`; or
-- refactor it into the safe explicit-ID reconciliation path described above with proper bounds, tests, and status/reporting.
-
-By default, diagnostics should be read-only. Mutating reconciliation must be explicit, bounded, documented, and not disguised as a verification endpoint.
+If `crm.item.list` does not return complete contact IDs or cannot safely expose the needed field, do not switch normal sync. Instead, document the fastest safe fallback design in `.ai/report.md`: a separate explicit/deep relation sync using Bitrix `batch` with up to 50 `crm.deal.contact.items.get` sub-requests per HTTP call, guarded by progress/status and not run automatically.
 
 ### 5. Tests
 
 Add focused backend tests for:
 
-- exact-ID local diagnostic categorizes: missing raw deal, missing local link, assigned to another analytical contact, assigned to contact `661`;
-- exact-ID Bitrix verification calls only allowed read-only methods and is bounded to the supplied deal IDs;
-- if per-deal link data includes contact `661`, the reconciliation path inserts/repairs only the missing links for supplied IDs and analytics count for `661` becomes 7 in the test scenario;
-- designer priority `1` still wins over lower-priority primary contacts;
-- diagnostics do not expose forbidden personal fields;
-- CRM write methods remain rejected/not introduced.
+- `crm.item.fields` and `crm.item.list` are allowed read-only methods;
+- CRM write methods remain rejected/not introduced;
+- `crm.item.list` request uses explicit safe select and never `*` or `fm`;
+- explicit-ID `crm.item.list` diagnostic is bounded to the supplied deal IDs;
+- transform/parsing supports Bitrix item field casing used by `crm.item.list`;
+- multi-contact deal links from the item contact list are not lost;
+- designer priority `1` still wins when a deal has primary lower-priority contact plus designer `661` as secondary;
+- analytics count matches normalized/link facts in a scenario equivalent to the seven supplied deal IDs;
+- forbidden personal fields are not returned/logged by diagnostics.
 
 ### 6. Documentation/report
 
 Update `.ai/report.md` with:
 
-- exact root cause for deals `123`, `343`, and `1239`;
-- local status of all seven supplied deal IDs;
-- whether live Bitrix was called;
-- if live Bitrix was called, method names, supplied IDs, aggregate counts, and safe divergence summary only;
-- whether any local correction/reconciliation was applied;
-- if correction was applied, exactly which deal IDs/links were changed and how analytics changed;
-- confirmation that no write methods were added or called;
-- checks run and results.
+- the exact `crm.item.fields` contact-related field names discovered;
+- the exact bounded `crm.item.list` result for the seven deal IDs, as safe ID-level facts only;
+- the decision: switch normal sync to `crm.item.list`, or do not switch and use fallback design;
+- if switched, changed files and how normal refresh now builds complete links;
+- if not switched, why the test failed or was unavailable;
+- all checks run;
+- confirmation that no write methods were added or called.
 
-Update `docs/development.md` and/or `docs/data-model.md` only if diagnostic/reconciliation behavior changes.
+Update `docs/development.md` and `docs/data-model.md` if normal sync behavior changes.
 
 ## Out Of Scope
 
-- New frontend screens.
-- Redesign of Contacts UI.
-- ABC/RFM/concentration/type-region screens.
-- Automatic background refresh.
-- Scheduled sync.
-- Broad unbounded scan of all deals with `crm.deal.contact.items.get`.
+- New frontend screens or UI redesign.
+- Automatic background refresh or scheduled sync.
+- Broad unbounded per-deal `crm.deal.contact.items.get` scan in normal refresh.
 - Companies, leads, products, calls, emails, comments, activities, files, requisites.
-- CSV export.
 - Any Bitrix write operation.
-- Large unrelated refactors.
+- Exporting raw Bitrix data.
+- Changing contact type priority rules.
+- Changing analytics formulas, revenue, profit, ABC, or RFM semantics.
+- Modifying `ui-kits/`.
 
 ## Constraints
 
@@ -199,29 +220,31 @@ crm.*.delete
 crm.*.set
 ```
 
-- Do not commit `.env`, local databases, Parquet snapshots, raw exports, logs, caches, build artifacts, `node_modules`, `frontend/dist`, or `ui-kits/` changes.
+- Do not use `select: ["*"]`.
+- Do not request or expose `fm`, phones, emails, addresses, messengers, comments, files, requisites, activities, or arbitrary non-allowlisted custom fields.
 - Do not print webhook URLs or tokens.
-- Do not expose forbidden personal fields.
+- Do not commit `.env`, local databases, Parquet snapshots, raw exports, logs, caches, build artifacts, `node_modules`, `frontend/dist`, or `ui-kits/` changes.
 - Do not make Docker Compose auto-refresh Bitrix data.
-- Keep changes focused on reconciling contact `661` and the seven explicit deal IDs.
-- If exact-ID live Bitrix verification cannot be run safely, stop and mark blocked with the reason.
+- Keep the live test bounded to the seven supplied deal IDs.
+- If a broad relation-refresh design is needed, document it but do not run it in this task.
 
 ## Acceptance Criteria
 
-- `.ai/report.md` explains each supplied deal ID: `123`, `343`, `1239`, `14773`, `19149`, `23989`, `24761`.
-- The report identifies the exact root cause for why `123`, `343`, and `1239` were not counted locally for contact `661`.
-- If Bitrix per-deal relation data confirms contact `661` on the missing deals, local analytics can be reconciled so contact `661` counts 7 deals after the explicit correction/reconciliation path.
-- If Bitrix per-deal relation data does not confirm contact `661`, the report states that clearly and no local data is changed.
-- The mutating `apply_local_correction` risk from `TASK-09` is removed or refactored into a bounded explicit reconciliation path with tests.
-- Diagnostics remain read-only by default.
+- `.ai/report.md` states whether `crm.item.list` returned complete contact IDs for deals `123`, `343`, `1239`, `14773`, `19149`, `23989`, and `24761`.
+- `.ai/report.md` states whether contact `661` was present for each of those seven deals in the `crm.item.list` result.
+- The decision is explicit: normal sync switched to `crm.item.list`, or normal sync not switched with a clear reason.
+- If switched, a normal refresh path no longer relies on `crm.deal.list CONTACT_IDS` for complete deal-contact links.
+- If switched, backend tests prove multi-contact links are preserved and designer `661` wins over lower-priority primary contacts.
+- If not switched, no risky partial implementation is left behind; fallback is documented as a separate future operator/deep-sync path.
+- Diagnostics and reports expose only safe ID-level facts.
 - No Bitrix write methods are added or called.
-- No forbidden personal fields are fetched beyond allowlists, stored, logged, returned, or documented.
+- No forbidden personal fields are selected, stored, logged, returned, or documented.
 - Relevant backend tests pass.
 - Frontend build is run only if frontend code changes.
 - The implementation commit uses the exact required message:
 
 ```text
-codex: TASK-2026-06-22-10 Reconcile contact 661 explicit deal IDs
+codex: TASK-2026-06-22-11 Test crm.item.list deal contact links
 ```
 
 ## Checks
@@ -279,14 +302,15 @@ git diff --check -- ':!AGENTS.md' ':!.ai/task.md'
 Codex must not commit until all conditions below are true:
 
 - the latest relevant commit is this planner commit;
-- the seven supplied deal IDs have been checked locally;
-- if live Bitrix verification is run, it is limited to the seven supplied deal IDs and read-only methods only;
-- `.ai/report.md` documents the exact result for deals `123`, `343`, and `1239`;
-- the `TASK-09` mutating diagnostic endpoint risk is removed or safely refactored;
+- official Bitrix docs were checked for `crm.deal.list`, `crm.item.fields`, `crm.item.list`, and `batch` constraints;
+- the `crm.item.list` live test was either run for exactly the seven supplied deal IDs or explicitly reported as unavailable with reason;
+- if the live test was run, `.ai/report.md` includes only safe ID-level results;
+- if normal sync is switched, backend tests cover multi-contact link completeness and designer priority for a secondary contact;
+- if normal sync is not switched, no incomplete normal-sync migration remains in the code;
 - every required check is either run and reported, or explicitly documented as not run with reason;
 - `.ai/report.md` explicitly states whether any live Bitrix call was or was not run;
 - `.ai/report.md` explicitly states that no Bitrix write methods were added or called;
-- staged files are only files intentionally changed for `TASK-2026-06-22-10` plus `.ai/report.md`;
+- staged files are only files intentionally changed for `TASK-2026-06-22-11` plus `.ai/report.md`;
 - `.env`, generated data, DuckDB files, Parquet snapshots, CSV exports, logs, caches, `node_modules`, `frontend/dist`, and `ui-kits/` are not staged;
 - `.ai/task.md` is not staged by Codex unless the user explicitly requested changing the task;
 - the final commit message exactly matches the required `codex:` message above.
