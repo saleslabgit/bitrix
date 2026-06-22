@@ -5,198 +5,201 @@ Created from: current `main` after accepted `TASK-2026-06-22-30`
 
 ## Title
 
-Prepare production deployment
+Prepare lean no-Docker VPS deployment
 
 ## Goal
 
-Prepare the project for a simple VPS deployment while preserving the existing local development flow.
+Prepare the project for deployment on a very small test VPS:
 
-The production setup should run the backend and a built frontend behind a reverse proxy with HTTPS-ready configuration. The current development `docker-compose.yml` must continue to work for local development with the Vite dev server.
+```text
+1 vCPU
+1 GB RAM
+5 GB SSD
+```
+
+The deployment path must avoid Docker on the VPS and must avoid building the frontend on the VPS. The server should run only the Python backend, serve prebuilt frontend static files, reverse proxy `/api/*` and `/health`, persist `data/`, and keep local development behavior unchanged.
 
 ## User Request
 
-The user asked how to deploy the app quickly to a VPS, confirmed that local development must keep working, and then said:
+The user first asked for production deployment preparation, then found that Docker is not practical on the available Mac/server path. The current target is now the weak VPS above, and the user said:
 
 ```text
-тогда сделай задачу на подготовку
+Короче мак не вывезет, нужно делать деплой на слабый сервер, что я указал
 ```
+
+This task supersedes the previous Docker-production plan in the current `TASK-2026-06-22-31` file. Do not implement the old Docker production compose/Caddy plan unless it is needed only as optional documentation.
 
 ## Facts
 
-- The current default `docker-compose.yml` is a local development setup.
-- Current `docker-compose.yml` starts:
-  - `backend` from `backend/Dockerfile` on port `8000`;
-  - `frontend` from `node:20-slim` running `npm ci && npm run dev -- --host 0.0.0.0` on port `5173`.
-- There is no `frontend/Dockerfile` in the current repository.
+- Current default `docker-compose.yml` is a local development setup and must remain usable for local development.
+- Current dev compose starts:
+  - backend from `backend/Dockerfile` on port `8000`;
+  - frontend from `node:20-slim` running Vite dev server on port `5173`.
 - Frontend has `npm run build` and produces a Vite static build.
-- Backend is FastAPI and is already containerized.
-- Runtime data is stored under `APP_DATA_DIR`, normally `data/`, and mounted as `./data:/app/data` in dev compose.
-- Auth is implemented and controlled by env variables:
+- Backend is FastAPI and can run with `uvicorn app.main:app`.
+- Backend settings read `.env` from the repository root when run from the `backend/` directory, via `env_file="../.env"`.
+- Runtime data is stored under `APP_DATA_DIR`, normally `data/`.
+- Auth is already implemented through env variables:
   - `APP_AUTH_ENABLED`;
   - `APP_AUTH_USERNAME`;
   - `APP_AUTH_PASSWORD`;
   - `APP_AUTH_SESSION_SECRET`;
   - `APP_AUTH_SESSION_TTL_SECONDS`;
   - `APP_AUTH_COOKIE_SECURE`.
-- For HTTPS deployment, `APP_AUTH_COOKIE_SECURE=true` should be supported by the deploy docs/config.
-- Docker Compose must not auto-refresh Bitrix data. Data refresh remains a manual UI action.
-- Bitrix webhook and auth credentials must stay in server-local `.env` or deployment secrets and must not be committed.
-- `docs/project-status.md` still lists CI and production deployment as intentionally not done.
+- Production should use `APP_AUTH_ENABLED=true` and a strong `APP_AUTH_SESSION_SECRET`.
+- With HTTPS, production should use `APP_AUTH_COOKIE_SECURE=true`.
+- Docker Compose must not auto-refresh Bitrix data. In no-Docker deployment, service startup must also not auto-refresh Bitrix data.
+- Bitrix refresh remains a manual UI action after login.
+- Bitrix webhook and auth credentials must stay in server-local `.env` and must not be committed.
+- `docs/project-status.md` currently lists CI and production deployment as intentionally not done.
 
 ## Assumptions
 
-- The first deployment target is a single VPS running Docker Compose.
-- One public domain will point to the VPS.
-- A simple reverse proxy container is acceptable. Prefer Caddy for the first production deployment because it can manage Let's Encrypt certificates automatically with less configuration than manual Nginx/certbot.
-- Backend and frontend should be private inside the Docker network in production; only the reverse proxy should publish public ports.
-- The production compose file can be a separate file, for example `docker-compose.prod.yml`, so local development remains unchanged.
+- The VPS OS is a common Ubuntu/Debian server with `systemd`, `apt`, and `nginx` available.
+- The frontend can be built on another machine or CI-like environment and uploaded as a tarball/artifact to the VPS.
+- The VPS can install Python 3.12, `python3.12-venv`, nginx, git, and unzip/tar tooling.
+- Node.js and npm should not be required on the VPS.
+- Docker should not be required on the VPS.
+- HTTPS may be added later or via the VPS/provider/reverse proxy. The first target can document HTTP test deployment plus HTTPS settings needed for secure cookies.
 
 ## Unknowns
 
+- Exact VPS OS/version.
 - Final domain name.
-- VPS provider and OS image.
+- Whether HTTPS will be terminated by nginx/certbot, provider proxy, or another external proxy.
 - Backup destination and retention policy.
-- Whether production will later need CI/CD or manual SSH deploy is enough for the first release.
+- Whether the user will upload a pre-existing `data/` directory or refresh from Bitrix on the VPS.
 
-Do not block this task on those unknowns. Use placeholders and document what the operator must fill in on the VPS.
+Do not block the task on these unknowns. Use placeholders and document operator steps clearly.
 
 ## Scope
 
 ### 1. Preserve local development
 
-Keep the current local development flow intact:
+Keep the existing local development behavior intact:
 
 ```bash
 docker compose up --build
 ```
 
-The existing dev compose may be left as-is unless a tiny non-breaking improvement is required. Do not replace the Vite dev server in the default dev compose.
+Do not remove or replace the dev Docker Compose flow. Do not change the current local Vite dev flow unless a small documentation clarification is needed.
 
-### 2. Add production frontend image
+### 2. Add no-Docker deployment assets
 
-Add a production frontend container build.
+Add lightweight deployment templates under a clear path such as `deploy/no-docker/`.
 
-Requirements:
+Required assets:
 
-- Build frontend dependencies with Node.
-- Run `npm run build`.
-- Serve the built `dist` static files from a lightweight HTTP server image.
-- The static server must support SPA fallback to `index.html`.
-- The static server must proxy `/api/*` and `/health` to the backend service inside the Docker network, or the reverse proxy must do this clearly and safely.
-- Do not commit `frontend/dist`.
+- systemd service template for backend, for example `bitrix-sales-backend.service`.
+- nginx site config template that:
+  - serves frontend static files from a deploy directory;
+  - reverse proxies `/api/` to `127.0.0.1:8000`;
+  - reverse proxies `/health` to `127.0.0.1:8000`;
+  - falls back to `index.html` for SPA routes;
+  - does not expose backend directly.
+- safe production env example for no-Docker deployment, for example `.env.production.example` or `deploy/no-docker/.env.production.example`.
+- optional helper scripts only if they stay simple and safe. Prefer docs/templates over complex automation.
 
-Recommended implementation options:
+### 3. Support prebuilt frontend artifact workflow
 
-- `frontend/Dockerfile` multi-stage build using `node:20-slim` for build and `nginx:alpine` for serving static files.
-- Add an nginx config under `frontend/` or deploy config directory that serves static files and proxies API calls to `backend:8000`.
-
-Alternative acceptable implementation:
-
-- Caddy serves static frontend build and reverse proxies API if the structure stays simple and verified.
-
-### 3. Add production compose
-
-Add `docker-compose.prod.yml`.
+Document and, if useful, add a small helper script for building the frontend outside the VPS.
 
 Requirements:
 
-- Services should include backend, production frontend/static server, and reverse proxy if needed.
-- Only public HTTP/HTTPS ports should be exposed from the production stack, normally `80:80` and `443:443`.
-- Backend must not publish `8000` publicly in production.
-- Frontend/internal static server should not publish its dev port publicly in production unless it is the reverse proxy itself.
-- Backend data must persist via a bind mount or named volume. Prefer preserving the current operator-visible `./data:/app/data` mount for simplicity.
-- Add restart policies suitable for VPS use, for example `restart: unless-stopped`.
-- Compose must load `.env.example` plus optional `.env`, same as dev, without committing real values.
-- Compose startup must not call Bitrix or refresh local data.
-
-### 4. Add reverse proxy / HTTPS-ready config
-
-Add the simplest production reverse proxy configuration.
-
-Preferred Caddy approach:
-
-- Add a `Caddyfile` or deploy Caddy config with a placeholder domain.
-- Reverse proxy app traffic to the production frontend/static service.
-- Ensure `/api/*` and `/health` reach the backend, either via frontend nginx proxy or directly in Caddy.
-- Use an environment variable or documented placeholder for the domain where practical.
-- Persist Caddy data/certs with volumes if Caddy is used.
-
-If using Nginx instead:
-
-- Include clear HTTPS/certbot notes or keep it HTTP-only behind an external TLS proxy, but document the tradeoff.
-
-### 5. Add production environment template
-
-Add a safe production env template, for example `.env.production.example` or `deploy/.env.production.example`.
-
-Requirements:
-
-- Include placeholders only.
-- Include auth variables with `APP_AUTH_ENABLED=true` and `APP_AUTH_COOKIE_SECURE=true` as production guidance.
-- Include `BITRIX_WEBHOOK_URL=` placeholder only, never a real URL.
-- Include `BITRIX_CONTACT_TYPE_FIELD=` placeholder.
-- Include `APP_DATA_DIR=data`.
-- Do not create or commit a real `.env`.
-
-### 6. Add deploy documentation
-
-Update docs so the user can deploy manually to a VPS.
-
-Required docs:
-
-- `docs/development.md` or a new `docs/deployment.md` if clearer.
-- `docs/project-status.md`.
-- `frontend/README.md` and/or `backend/README.md` only if relevant to explain production behavior.
-
-The deploy docs must include:
-
-- VPS prerequisites: Docker, Docker Compose plugin, Git, domain DNS A record.
-- Clone/update commands.
-- How to create the server-local `.env` from the production example.
-- How to generate a strong `APP_AUTH_SESSION_SECRET`.
-- How to start production:
+- Build command remains:
 
 ```bash
-docker compose -f docker-compose.prod.yml up --build -d
+cd frontend && npm ci && npm run build
 ```
 
-- How to check status/logs:
+- `frontend/dist` must not be committed.
+- The docs must explain how to package and upload the built frontend to the VPS, for example as `frontend-dist.tar.gz`.
+- The server-side nginx config should serve from a stable directory, for example:
+
+```text
+/opt/bitrix-sales/frontend-dist
+```
+
+- The server must not require Node.js/npm for normal operation.
+
+### 4. Backend no-Docker runtime
+
+Document backend setup on the VPS:
+
+- project directory, for example `/opt/bitrix-sales/app`;
+- server-local `.env` in the project root;
+- persistent data directory, for example `/opt/bitrix-sales/app/data`;
+- Python venv under the backend directory or deploy directory;
+- install backend dependencies with:
 
 ```bash
-docker compose -f docker-compose.prod.yml ps
-docker compose -f docker-compose.prod.yml logs -f
+cd backend
+python3.12 -m venv .venv
+. .venv/bin/activate
+python -m pip install -U pip
+pip install -e .
 ```
 
-- How to verify health and app URL.
-- How to update after new commits:
+- systemd starts backend with uvicorn bound only to localhost:
 
-```bash
-git pull
-docker compose -f docker-compose.prod.yml up --build -d
+```text
+127.0.0.1:8000
 ```
 
-- How to stop production safely.
-- How to back up and restore at least the `data/` directory at a high level.
-- State clearly that Bitrix refresh remains manual through the UI after login.
-- State clearly that local dev still uses `docker compose up --build`.
+- service restart policy should be suitable for a small VPS.
+
+### 5. Add weak-server operator documentation
+
+Add or update deployment docs. Prefer a dedicated `docs/deployment.md` and link from `docs/development.md`.
+
+Docs must include:
+
+- why this no-Docker path is used for the 1 GB RAM / 5 GB SSD test server;
+- expected limitations of that server size;
+- recommended free-space and RAM checks;
+- creating swap, for example 1-2 GB, with clear caution that disk is only 5 GB;
+- installing minimal OS packages;
+- cloning/updating the repository;
+- creating server-local `.env` from the production example;
+- generating `APP_AUTH_SESSION_SECRET`;
+- frontend build outside the server and upload/install on server;
+- backend venv setup;
+- installing systemd service;
+- installing nginx config;
+- start/restart/status/log commands;
+- health/app verification commands;
+- update flow after new commits;
+- backup/restore guidance for `data/`;
+- clear statement that Bitrix refresh is manual through UI after login;
+- clear statement that local dev still uses `docker compose up --build`.
+
+### 6. Update project status
+
+Update `docs/project-status.md` to reflect:
+
+- no-Docker weak VPS deployment preparation exists after this task;
+- actual server deployment, domain, HTTPS, and backup destination remain external/operator steps unless completed outside the repo;
+- Docker production deployment is not the primary path for the current weak test VPS.
 
 ## Out Of Scope
 
+- Actually SSHing into the VPS.
+- Installing packages on the VPS from Codex.
+- Committing real `.env`, credentials, webhook URLs, auth passwords, or session secrets.
+- Committing local DB/data, raw Bitrix exports, Parquet, CSV, logs, caches, `node_modules`, or `frontend/dist`.
 - CI/CD pipeline.
 - GitHub Actions deployment.
-- Cloud-managed database.
-- Kubernetes.
-- Multi-server deployment.
-- Complex secret managers.
+- Docker production compose as the primary solution for this task.
+- Kubernetes, managed database, cloud object storage, complex secret managers.
 - Automated scheduled Bitrix refresh.
-- New product features or reports.
 - Changing analytics logic.
-- Changing auth semantics beyond production env guidance.
-- Implementing full backup automation with retention unless it is trivial and well isolated.
+- Changing frontend report behavior.
+- Changing auth semantics beyond deployment env guidance.
+- Full backup automation with retention.
 
 ## Constraints
 
-- Work only from current GitHub repository files.
+- Work from current repository files.
 - Preserve default local development behavior.
 - Keep Bitrix read-only.
 - Do not add CRM write methods matching:
@@ -208,49 +211,56 @@ crm.*.delete
 crm.*.set
 ```
 
-- Do not commit real `.env`, credentials, webhook URLs, auth passwords, session secrets, DuckDB files, Parquet, CSV, raw data, generated data, logs, caches, `node_modules`, `frontend/dist`, or `ui-kits/` changes.
+- Do not commit secrets, real `.env`, webhook URLs, credentials, DuckDB files, Parquet, CSV, raw data, generated data, logs, caches, `node_modules`, `frontend/dist`, or `ui-kits/` changes.
 - Do not change `ui-kits/`.
-- Docker Compose must not automatically refresh data from Bitrix.
-- Backend/frontend production API calls should remain same-origin from the browser, so HttpOnly auth cookies work cleanly.
+- Service startup must not refresh Bitrix data.
+- Browser access should remain same-origin through nginx so HttpOnly auth cookies work cleanly.
+- Backend must bind to localhost in no-Docker production; nginx is the public entry point.
 
 ## Acceptance Criteria
 
 ### Local development
 
-- `docker compose up --build` remains the local dev command.
-- Local dev frontend still runs with Vite dev server and existing operator flow.
-- Existing local auth-disabled default remains possible with `.env.example`.
+- Existing local dev command remains documented and valid:
 
-### Production compose
+```bash
+docker compose up --build
+```
 
-- A separate production compose file exists and builds/runs the stack for VPS deployment.
-- Backend is not publicly exposed in production compose.
-- Only reverse proxy/public web ports are exposed in production compose.
-- Production stack serves built frontend static files, not Vite dev server.
-- `/api/*` and `/health` are routed to backend successfully in production topology.
-- Production data persists under the configured data mount/volume.
-- Production compose does not call Bitrix on startup.
+- No-Docker deployment docs do not remove or weaken the local dev instructions.
 
-### HTTPS/auth readiness
+### No-Docker deployment assets
 
-- Reverse proxy configuration is HTTPS-ready with clear domain placeholder/instructions.
-- Production env example enables auth and secure cookies by default as guidance, using placeholders only.
-- Same-origin browser access is preserved so the existing HttpOnly cookie auth works.
+- A systemd backend service template exists.
+- An nginx site config template exists.
+- A safe production env example exists with placeholders only.
+- The templates are consistent with the actual backend command and frontend build output.
+- Backend is not documented or configured as publicly exposed directly.
+- Frontend is served as static files, not Vite dev server.
+- `/api/*` and `/health` are routed to backend through nginx.
+- SPA fallback to `index.html` is configured.
+
+### Weak-server fit
+
+- Docs explicitly avoid Docker and frontend build on the VPS.
+- Docs explain how to build frontend elsewhere and upload the artifact.
+- Docs include disk/RAM caveats for 1 GB RAM / 5 GB SSD.
+- Docs include a minimal swap recommendation and warn about limited disk.
+
+### Security and operations
+
+- Production env guidance enables auth and uses secure-cookie guidance for HTTPS.
+- Secrets are placeholders only.
+- Bitrix refresh remains manual through UI.
+- Data persistence and backup focus on `data/`.
+- No Bitrix write methods are added.
 
 ### Documentation
 
-- Deployment docs are sufficient for a manual VPS deploy by the user.
-- Docs explain local dev vs production commands.
-- Docs explain server-local secrets and `.env` handling.
-- Docs include backup guidance for `data/`.
-- `docs/project-status.md` is updated to reflect that production deployment preparation exists, while actual deployment host and backup destination remain unknown.
-
-### Safety
-
-- No secrets or forbidden artifacts are committed.
-- No `frontend/dist`, local DB, raw data, generated data, logs, caches, or `node_modules` are committed.
-- No Bitrix write methods are added.
-- `.ai/report.md` is updated.
+- `docs/deployment.md` or equivalent contains enough steps for a manual no-Docker VPS deploy.
+- `docs/development.md` links to the deployment guide and preserves local setup.
+- `docs/project-status.md` is updated.
+- `.ai/report.md` is updated by Codex.
 
 ## Checks
 
@@ -261,40 +271,30 @@ git log --oneline -5
 git status --short
 ```
 
-Suggested implementation checks:
-
-```bash
-docker compose config
-docker compose -f docker-compose.prod.yml config
-```
-
-Frontend build:
+Frontend build, because deployment docs depend on the static artifact:
 
 ```bash
 cd frontend && npm run build
 ```
 
-Production runtime smoke if Docker is available:
-
-```bash
-docker compose -f docker-compose.prod.yml up --build -d
-curl -f http://localhost/health
-curl -f http://localhost/
-docker compose -f docker-compose.prod.yml down
-```
-
-If the production proxy requires a real domain for HTTPS, test HTTP/local routing as far as practical and document the limitation in `.ai/report.md`.
-
-Backend tests if backend code is changed:
+Backend tests only if backend code changes:
 
 ```bash
 cd backend && python -m pytest
 ```
 
+Config/template sanity checks as applicable:
+
+```bash
+nginx -t -c <temporary test config path>
+```
+
+If nginx is not installed in the execution environment, document that limitation in `.ai/report.md` and at least review the config syntax manually.
+
 Safety search:
 
 ```bash
-rg "crm\.[A-Za-z0-9_.]*(add|update|delete|set)" backend/app backend/tests frontend/src
+rg "crm\.[A-Za-z0-9_.]*(add|update|delete|set)" backend/app backend/tests frontend/src deploy docs
 ```
 
 Secret/artifact check before commit:
@@ -311,14 +311,14 @@ Before committing, verify:
 - `.ai/report.md` is updated;
 - no real credentials or secrets are staged;
 - no `.env`, local DB, raw/generated data, logs, caches, `node_modules`, `frontend/dist`, or `ui-kits/` changes are staged;
-- default dev compose still exists and remains the local command;
-- production compose config validates;
-- frontend build is recorded;
-- runtime smoke is recorded or a concrete limitation is documented;
+- local dev Docker Compose remains present and unchanged unless documented as a tiny non-breaking clarification;
+- no-Docker deployment is the primary documented path for the weak VPS;
+- frontend build result is recorded, but `frontend/dist` is not committed;
+- nginx/systemd templates are consistent with actual project paths and commands;
 - no Bitrix write methods were added.
 
 Commit message:
 
 ```text
-codex: TASK-2026-06-22-31 Prepare production deployment
+codex: TASK-2026-06-22-31 Prepare lean VPS deployment
 ```
