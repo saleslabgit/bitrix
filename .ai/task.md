@@ -1,238 +1,170 @@
-# Task: TASK-2026-06-22-18
+# Task: TASK-2026-06-22-19
 
 Status: planned
-Created from: current `main` after accepted `TASK-2026-06-22-17`
+Created from: current `main` after `TASK-2026-06-22-18`
 
 ## Title
 
-Add Deals report
+Fix report errors and add Deals client search totals
 
 ## Goal
 
-Add a second frontend report for deals, similar in behavior and density to the current Contacts report, backed by a local backend deals analytics endpoint.
+Fix the user-reported report/runtime issues and extend the Deals report so it is more useful for data verification:
 
-The report must let the user verify deal-level data from the local database with filters and columns requested by the product owner.
+- diagnose and fix the `500` from Contacts analytics with the reported query;
+- remove the missing favicon request noise;
+- add client search to Deals filters;
+- show filtered Deals budget/profit totals above and below the table, calculated across all filtered rows, not only the current pagination page.
 
 ## User Request
 
-Add a deals report with filters:
+The user reported console output:
 
-- deal ID;
-- deal status;
-- type, for example `Дизайнер`;
-- region;
-- dates like in Contacts.
+```text
+Download the React DevTools for a better development experience
+favicon.ico:1 GET http://localhost:5173/favicon.ico 404 (Not Found)
+api.ts:233 GET http://localhost:5173/api/reports/contacts/analytics?limit=25&offset=0&sort=contact_id&order=desc 500 (Internal Server Error)
+```
 
-Add columns:
+Additional requested changes:
 
-- ID + link;
-- deal name;
-- deal status;
-- type;
-- region;
-- budget;
-- profit;
-- created date;
-- closed date.
+- add client search to the Deals report filter;
+- add budget and profit sums at the top and bottom of the table for all filtered deals, not only deals visible on the current pagination page.
 
 ## Facts
 
-- Current frontend has only the Contacts screen in `frontend/src/App.tsx`.
-- Current Contacts screen reads only local backend endpoints:
-  - `GET /api/reports/contacts/analytics`;
-  - `GET /api/meta/filters`;
-  - `GET /api/datasets/status`;
-  - `POST /api/local/refresh-data`.
-- Current Contacts filters include exact contact ID, type, region, status, and deal creation date drafts applied by `Применить даты`.
-- Current metadata endpoint exposes `contact_types`, `regions`, `statuses`, `min_created_at`, `max_created_at`, `min_closed_at`, and `max_closed_at`.
-- Current backend analytics code already loads normalized deal facts with:
-  - `deal_id`;
-  - `deal_name`;
-  - `amount_usd`;
-  - `status_group`;
-  - `created_at`;
-  - `closed_at`;
-  - `contact_type_normalized`;
-  - `region_normalized`;
-  - analytical contact assignment.
-- Current contact analytics budget semantics:
-  - budgets use all assigned local deals in USD;
-  - revenue and estimated profit are won-only;
-  - estimated profit is always `revenue_usd * 0.50`.
-- For a single deal row, `Бюджет` should display that deal's `amount_usd`.
-- For a single deal row, `Прибыль` must be won-only: `amount_usd * 0.50` when `status_group == "won"`, otherwise `0.00`.
-- Bitrix is read-only and must not be called from frontend reports.
-- Report APIs must read local DuckDB-backed data only.
+- Current frontend has Contacts and Deals reports.
+- Contacts reads `GET /api/reports/contacts/analytics`.
+- Deals reads `GET /api/reports/deals/analytics`.
+- Deals rows currently include deal ID/name, status, normalized analytical type/region, USD budget, won-only USD estimated profit, created date, and closed date.
+- Deals filters currently include exact deal ID, status, type, region, and deal creation date range.
+- Normalized deals contain `analytical_contact_id` and `analytical_contact_name` according to current documentation.
+- Contact and deal report APIs must read local DuckDB-backed data only.
+- Frontend must call only local backend endpoints.
+- Bitrix is read-only and must not be called from report page loads.
+- The React DevTools console message is a normal Vite/React development-mode informational message. It is not an application bug unless production build behavior is changed unexpectedly.
+- `favicon.ico` 404 is browser/dev-server noise and can be fixed by adding a small frontend favicon asset/config.
 
 ## Assumptions
 
-- `Даты, как в Контактах` means a deal creation date range filter using `normalized_deals.created_at`, with draft inputs and an explicit `Применить даты` action before table refetch.
-- The deal link target should be the Bitrix deal details page:
-
-```text
-https://dialar.bitrix24.by/crm/deal/details/{{deal_id}}/
-```
-
-- Deal status can be stored/transferred as `won`, `open`, `lost`, and displayed in Russian labels in the frontend.
-- A lightweight in-app screen switch or sidebar selection is acceptable; do not add a full router unless the existing frontend structure already makes that clearly simpler.
-- Deal report UI state may be persisted separately from Contacts state, using a safe browser storage key such as `bitrix-sales.deals.v1`.
+- `поиск по клиентам` in the Deals report means searching by the selected analytical contact/client name stored locally as `normalized_deals.analytical_contact_name`.
+- The client search should be case-insensitive, trimmed, local-only, and should not expose or search forbidden personal fields such as phone, email, address, messengers, comments, files, requisites, or arbitrary raw fields.
+- The Deals totals should respect all current Deals filters, including the new client search, but must be computed before `limit`/`offset` pagination.
+- The requested budget/profit sums are for the Deals report only.
+- Existing Contacts totals/metrics semantics are unchanged by this task.
 
 ## Unknowns
 
-- Browser-level visual verification depends on the execution environment. If Codex cannot run Docker/browser checks, document the limitation in `.ai/report.md`.
-- The product owner did not request search by deal name. Do not add it unless it falls out naturally from existing table helpers with no extra scope; exact deal ID is required.
+- The exact root cause of the Contacts `500` is unknown. Codex must reproduce or inspect it and document the root cause in `.ai/report.md` before claiming it is fixed.
+- Browser-level verification depends on the execution environment. If it cannot be run, document the limitation in `.ai/report.md`.
 
 ## Scope
 
-### 1. Backend deal analytics endpoint
+### 1. Diagnose and fix Contacts analytics `500`
 
-Add a local backend endpoint for deal-level analytics, recommended:
+Investigate the failing request:
 
 ```text
-GET /api/reports/deals/analytics
+GET /api/reports/contacts/analytics?limit=25&offset=0&sort=contact_id&order=desc
 ```
 
-Required query parameters:
+Requirements:
 
-- `limit`, `offset` with the same safe bounds as Contacts;
-- `deal_id` exact positive integer filter;
-- `status` filter over `won`, `open`, `lost`;
-- `contact_type` filter over normalized analytical contact type;
-- `region` filter over normalized analytical region;
-- `deal_created_from` / `deal_created_to` inclusive filters over `normalized_deals.created_at`;
-- `sort` and `order` with an allowlist.
+- reproduce the failure with the current code or add a failing regression test first;
+- identify the real backend exception/root cause;
+- fix the backend path so this valid query does not return `500`;
+- keep sorting allowlisted and deterministic;
+- do not expose stack traces, local paths, secrets, raw rows, webhook values, or forbidden personal data in API responses;
+- add regression coverage for the failure path;
+- document the root cause and fix in `.ai/report.md`.
 
-Required response shape:
+If the failure only appears with a local live dataset shape that is hard to reproduce exactly, create the smallest synthetic/test fixture that represents the same missing/null/edge condition.
 
-- page metadata: `total`, `limit`, `offset`;
-- rows with:
-  - `deal_id`;
-  - `deal_name`;
-  - `status_group`;
-  - `contact_type_normalized`;
-  - `region_normalized`;
-  - `budget_usd`;
-  - `estimated_profit_usd`;
-  - `created_date`;
-  - `closed_date`.
+### 2. Favicon and console noise
 
-Sort allowlist should cover all displayed columns:
+- Add a small frontend favicon asset/config so `GET /favicon.ico` no longer returns `404` in local Vite usage.
+- Do not try to suppress the React DevTools development-mode informational message unless there is a real build/config bug. Mention in `.ai/report.md` that this line is expected in dev mode.
 
-- `deal_id`;
-- `deal_name`;
-- `status_group`;
-- `contact_type_normalized`;
-- `region_normalized`;
-- `budget_usd`;
-- `estimated_profit_usd`;
-- `created_date`;
-- `closed_date`.
+### 3. Deals client search filter
 
-Sorting must be stable and deterministic. Use `deal_id` as the final tie-breaker. Null closed dates must not crash sorting.
+Add a Deals filter for client search.
 
-Implementation guidance:
+Backend requirements:
 
-- Prefer extending `backend/app/reports/analytics.py` with deal row/page dataclasses and `list_deal_analytics()` because `_load_deal_facts()` already centralizes local currency conversion and normalized deal facts.
-- Add Pydantic response models in `backend/app/api/models.py`.
-- Add endpoint and sort literal in `backend/app/main.py`.
-- Do not add new storage tables or migrations for this task.
-- Do not call Bitrix, NBRB, or external services from the report endpoint.
+- add a query parameter such as `client_search` to `GET /api/reports/deals/analytics`;
+- filter by local analytical contact/client name, recommended source: `normalized_deals.analytical_contact_name` through the existing deal facts loader;
+- matching should be case-insensitive substring search after trimming whitespace;
+- empty/blank search should behave as no filter;
+- no Bitrix or external calls from this endpoint;
+- no forbidden personal fields in response.
 
-### 2. Backend tests
+Frontend requirements:
 
-Add focused backend tests covering:
+- add an input to the Deals filter area labeled clearly, for example `Клиент` or `Поиск по клиенту`;
+- wire it to the new backend parameter;
+- persist it in the existing Deals state storage key;
+- reset Deals filters must clear it;
+- keep Contacts behavior unchanged;
+- keep metadata dropdown cache behavior from earlier tasks intact.
 
-- endpoint returns local deal rows from the synthetic dataset;
-- exact `deal_id` filter returns one matching deal;
-- `status`, `contact_type`, and `region` filters work;
-- deal creation date range filters rows by `created_at` inclusively;
-- sorting by budget/profit/date works and is deterministic;
-- won deal profit equals `budget_usd * 0.50`;
-- open/lost deal profit is `0.00`;
-- response does not expose forbidden personal fields;
-- no Bitrix write methods were added.
+### 4. Deals filtered totals above and below table
 
-### 3. Frontend API types and fetcher
+Extend Deals analytics response with totals for all rows matching filters before pagination.
 
-Update `frontend/src/api.ts` with:
+Recommended response fields:
 
-- `DealAnalytics` row type;
-- `DealAnalyticsPage` type;
-- `DealSort` type;
-- `DealFilters` type;
-- `fetchDealAnalytics()` calling only `/api/reports/deals/analytics`.
+```text
+filtered_budget_usd
+filtered_estimated_profit_usd
+```
 
-Frontend must still call only local backend endpoints. No direct Bitrix calls.
+Requirements:
 
-### 4. Frontend Deals report screen
-
-Add a Deals report view to the existing frontend.
-
-Required UI behavior:
-
-- The sidebar must allow switching between `Contacts` and `Deals`.
-- Keep Contacts behavior intact.
-- Deals must reuse the existing dataset status/manual refresh flow where practical.
-- Deals must use the existing metadata for type/region/status/date filter options.
-- Deals filters:
-  - exact deal ID numeric input;
-  - deal status select;
-  - type select;
-  - region select;
-  - created date range inputs with draft state and explicit `Применить даты` behavior, matching Contacts.
-- Deals table columns:
-  - `ID` with `Посмотреть` link to `https://dialar.bitrix24.by/crm/deal/details/{{deal_id}}/`;
-  - `Название сделки`;
-  - `Статус сделки` with Russian labels;
-  - `Тип`;
-  - `Регион`;
-  - `Бюджет` formatted as USD;
-  - `Прибыль` formatted as USD;
-  - `Дата создания`;
-  - `Дата закрытия`.
-- Add sorting for displayed columns. Like Contacts, first click on a new sort column should sort descending.
-- Add pagination, loading, error, empty, reset, and selected-filter-count states comparable to Contacts.
-- Persist Deals table state safely in browser storage, separate from Contacts, for example `bitrix-sales.deals.v1`.
-- Reset Deals filters must reset only Deals state and must not delete cached metadata options.
-- Preserve TASK-17 metadata-cache protection so type/status/region dropdowns do not get wiped by failed or invalid metadata refreshes.
+- totals must include every deal matching current filters before `limit`/`offset`;
+- totals must respect deal ID, status, type, region, created-date range, and new client search filters;
+- totals must not be limited to the current page;
+- when no rows match, both totals should be `0.00`;
+- budget total sums `budget_usd`;
+- profit total sums existing deal-row profit semantics: won-only `estimated_profit_usd`;
+- frontend must display the totals above and below the Deals table;
+- labels should be clear, for example `Бюджет по фильтру` and `Прибыль по фильтру`;
+- formatting must match existing USD formatting;
+- loading, error, and empty states must not show misleading totals.
 
 Implementation guidance:
 
-- Keep the screen dense and operational.
-- Reuse existing helpers/components where it keeps the file understandable; avoid a broad frontend rewrite.
-- Do not modify `ui-kits/`.
-- Do not add other screens beyond Contacts and Deals.
+- Prefer calculating totals in the same backend list function that already filters Deals rows, before pagination.
+- Avoid adding persisted analytics tables or migrations for this task.
+- Avoid broad frontend refactors; keep changes focused in existing report code.
 
 ### 5. Documentation and report
 
-Update relevant docs when behavior changes, at minimum consider:
+Update relevant documentation when behavior changes, at minimum consider:
 
-- `frontend/README.md` for the new Deals screen and endpoint;
-- `docs/development.md` for the new frontend/backend endpoint and operator verification;
-- `docs/data-model.md` for the deal analytics output;
-- `docs/project-status.md` if the current project status needs to mention the new report.
+- `frontend/README.md` for Deals client search and filtered totals;
+- `docs/development.md` for the Deals endpoint parameters/response and favicon note if useful;
+- `docs/data-model.md` for deal analytics totals and client-search source;
+- `docs/project-status.md` if current status should mention the refinement.
 
 Update `.ai/report.md` with:
 
-- backend endpoint added;
-- frontend Deals screen behavior;
-- profit semantics for deal rows;
+- root cause of the Contacts `500`;
+- files changed;
+- backend/frontend behavior added;
 - checks run;
-- confirmation that no Bitrix calls/write methods were added;
-- any browser/Docker verification that could not be run.
+- explicit note that React DevTools console line is expected in dev mode;
+- confirmation that report endpoints remain local-only and no Bitrix write methods were added.
 
 ## Out Of Scope
 
-- Changing Bitrix ingestion, extraction, link completeness, reconciliation, or normal refresh behavior.
-- New Bitrix API calls.
+- New report screens beyond Contacts and Deals.
+- Changing Bitrix ingestion, extraction, contact-deal link logic, reconciliation, or manual refresh behavior.
+- Any new Bitrix calls from report endpoints or frontend.
 - Any Bitrix write operation.
-- New storage tables or persisted analytics tables.
-- Company, lead, product, activity, phone, email, address, messenger, comment, file, requisite, or arbitrary custom-field display.
-- CSV/export.
-- Authentication.
-- Adding a full router/query-string state layer unless it is clearly needed and remains small.
-- Changing Contacts metrics, contact priority rules, type normalization, currency loading, ABC/RFM/concentration formulas, or manual refresh semantics.
-- Changing `ui-kits/`.
+- Displaying phone, email, address, messengers, comments, files, requisites, arbitrary raw Bitrix fields, webhook values, secrets, raw rows, or local paths.
+- Changing contact priority rules, type normalization, currency loading, ABC/RFM/concentration formulas, or manual refresh semantics.
+- Adding CSV/export, authentication, scheduler, or automatic refresh.
+- Modifying `ui-kits/`.
 
 ## Constraints
 
@@ -252,31 +184,35 @@ crm.*.set
 - Do not commit `.env`, DuckDB files, Parquet snapshots, raw exports, generated data, logs, caches, `node_modules`, `frontend/dist`, or `ui-kits/` changes.
 - Do not expose webhook values, raw rows, local absolute paths, stack traces, or forbidden personal fields.
 - Keep financial values in USD.
-- Deal row `Прибыль` must follow project semantics: won-only estimated profit.
+- Deal row and total `Прибыль` must stay won-only according to current deal report semantics.
 
 ## Acceptance Criteria
 
-- A Deals report is available from the frontend sidebar without breaking Contacts.
-- Deals screen loads from local backend data when an active dataset exists.
-- Deals screen has filters for deal ID, status, type, region, and deal creation date range.
-- Deal creation date range does not refetch on partial date typing; it applies only through `Применить даты` when values are complete/valid.
-- Deals table displays the requested columns with correct Russian labels and USD formatting.
-- Deal ID includes a `Посмотреть` link to the Bitrix deal details URL.
-- `Бюджет` equals the deal amount in USD.
-- `Прибыль` equals `budget_usd * 0.50` only for won deals and `0.00` for open/lost deals.
-- Sorting works for displayed columns, with first click on a new column sorting descending.
-- Pagination, loading, error, empty, and reset states work.
-- Deals state is persisted separately from Contacts state.
-- Metadata dropdown cache protection from TASK-17 remains intact.
-- Backend tests cover the new endpoint and profit/filter/sort semantics.
-- Frontend build passes.
-- No frontend Bitrix calls are added.
-- No Bitrix write methods are added or called.
-- `.ai/report.md` is updated.
+- The reported Contacts request no longer returns `500` and has regression coverage:
+
+```text
+GET /api/reports/contacts/analytics?limit=25&offset=0&sort=contact_id&order=desc
+```
+
+- `.ai/report.md` explains the actual root cause of the Contacts `500`.
+- `favicon.ico` no longer returns `404` in local frontend usage.
+- `.ai/report.md` notes that the React DevTools line is expected in development mode.
+- Deals report has a client search filter backed by local analytical contact/client name.
+- Deals client search is persisted and reset correctly with Deals state.
+- Deals response includes filtered budget/profit totals computed across all filtered rows before pagination.
+- Deals totals respect all filters, including client search, and are not limited to the current page.
+- Deals UI displays the totals both above and below the table with clear Russian labels and USD formatting.
+- Loading/error/empty states remain clear and do not show misleading totals.
+- Contacts behavior remains intact.
+- Frontend still calls only local backend endpoints.
+- Backend report endpoints do not call Bitrix, NBRB, or external services.
+- No Bitrix write methods are added.
+- Relevant backend tests and frontend build pass, or any inability is explicitly documented with reason.
+- Documentation and `.ai/report.md` are updated.
 - Commit message exactly:
 
 ```text
-codex: TASK-2026-06-22-18 Add Deals report
+codex: TASK-2026-06-22-19 Fix report errors and add Deals client search totals
 ```
 
 ## Checks
@@ -336,16 +272,14 @@ If Docker/browser checks cannot be run, document the reason in `.ai/report.md`.
 Codex must not commit until all conditions below are true:
 
 - latest relevant commit is this planner commit;
-- backend exposes a local deal analytics endpoint with the required filters, sorting, pagination, and fields;
-- deal profit semantics are won-only and tested;
-- frontend has a Deals report reachable from sidebar;
-- Contacts behavior is preserved;
-- Deals filters and date apply behavior match the requested behavior;
-- Deals table uses USD budget/profit fields and safe Bitrix deal links;
-- no Bitrix calls are added to frontend;
+- Contacts analytics `500` root cause is understood, fixed, and covered by a regression test;
+- Deals client search works locally without Bitrix calls;
+- Deals filtered totals are calculated before pagination and shown above and below the table;
+- Contacts behavior and existing Deals filters/sorting/pagination remain intact;
+- no frontend Bitrix calls are added;
 - no Bitrix write methods are added anywhere;
 - required backend tests and frontend build are run, or any inability is explicitly documented with reason;
 - `.ai/report.md` describes implementation, checks, facts, unknowns, and risks;
-- staged files are only task files plus `.ai/report.md` and relevant docs;
+- staged files are only task files plus `.ai/report.md` and relevant docs/assets;
 - forbidden artifacts are not staged;
 - final commit message exactly matches the required `codex:` message above.
