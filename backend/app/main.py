@@ -13,6 +13,8 @@ from app.api.models import (
     DatasetStorageStatusResponse,
     DatasetProfileResponse,
     DealCycleReportResponse,
+    ExplicitContactDealDiagnosticResponse,
+    ExplicitContactDealReconciliationResponse,
     FilterMetadataResponse,
     LocalDataRefreshResponse,
     PipelineStatusResponse,
@@ -45,6 +47,9 @@ from app.reports.analytics import (
 )
 from app.reports.contact_deal_diagnostics import (
     get_contact_deal_diagnostic,
+    get_explicit_contact_deal_diagnostic,
+    reconcile_explicit_contact_deals,
+    verify_explicit_bitrix_contact_deals,
     verify_bitrix_contact_deals,
 )
 from app.reports.local import get_filter_metadata, list_contact_summaries
@@ -147,16 +152,65 @@ def contact_deal_diagnostic(contact_id: int) -> ContactDealDiagnosticResponse:
 )
 def verify_contact_deals_in_bitrix(
     contact_id: int,
-    apply_local_correction: bool = False,
 ) -> BitrixContactDealVerificationResponse:
     client = _build_bitrix_client()
     verification = verify_bitrix_contact_deals(
         get_connection(),
         client=client,
         contact_id=contact_id,
-        apply_local_correction=apply_local_correction,
     )
     return BitrixContactDealVerificationResponse.model_validate(verification)
+
+
+@app.get(
+    "/api/internal/diagnostics/contacts/{contact_id}/explicit-deals",
+    response_model=ExplicitContactDealDiagnosticResponse,
+)
+def explicit_contact_deal_diagnostic(
+    contact_id: int,
+    deal_ids: list[int] = Query(...),
+) -> ExplicitContactDealDiagnosticResponse:
+    diagnostic = get_explicit_contact_deal_diagnostic(
+        get_connection(),
+        contact_id=contact_id,
+        deal_ids=tuple(deal_ids),
+    )
+    return ExplicitContactDealDiagnosticResponse.model_validate(diagnostic)
+
+
+@app.post(
+    "/api/internal/diagnostics/contacts/{contact_id}/verify-bitrix-explicit-deals",
+    response_model=BitrixContactDealVerificationResponse,
+)
+def verify_explicit_contact_deals_in_bitrix(
+    contact_id: int,
+    deal_ids: list[int] = Query(...),
+) -> BitrixContactDealVerificationResponse:
+    client = _build_bitrix_client()
+    verification = verify_explicit_bitrix_contact_deals(
+        client=client,
+        contact_id=contact_id,
+        deal_ids=tuple(deal_ids),
+    )
+    return BitrixContactDealVerificationResponse.model_validate(verification)
+
+
+@app.post(
+    "/api/internal/reconciliation/contacts/{contact_id}/explicit-deals",
+    response_model=ExplicitContactDealReconciliationResponse,
+)
+def reconcile_explicit_contact_deals_endpoint(
+    contact_id: int,
+    deal_ids: list[int] = Query(...),
+) -> ExplicitContactDealReconciliationResponse:
+    client = _build_bitrix_client()
+    result = reconcile_explicit_contact_deals(
+        get_connection(),
+        client=client,
+        contact_id=contact_id,
+        deal_ids=tuple(deal_ids),
+    )
+    return ExplicitContactDealReconciliationResponse.model_validate(result)
 
 
 @app.get("/api/bitrix/sync/status", response_model=PipelineStatusResponse)

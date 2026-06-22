@@ -106,6 +106,46 @@ def test_client_lists_deals_for_one_contact_with_safe_select() -> None:
     ]
 
 
+def test_client_lists_deals_by_explicit_ids_with_safe_select() -> None:
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def transport(method: str, params: dict[str, object]) -> dict[str, object]:
+        calls.append((method, params))
+        return {"result": [{"ID": "100"}, {"ID": "200"}]}
+
+    client = BitrixClient(
+        "https://example.bitrix24.com/rest/1/secret-token/",
+        transport=transport,
+    )
+
+    rows = client.list_deals_by_ids((200, 100, 100))
+
+    assert rows == [{"ID": "100"}, {"ID": "200"}]
+    assert calls == [
+        (
+            "crm.deal.list",
+            {
+                "filter": {"@ID": [100, 200]},
+                "select": list(build_deal_select()),
+                "order": {"ID": "ASC"},
+                "start": 0,
+                "limit": 50,
+            },
+        )
+    ]
+
+
+def test_client_accepts_plain_contact_ids_from_deal_contact_links() -> None:
+    client = BitrixClient(
+        "https://example.bitrix24.com/rest/1/secret-token/",
+        transport=lambda method, params: {"result": [661, "900"]},
+    )
+
+    links = client.get_deal_contact_links(123)
+
+    assert links == [{"CONTACT_ID": 661}, {"CONTACT_ID": "900"}]
+
+
 def test_client_rejects_write_methods() -> None:
     client = BitrixClient(
         "https://example.bitrix24.com/rest/1/secret-token/",

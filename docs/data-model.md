@@ -56,12 +56,15 @@ they duplicate the primary link. Empty, zero, and missing contact IDs are
 skipped. Sort order and role are stored as `NULL` because the normal sync does
 not call the per-deal link API.
 
-The backend also has a targeted diagnostic/correction path for one supplied
-contact ID. It can compare local links with Bitrix `crm.deal.list` filtered by
-that contact and, only when explicitly invoked with correction enabled, insert
-missing local links for the supplied contact before rerunning normalization.
-This path is not part of Docker startup, normal page load, or broad scheduled
-sync.
+The backend also has targeted diagnostics for one contact and an explicit
+bounded list of deal IDs. Diagnostics are read-only by default. A separate
+explicit reconciliation helper can be invoked by an operator/developer for a
+supplied contact ID and supplied deal IDs only. It verifies Bitrix
+`crm.deal.contact.items.get` relation data for those deal IDs, inserts only
+confirmed missing local links and allowed safe deal rows when needed, reruns
+normalization, and records a local dataset run/status. This path is not part of
+Docker startup, normal page load, broad scheduled sync, or the regular manual
+Bitrix refresh flow.
 
 ### Stages
 

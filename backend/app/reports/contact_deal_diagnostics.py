@@ -1,14 +1,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 import duckdb
 
 from app.bitrix.client import BitrixClient
-from app.bitrix.transform import transform_deals
-from app.domain import ContactSnapshot, ContactTypeRule, DealSnapshot, StageSnapshot
+from app.bitrix.transform import (
+    transform_deal_contact_links,
+    transform_deals,
+)
+from app.domain import ContactSnapshot, ContactTypeRule, DealContactLink, DealSnapshot, StageSnapshot
 from app.domain.contact_type_resolution import resolve_contact_type
 from app.pipeline.normalization import normalize_local_data
+from app.storage.snapshots import build_run_id
+from app.storage.status import DatasetRunStatus, count_current_rows, store_dataset_run
+
+
+MAX_EXPLICIT_DEAL_IDS = 20
+EXPLICIT_RECONCILIATION_DATASET_NAME = "bitrix-explicit-reconciliation"
+EXPLICIT_RECONCILIATION_DATASET_KIND = "bitrix_explicit_reconciliation"
 
 
 @dataclass(frozen=True)
@@ -39,21 +50,67 @@ class ContactDealDiagnostic:
 
 
 @dataclass(frozen=True)
-class BitrixContactDealVerification:
+class ExplicitDealLocalDiagnostic:
+    deal_id: int
+    raw_deal_exists: bool
+    has_contact_link: bool
+    linked_contact_ids: tuple[int, ...]
+    analytical_contact_id: int | None
+    analytical_contact_name: str | None
+    analytical_contact_type: str | None
+    counts_for_contact: bool
+    divergence_reason: str
+
+
+@dataclass(frozen=True)
+class ExplicitContactDealDiagnostic:
     contact_id: int
-    bitrix_deals_count: int
+    supplied_deal_ids: tuple[int, ...]
+    deals: tuple[ExplicitDealLocalDiagnostic, ...]
+
+
+@dataclass(frozen=True)
+class BitrixExplicitDealRelation:
+    deal_id: int
+    bitrix_deal_exists: bool
+    linked_contact_ids: tuple[int, ...]
+    has_contact_link: bool
+    is_primary: bool
+    sort_order: int | None
+    role_id: str | None
+    divergence_reason: str
+
+
+@dataclass(frozen=True)
+class BitrixExplicitDealVerification:
+    contact_id: int
+    supplied_deal_ids: tuple[int, ...]
     bitrix_deal_ids: tuple[int, ...]
-    local_linked_deals_count: int
-    local_linked_deal_ids: tuple[int, ...]
-    local_analytical_deals_count: int
-    local_analytical_deal_ids: tuple[int, ...]
-    missing_local_link_deal_ids: tuple[int, ...]
-    missing_raw_deal_ids: tuple[int, ...]
-    correction_applied: bool
-    raw_links_inserted: int
-    raw_deals_inserted: int
+    relations: tuple[BitrixExplicitDealRelation, ...]
+    confirmed_contact_deal_ids: tuple[int, ...]
     methods_used: tuple[str, ...]
     explanation: str
+
+
+@dataclass(frozen=True)
+class ExplicitContactDealReconciliation:
+    contact_id: int
+    supplied_deal_ids: tuple[int, ...]
+    confirmed_contact_deal_ids: tuple[int, ...]
+    inserted_raw_deal_ids: tuple[int, ...]
+    inserted_link_deal_ids: tuple[int, ...]
+    skipped_deal_ids: tuple[int, ...]
+    status: DatasetRunStatus
+    local_after: ExplicitContactDealDiagnostic
+    methods_used: tuple[str, ...]
+    explanation: str
+
+
+@dataclass(frozen=True)
+class _BitrixExplicitDealFacts:
+    verification: BitrixExplicitDealVerification
+    deal_rows_by_id: dict[int, dict[str, object]]
+    contact_links_by_deal_id: dict[int, DealContactLink]
 
 
 def get_contact_deal_diagnostic(
@@ -110,60 +167,251 @@ def get_contact_deal_diagnostic(
     )
 
 
+def get_explicit_contact_deal_diagnostic(
+    connection: duckdb.DuckDBPyConnection,
+    *,
+    contact_id: int,
+    deal_ids: tuple[int, ...],
+) -> ExplicitContactDealDiagnostic:
+    supplied_ids = _normalize_deal_ids(deal_ids)
+    raw_deal_ids = _raw_deal_ids(connection, supplied_ids)
+    linked_contact_ids_by_deal_id = _linked_contact_ids_by_deal_id(connection, supplied_ids)
+    normalized_deals_by_id = _normalized_deals_by_id(connection, supplied_ids)
+
+    rows = []
+    for deal_id in supplied_ids:
+        linked_contact_ids = linked_contact_ids_by_deal_id.get(deal_id, ())
+        normalized_deal = normalized_deals_by_id.get(deal_id)
+        analytical_contact_id = normalized_deal[0] if normalized_deal else None
+        rows.append(
+            ExplicitDealLocalDiagnostic(
+                deal_id=deal_id,
+                raw_deal_exists=deal_id in raw_deal_ids,
+                has_contact_link=contact_id in linked_contact_ids,
+                linked_contact_ids=linked_contact_ids,
+                analytical_contact_id=analytical_contact_id,
+                analytical_contact_name=normalized_deal[1] if normalized_deal else None,
+                analytical_contact_type=normalized_deal[2] if normalized_deal else None,
+                counts_for_contact=analytical_contact_id == contact_id,
+                divergence_reason=_explicit_local_reason(
+                    raw_deal_exists=deal_id in raw_deal_ids,
+                    has_contact_link=contact_id in linked_contact_ids,
+                    linked_contact_ids=linked_contact_ids,
+                    analytical_contact_id=analytical_contact_id,
+                    contact_id=contact_id,
+                ),
+            )
+        )
+    return ExplicitContactDealDiagnostic(
+        contact_id=contact_id,
+        supplied_deal_ids=supplied_ids,
+        deals=tuple(rows),
+    )
+
+
 def verify_bitrix_contact_deals(
     connection: duckdb.DuckDBPyConnection,
     *,
     client: BitrixClient,
     contact_id: int,
-    apply_local_correction: bool = False,
-) -> BitrixContactDealVerification:
-    bitrix_deal_rows = client.list_deals_for_contact(contact_id)
-    bitrix_deal_ids = tuple(sorted({_row_deal_id(row) for row in bitrix_deal_rows}))
-    before = get_contact_deal_diagnostic(connection, contact_id)
-    missing_link_deal_ids = tuple(
-        deal_id for deal_id in bitrix_deal_ids if deal_id not in before.local_linked_deal_ids
+) -> BitrixExplicitDealVerification:
+    local = get_contact_deal_diagnostic(connection, contact_id)
+    facts = _collect_bitrix_explicit_deal_facts(
+        client=client,
+        contact_id=contact_id,
+        deal_ids=local.local_linked_deal_ids,
     )
-    raw_deal_ids = _raw_deal_ids(connection, bitrix_deal_ids)
-    missing_raw_deal_ids = tuple(
-        deal_id for deal_id in bitrix_deal_ids if deal_id not in raw_deal_ids
+    return facts.verification
+
+
+def verify_explicit_bitrix_contact_deals(
+    *,
+    client: BitrixClient,
+    contact_id: int,
+    deal_ids: tuple[int, ...],
+) -> BitrixExplicitDealVerification:
+    return _collect_bitrix_explicit_deal_facts(
+        client=client,
+        contact_id=contact_id,
+        deal_ids=deal_ids,
+    ).verification
+
+
+def reconcile_explicit_contact_deals(
+    connection: duckdb.DuckDBPyConnection,
+    *,
+    client: BitrixClient,
+    contact_id: int,
+    deal_ids: tuple[int, ...],
+) -> ExplicitContactDealReconciliation:
+    supplied_ids = _normalize_deal_ids(deal_ids)
+    started_at = datetime.now(timezone.utc)
+    facts = _collect_bitrix_explicit_deal_facts(
+        client=client,
+        contact_id=contact_id,
+        deal_ids=supplied_ids,
+    )
+    confirmed_ids = facts.verification.confirmed_contact_deal_ids
+    local_before = get_explicit_contact_deal_diagnostic(
+        connection,
+        contact_id=contact_id,
+        deal_ids=supplied_ids,
+    )
+    local_before_by_id = {deal.deal_id: deal for deal in local_before.deals}
+    raw_deal_ids = _raw_deal_ids(connection, supplied_ids)
+    deal_rows_to_insert = tuple(
+        deal_id
+        for deal_id in confirmed_ids
+        if deal_id not in raw_deal_ids and deal_id in facts.deal_rows_by_id
+    )
+    link_rows_to_insert = tuple(
+        deal_id
+        for deal_id in confirmed_ids
+        if deal_id in raw_deal_ids.union(deal_rows_to_insert)
+        and not local_before_by_id[deal_id].has_contact_link
+    )
+    skipped_ids = tuple(
+        deal_id
+        for deal_id in confirmed_ids
+        if deal_id not in raw_deal_ids and deal_id not in facts.deal_rows_by_id
     )
 
-    raw_deals_inserted = 0
-    raw_links_inserted = 0
-    if apply_local_correction and missing_link_deal_ids:
-        raw_deals_inserted, raw_links_inserted = _apply_contact_deal_correction(
+    status: DatasetRunStatus
+    inserted_raw_deal_ids: tuple[int, ...] = ()
+    inserted_link_deal_ids: tuple[int, ...] = ()
+    if not confirmed_ids:
+        status = _store_reconciliation_status(
             connection,
-            contact_id=contact_id,
-            bitrix_deal_rows=bitrix_deal_rows,
-            missing_link_deal_ids=missing_link_deal_ids,
-            missing_raw_deal_ids=missing_raw_deal_ids,
+            state="error",
+            message="No supplied deals were confirmed as linked to the contact by Bitrix.",
+            started_at=started_at,
+            is_active=False,
+        )
+    else:
+        connection.execute("BEGIN TRANSACTION")
+        try:
+            _insert_raw_deals(
+                connection,
+                transform_deals(
+                    [facts.deal_rows_by_id[deal_id] for deal_id in deal_rows_to_insert],
+                    _load_stages(connection),
+                ),
+            )
+            _insert_raw_links(
+                connection,
+                [
+                    facts.contact_links_by_deal_id[deal_id]
+                    for deal_id in link_rows_to_insert
+                ],
+            )
+            normalize_local_data(connection)
+            status = _build_reconciliation_status(
+                connection,
+                state="success",
+                message=(
+                    "Explicit contact-deal reconciliation completed: "
+                    f"{len(link_rows_to_insert)} links inserted."
+                ),
+                started_at=started_at,
+                is_active=True,
+            )
+            store_dataset_run(connection, status)
+            connection.execute("COMMIT")
+            inserted_raw_deal_ids = deal_rows_to_insert
+            inserted_link_deal_ids = link_rows_to_insert
+        except Exception:
+            connection.execute("ROLLBACK")
+            raise
+
+    local_after = get_explicit_contact_deal_diagnostic(
+        connection,
+        contact_id=contact_id,
+        deal_ids=supplied_ids,
+    )
+    return ExplicitContactDealReconciliation(
+        contact_id=contact_id,
+        supplied_deal_ids=supplied_ids,
+        confirmed_contact_deal_ids=confirmed_ids,
+        inserted_raw_deal_ids=inserted_raw_deal_ids,
+        inserted_link_deal_ids=inserted_link_deal_ids,
+        skipped_deal_ids=skipped_ids,
+        status=status,
+        local_after=local_after,
+        methods_used=facts.verification.methods_used,
+        explanation=_reconciliation_explanation(
+            confirmed_ids=confirmed_ids,
+            inserted_link_ids=inserted_link_deal_ids,
+            skipped_ids=skipped_ids,
+        ),
+    )
+
+
+def _collect_bitrix_explicit_deal_facts(
+    *,
+    client: BitrixClient,
+    contact_id: int,
+    deal_ids: tuple[int, ...],
+) -> _BitrixExplicitDealFacts:
+    supplied_ids = _normalize_deal_ids(deal_ids)
+    deal_rows = client.list_deals_by_ids(supplied_ids)
+    deal_rows_by_id = {_row_deal_id(row): row for row in deal_rows}
+    relations: list[BitrixExplicitDealRelation] = []
+    contact_links_by_deal_id: dict[int, DealContactLink] = {}
+
+    for deal_id in supplied_ids:
+        links = transform_deal_contact_links(
+            deal_id,
+            client.get_deal_contact_links(deal_id),
+        )
+        linked_contact_ids = tuple(sorted({link.contact_id for link in links}))
+        contact_link = next((link for link in links if link.contact_id == contact_id), None)
+        if contact_link is not None:
+            contact_links_by_deal_id[deal_id] = contact_link
+        relations.append(
+            BitrixExplicitDealRelation(
+                deal_id=deal_id,
+                bitrix_deal_exists=deal_id in deal_rows_by_id,
+                linked_contact_ids=linked_contact_ids,
+                has_contact_link=contact_link is not None,
+                is_primary=contact_link.is_primary if contact_link else False,
+                sort_order=contact_link.sort_order if contact_link else None,
+                role_id=contact_link.role_id if contact_link else None,
+                divergence_reason=_bitrix_relation_reason(
+                    deal_exists=deal_id in deal_rows_by_id,
+                    has_contact_link=contact_link is not None,
+                ),
+            )
         )
 
-    after = get_contact_deal_diagnostic(connection, contact_id)
-    return BitrixContactDealVerification(
+    confirmed_ids = tuple(
+        relation.deal_id for relation in relations if relation.has_contact_link
+    )
+    verification = BitrixExplicitDealVerification(
         contact_id=contact_id,
-        bitrix_deals_count=len(bitrix_deal_ids),
-        bitrix_deal_ids=bitrix_deal_ids,
-        local_linked_deals_count=after.local_linked_deals_count,
-        local_linked_deal_ids=after.local_linked_deal_ids,
-        local_analytical_deals_count=after.local_analytical_deals_count,
-        local_analytical_deal_ids=after.local_analytical_deal_ids,
-        missing_local_link_deal_ids=tuple(
-            deal_id for deal_id in bitrix_deal_ids if deal_id not in after.local_linked_deal_ids
-        ),
-        missing_raw_deal_ids=tuple(
-            deal_id for deal_id in bitrix_deal_ids if deal_id not in _raw_deal_ids(connection, bitrix_deal_ids)
-        ),
-        correction_applied=apply_local_correction,
-        raw_links_inserted=raw_links_inserted,
-        raw_deals_inserted=raw_deals_inserted,
-        methods_used=("crm.deal.list",),
-        explanation=_bitrix_explanation(
-            bitrix_deal_ids=bitrix_deal_ids,
-            local_linked_deal_ids=after.local_linked_deal_ids,
-            correction_applied=apply_local_correction,
+        supplied_deal_ids=supplied_ids,
+        bitrix_deal_ids=tuple(sorted(deal_rows_by_id)),
+        relations=tuple(relations),
+        confirmed_contact_deal_ids=confirmed_ids,
+        methods_used=("crm.deal.list", "crm.deal.contact.items.get"),
+        explanation=_bitrix_explicit_explanation(
+            supplied_ids=supplied_ids,
+            confirmed_ids=confirmed_ids,
         ),
     )
+    return _BitrixExplicitDealFacts(
+        verification=verification,
+        deal_rows_by_id=deal_rows_by_id,
+        contact_links_by_deal_id=contact_links_by_deal_id,
+    )
+
+
+def _normalize_deal_ids(deal_ids: tuple[int, ...]) -> tuple[int, ...]:
+    normalized = tuple(sorted({int(deal_id) for deal_id in deal_ids if int(deal_id) > 0}))
+    if not normalized:
+        raise ValueError("At least one deal ID is required.")
+    if len(normalized) > MAX_EXPLICIT_DEAL_IDS:
+        raise ValueError(f"At most {MAX_EXPLICIT_DEAL_IDS} deal IDs are allowed.")
+    return normalized
 
 
 def _load_contact(
@@ -281,56 +529,48 @@ def _raw_deal_ids(
     return {row[0] for row in rows}
 
 
-def _apply_contact_deal_correction(
+def _linked_contact_ids_by_deal_id(
     connection: duckdb.DuckDBPyConnection,
-    *,
-    contact_id: int,
-    bitrix_deal_rows: list[dict[str, object]],
-    missing_link_deal_ids: tuple[int, ...],
-    missing_raw_deal_ids: tuple[int, ...],
-) -> tuple[int, int]:
-    rows_by_id = {_row_deal_id(row): row for row in bitrix_deal_rows}
-    deals_to_insert = [
-        deal
-        for deal in transform_deals(
-            [rows_by_id[deal_id] for deal_id in missing_raw_deal_ids],
-            _load_stages(connection),
-        )
-    ]
-    links_to_insert = [
-        (
-            deal_id,
-            contact_id,
-            _is_primary_contact(rows_by_id[deal_id], contact_id),
-            None,
-            None,
-        )
-        for deal_id in missing_link_deal_ids
-    ]
+    deal_ids: tuple[int, ...],
+) -> dict[int, tuple[int, ...]]:
+    if not deal_ids:
+        return {}
+    placeholders = ", ".join("?" for _ in deal_ids)
+    rows = connection.execute(
+        f"""
+        SELECT deal_id, contact_id
+        FROM raw_deal_contact_links
+        WHERE deal_id IN ({placeholders})
+        ORDER BY deal_id, contact_id
+        """,
+        list(deal_ids),
+    ).fetchall()
+    result: dict[int, list[int]] = {}
+    for deal_id, contact_id in rows:
+        result.setdefault(deal_id, []).append(contact_id)
+    return {deal_id: tuple(contact_ids) for deal_id, contact_ids in result.items()}
 
-    connection.execute("BEGIN TRANSACTION")
-    try:
-        _insert_raw_deals(connection, deals_to_insert)
-        connection.executemany(
-            """
-            INSERT INTO raw_deal_contact_links (
-                deal_id,
-                contact_id,
-                is_primary,
-                sort_order,
-                role_id
-            )
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT (deal_id, contact_id) DO NOTHING
-            """,
-            links_to_insert,
-        )
-        normalize_local_data(connection)
-        connection.execute("COMMIT")
-    except Exception:
-        connection.execute("ROLLBACK")
-        raise
-    return len(deals_to_insert), len(links_to_insert)
+
+def _normalized_deals_by_id(
+    connection: duckdb.DuckDBPyConnection,
+    deal_ids: tuple[int, ...],
+) -> dict[int, tuple[int | None, str | None, str | None]]:
+    if not deal_ids:
+        return {}
+    placeholders = ", ".join("?" for _ in deal_ids)
+    rows = connection.execute(
+        f"""
+        SELECT
+            deal_id,
+            analytical_contact_id,
+            analytical_contact_name,
+            contact_type_normalized
+        FROM normalized_deals
+        WHERE deal_id IN ({placeholders})
+        """,
+        list(deal_ids),
+    ).fetchall()
+    return {row[0]: (row[1], row[2], row[3]) for row in rows}
 
 
 def _insert_raw_deals(
@@ -372,18 +612,84 @@ def _insert_raw_deals(
     )
 
 
+def _insert_raw_links(
+    connection: duckdb.DuckDBPyConnection,
+    links: list[DealContactLink],
+) -> None:
+    if not links:
+        return
+    connection.executemany(
+        """
+        INSERT INTO raw_deal_contact_links (
+            deal_id,
+            contact_id,
+            is_primary,
+            sort_order,
+            role_id
+        )
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT (deal_id, contact_id) DO NOTHING
+        """,
+        [
+            (
+                link.deal_id,
+                link.contact_id,
+                link.is_primary,
+                link.sort_order,
+                link.role_id,
+            )
+            for link in links
+        ],
+    )
+
+
+def _store_reconciliation_status(
+    connection: duckdb.DuckDBPyConnection,
+    *,
+    state: str,
+    message: str,
+    started_at: datetime,
+    is_active: bool,
+) -> DatasetRunStatus:
+    status = _build_reconciliation_status(
+        connection,
+        state=state,
+        message=message,
+        started_at=started_at,
+        is_active=is_active,
+    )
+    store_dataset_run(connection, status)
+    return status
+
+
+def _build_reconciliation_status(
+    connection: duckdb.DuckDBPyConnection,
+    *,
+    state: str,
+    message: str,
+    started_at: datetime,
+    is_active: bool,
+) -> DatasetRunStatus:
+    finished_at = datetime.now(timezone.utc)
+    return DatasetRunStatus(
+        run_id=build_run_id(EXPLICIT_RECONCILIATION_DATASET_KIND, started_at),
+        dataset_name=EXPLICIT_RECONCILIATION_DATASET_NAME,
+        dataset_kind=EXPLICIT_RECONCILIATION_DATASET_KIND,
+        state=state,
+        message=message,
+        started_at=started_at,
+        finished_at=finished_at,
+        snapshot_paths=(),
+        is_active=is_active,
+        **count_current_rows(connection),
+    )
+
+
 def _row_deal_id(row: dict[str, object]) -> int:
     value = row.get("ID", row.get("id"))
     if value in (None, ""):
         raise ValueError("Bitrix deal row is missing ID.")
     return int(value)
-
-
-def _is_primary_contact(row: dict[str, object], contact_id: int) -> bool:
-    value = row.get("CONTACT_ID", row.get("contactId"))
-    if value in (None, ""):
-        return False
-    return int(value) == contact_id
 
 
 def _local_explanation(
@@ -408,17 +714,59 @@ def _local_explanation(
     return "Local analytical deals include deals not present in local raw links."
 
 
-def _bitrix_explanation(
+def _explicit_local_reason(
     *,
-    bitrix_deal_ids: tuple[int, ...],
-    local_linked_deal_ids: tuple[int, ...],
-    correction_applied: bool,
+    raw_deal_exists: bool,
+    has_contact_link: bool,
+    linked_contact_ids: tuple[int, ...],
+    analytical_contact_id: int | None,
+    contact_id: int,
 ) -> str:
-    if len(bitrix_deal_ids) == len(local_linked_deal_ids):
-        return "Bitrix filtered deals and local raw links agree for this contact."
-    if correction_applied:
-        return "Targeted local correction was applied, but some Bitrix deals are still missing locally."
-    return (
-        "Bitrix filtered deals include deal IDs that are absent from local "
-        "raw_deal_contact_links for this contact."
-    )
+    if not raw_deal_exists:
+        return "missing_raw_deal"
+    if has_contact_link and analytical_contact_id == contact_id:
+        return "counts_for_contact"
+    if has_contact_link:
+        return "linked_but_assigned_to_another_analytical_contact"
+    if not linked_contact_ids:
+        return "missing_local_link_no_local_contacts"
+    return "missing_contact_link_assigned_to_another_contact"
+
+
+def _bitrix_relation_reason(
+    *,
+    deal_exists: bool,
+    has_contact_link: bool,
+) -> str:
+    if deal_exists and has_contact_link:
+        return "bitrix_deal_and_contact_relation_confirmed"
+    if has_contact_link:
+        return "bitrix_contact_relation_confirmed_but_deal_list_missing"
+    if deal_exists:
+        return "bitrix_deal_exists_without_contact_relation"
+    return "bitrix_deal_not_returned_and_contact_relation_absent"
+
+
+def _bitrix_explicit_explanation(
+    *,
+    supplied_ids: tuple[int, ...],
+    confirmed_ids: tuple[int, ...],
+) -> str:
+    if len(confirmed_ids) == len(supplied_ids):
+        return "Bitrix confirmed the contact relation for every supplied deal."
+    if confirmed_ids:
+        return "Bitrix confirmed the contact relation for only some supplied deals."
+    return "Bitrix did not confirm the contact relation for any supplied deal."
+
+
+def _reconciliation_explanation(
+    *,
+    confirmed_ids: tuple[int, ...],
+    inserted_link_ids: tuple[int, ...],
+    skipped_ids: tuple[int, ...],
+) -> str:
+    if not confirmed_ids:
+        return "No local data was changed because Bitrix did not confirm any supplied relation."
+    if skipped_ids:
+        return "Some confirmed deals were skipped because safe deal rows were unavailable."
+    return f"Reconciliation inserted {len(inserted_link_ids)} missing local links."

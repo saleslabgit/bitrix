@@ -187,7 +187,10 @@ Manual Bitrix backend endpoints:
 GET  http://localhost:8000/api/datasets/status
 GET  http://localhost:8000/api/datasets/profile
 GET  http://localhost:8000/api/internal/diagnostics/contacts/{contact_id}/deal-links
+GET  http://localhost:8000/api/internal/diagnostics/contacts/{contact_id}/explicit-deals?deal_ids=...
 POST http://localhost:8000/api/internal/diagnostics/contacts/{contact_id}/verify-bitrix-deals
+POST http://localhost:8000/api/internal/diagnostics/contacts/{contact_id}/verify-bitrix-explicit-deals?deal_ids=...
+POST http://localhost:8000/api/internal/reconciliation/contacts/{contact_id}/explicit-deals?deal_ids=...
 POST http://localhost:8000/api/local/refresh-data
 GET  http://localhost:8000/api/bitrix/discovery
 POST http://localhost:8000/api/bitrix/sync/run
@@ -229,12 +232,28 @@ raw API payloads, or arbitrary custom fields.
 is an explicitly invoked, targeted read-only Bitrix verification for one
 contact. It calls `crm.deal.list` with `filter: {"CONTACT_ID": contact_id}` and
 the existing safe deal select list, then compares Bitrix-visible deal IDs with
-local raw links and analytical deals. By default it does not change local data.
-When called with `apply_local_correction=true`, it can insert missing local
-deal-contact links for that supplied contact ID, insert any returned safe deal
-rows that are absent locally, and rerun local normalization. This endpoint is
-for operator/developer diagnostics only; it is not part of normal page load,
-Docker startup, or scheduled refresh.
+local raw links and analytical deals. It does not change local data.
+
+`GET /api/internal/diagnostics/contacts/{contact_id}/explicit-deals` compares
+one contact with an explicit bounded list of supplied deal IDs. It is local-only
+and returns safe ID-level facts: raw deal existence, local linked contact IDs,
+whether the supplied contact link exists, analytical contact assignment, and a
+per-deal divergence reason.
+
+`POST /api/internal/diagnostics/contacts/{contact_id}/verify-bitrix-explicit-deals`
+is an explicitly invoked, targeted read-only Bitrix verification for an
+explicit bounded list of supplied deal IDs. It calls `crm.deal.list` with a safe
+ID-list filter and `crm.deal.contact.items.get` once per supplied deal ID. It
+returns only deal IDs, contact IDs linked to those deals, method names, counts,
+and divergence categories. It does not change local data.
+
+`POST /api/internal/reconciliation/contacts/{contact_id}/explicit-deals` is the
+separate mutating operator helper for explicit-ID reconciliation. It uses the
+same bounded read-only Bitrix verification, inserts only confirmed missing
+local links for the supplied contact/deal IDs, inserts only allowed safe deal
+fields if a supplied confirmed deal is absent locally, reruns normalization, and
+records a local dataset run/status. It is not part of normal page load, Docker
+startup, scheduled refresh, or the regular manual Bitrix refresh flow.
 
 `GET /api/bitrix/discovery` reads Bitrix field metadata and reports whether
 `BITRIX_CONTACT_TYPE_FIELD` exists. Use it to choose the contact type field

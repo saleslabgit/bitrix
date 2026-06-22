@@ -1,144 +1,181 @@
-# Отчет: TASK-2026-06-22-09
+# Отчет: TASK-2026-06-22-10
 
 Статус: done
 
 ## Кратко
 
-Добавлена backend-only диагностика связей contact-deal и targeted read-only
-Bitrix verification/correction path для одного contact ID.
-
-Для `contact_id=661` локальная диагностика показала:
-
-- contact type raw: `[61]`;
-- normalized type: `Дизайнер`;
-- region: `Беларусь`;
-- priority: `1`;
-- local raw linked deals: `14773`, `19149`, `23989`, `24761`;
-- local analytical deals: `14773`, `19149`, `23989`, `24761`.
-
-Это подтверждает, что 4 локальные raw-связи полностью совпадают с 4
-аналитическими сделками. Приоритет `Дизайнер` не является причиной потери.
-
-Targeted live Bitrix verification через `crm.deal.list` с
-`filter: {"CONTACT_ID": 661}` вернула те же 4 deal IDs:
+Расследование завершено по точному списку сделок для `contact_id=661`:
 
 ```text
-14773, 19149, 23989, 24761
+123, 343, 1239, 14773, 19149, 23989, 24761
 ```
 
-Через этот read-only API заявленные 7 сделок не воспроизводятся. Следовательно,
-найденная точка расхождения для текущего безопасного extraction path:
-локальная база соответствует Bitrix `crm.deal.list CONTACT_ID`, а
-пользовательский UI-счетчик 7 относится к другой Bitrix card/relationship
-семантике или состоянию, не раскрытому этим list-фильтром. Broad per-deal
-`crm.deal.contact.items.get` scan по всем сделкам не запускался.
+Root cause: обычный local sync строил `raw_deal_contact_links` только из
+`crm.deal.list` полей `CONTACT_ID` / `CONTACT_IDS`. Для сделок `123`, `343`,
+`1239` локально были raw deals и ссылки на других контактов, но не было ссылки
+на `661`. Bitrix per-deal relation API `crm.deal.contact.items.get` подтвердил,
+что `661` действительно связан с этими тремя сделками как secondary contact.
+Поэтому сделки назначались другим аналитическим контактам и не считались в
+аналитике `661`.
 
-## Root Cause
+Добавлен bounded explicit-ID diagnostic/verification/reconciliation flow.
+Diagnostics read-only by default. Мутирующий `apply_local_correction` из
+TASK-09 удален из verification endpoint; reconciliation вынесен в отдельный
+explicit operator endpoint and records a local dataset run/status.
 
-Потери в local normalization для `661` не найдено:
+## Local Status Before Reconciliation
 
-- raw contact exists;
-- rule `61 -> Дизайнер / priority 1` active;
-- raw links count equals analytical deals count;
-- every linked local deal exists in `raw_deals`;
-- each linked deal selects `661` as analytical contact.
+Для `contact_id=661`:
 
-Для текущего normal sync source (`crm.deal.list` fields `CONTACT_ID` /
-`CONTACT_IDS`) live Bitrix также возвращает 4 сделки. Поэтому конкретная
-разница "Bitrix UI 7 vs local 4" не объясняется missing raw links, parsing, or
-normalization. Она остается Bitrix UI/card relation semantics mismatch against
-the read-only list API used by this MVP.
+| Deal ID | raw_deal | local link to 661 | local linked contacts | analytical contact | counted for 661 | reason |
+|---:|---|---|---|---:|---|---|
+| 123 | yes | no | 1145 | 1145 | no | missing contact link |
+| 343 | yes | no | 1425 | 1425 | no | missing contact link |
+| 1239 | yes | no | 1145 | 1145 | no | missing contact link |
+| 14773 | yes | yes | 661 | 661 | yes | counts |
+| 19149 | yes | yes | 661 | 661 | yes | counts |
+| 23989 | yes | yes | 661 | 661 | yes | counts |
+| 24761 | yes | yes | 661 | 661 | yes | counts |
+
+## Live Bitrix Verification
+
+Live Bitrix was called.
+
+Read-only methods used, bounded to the seven supplied deal IDs:
+
+```text
+crm.deal.list
+crm.deal.contact.items.get
+```
+
+`crm.deal.list` with safe `@ID` filter returned all seven supplied deal IDs.
+`crm.deal.contact.items.get` was called exactly once per supplied deal ID.
+
+Bitrix confirmed `661` in relation data for all seven deals:
+
+| Deal ID | Bitrix deal exists | Bitrix linked contact IDs | has 661 | primary 661 |
+|---:|---|---|---|---|
+| 123 | yes | 661, 1005, 1145, 2123, 30105 | yes | no |
+| 343 | yes | 661, 1425, 4607 | yes | no |
+| 1239 | yes | 661, 1005, 1145, 2123, 30105 | yes | no |
+| 14773 | yes | 661, 19497 | yes | yes |
+| 19149 | yes | 661, 23973, 27875, 30313 | yes | yes |
+| 23989 | yes | 661, 29471 | yes | yes |
+| 24761 | yes | 661, 30313, 30315, 30317, 30319 | yes | yes |
+
+No raw Bitrix payloads, secrets, webhook values, phones, emails, addresses,
+comments, files, requisites, or arbitrary custom fields were printed, stored in
+the report, or committed.
+
+## Reconciliation Applied
+
+Explicit reconciliation was run for contact `661` and the seven supplied deal
+IDs.
+
+Changed local generated DuckDB data only:
+
+- inserted raw deal rows: none;
+- inserted `raw_deal_contact_links`: `(123, 661)`, `(343, 661)`, `(1239, 661)`;
+- reran normalization;
+- recorded successful local dataset run/status:
+  `bitrix-explicit-reconciliation`.
+
+After reconciliation:
+
+```text
+normalized_deals analytical_contact_id=661 count: 7
+```
+
+Rows now assigned to `661`:
+
+```text
+123 won
+343 won
+1239 won
+14773 lost
+19149 won
+23989 won
+24761 open
+```
+
+`Дизайнер` priority `1` wins over the lower-priority linked contacts, so each
+deal is still counted only once and now belongs to contact `661`.
 
 ## Измененные файлы
 
-- `backend/app/bitrix/client.py` — добавлен read-only
-  `list_deals_for_contact(contact_id)` через `crm.deal.list` с safe select.
-- `backend/app/bitrix/transform.py` — `CONTACT_IDS` теперь парсится из list,
-  tuple, dict/object-shaped values, and bracketed/comma/semicolon strings.
-- `backend/app/reports/contact_deal_diagnostics.py` — новый backend diagnostic
-  and targeted verification/correction helper.
-- `backend/app/api/models.py` — response models для diagnostics.
-- `backend/app/main.py` — добавлены internal diagnostics endpoints.
-- `backend/tests/test_contact_deal_diagnostics.py` — regression for targeted
-  correction and renormalization.
-- `backend/tests/test_bitrix_client.py` — проверка single-contact read-only
-  deal list call.
-- `backend/tests/test_bitrix_ingestion.py` — покрытие дополнительных
-  `CONTACT_IDS` response shapes.
-- `backend/tests/test_contact_selection.py` — проверка, что `Дизайнер`
-  priority `1` wins over lower-priority primary contact.
-- `docs/development.md` — documented diagnostic endpoints and safe use.
-- `docs/data-model.md` — documented targeted diagnostic/correction path.
-- `.ai/report.md` — текущий отчет.
+- `backend/app/bitrix/client.py` — added bounded `list_deals_by_ids()` and
+  robust parsing for `crm.deal.contact.items.get` object rows or plain IDs.
+- `backend/app/reports/contact_deal_diagnostics.py` — added exact-ID local
+  diagnostics, exact-ID Bitrix verification, and explicit reconciliation with
+  dataset run/status recording; removed the TASK-09 mutating verification path.
+- `backend/app/api/models.py` — added response models for exact-ID diagnostics,
+  verification, and reconciliation.
+- `backend/app/main.py` — added exact-ID diagnostic, verification, and separate
+  reconciliation endpoints; removed `apply_local_correction` from verification.
+- `backend/tests/test_contact_deal_diagnostics.py` — added focused tests for
+  local categories, bounded verification, reconciliation, no-confirmation no-op,
+  and safe diagnostic output.
+- `backend/tests/test_bitrix_client.py` — added tests for safe explicit ID deal
+  list and plain contact IDs from deal-contact relation responses.
+- `docs/development.md` — documented read-only diagnostics and separate
+  explicit reconciliation endpoint.
+- `docs/data-model.md` — documented explicit bounded reconciliation semantics.
+- `.ai/report.md` — this report.
 
 Pre-existing unstaged local changes in `.ai/task.md`, `AGENTS.md`, and
 `WORKFLOW.md` were not made by Codex for this task and were not intentionally
 modified.
 
-## Diagnostic Endpoints
+## Diagnostic And Reconciliation Endpoints
 
-Local-only diagnostic:
-
-```text
-GET /api/internal/diagnostics/contacts/{contact_id}/deal-links
-```
-
-Targeted live Bitrix verification:
+Local exact-ID diagnostic:
 
 ```text
-POST /api/internal/diagnostics/contacts/{contact_id}/verify-bitrix-deals
+GET /api/internal/diagnostics/contacts/{contact_id}/explicit-deals?deal_ids=123&deal_ids=343
 ```
 
-By default the live endpoint only compares counts/IDs. With
-`apply_local_correction=true`, it inserts missing local links for that supplied
-contact, inserts returned safe deal rows if absent locally, and reruns local
-normalization. It is not called during Docker startup, page load, or normal
-manual refresh.
-
-## Bitrix Calls
-
-Live Bitrix was called during this task.
-
-Read-only methods used:
+Read-only live exact-ID verification:
 
 ```text
-crm.deal.list
+POST /api/internal/diagnostics/contacts/{contact_id}/verify-bitrix-explicit-deals?deal_ids=123&deal_ids=343
 ```
 
-Targeted calls:
+Explicit bounded reconciliation:
 
-- `crm.deal.list` with `filter: {"CONTACT_ID": 661}` — returned 4 deals:
-  `14773`, `19149`, `23989`, `24761`.
-- `crm.deal.list` with `filter: {"=CONTACT_ID": 661}` — returned the same
-  4 deals during a bounded filter probe.
-- A probe using `CONTACT_IDS` as a filter was stopped because it did not remain
-  bounded and began a long list request. No broad sync or full per-deal contact
-  scan was completed.
-- A final targeted shape check for the 4 returned deals showed
-  `CONTACT_ID=661` and `CONTACT_IDS=None` for those deals.
+```text
+POST /api/internal/reconciliation/contacts/{contact_id}/explicit-deals?deal_ids=123&deal_ids=343
+```
 
-No Bitrix write methods were added or called.
+The reconciliation endpoint is the only mutating endpoint in this flow. It is
+bounded to the supplied IDs, verifies read-only Bitrix relation data first,
+inserts only confirmed missing links/safe deal rows, reruns normalization, and
+records a dataset run/status.
 
 ## Проверки
 
 Before implementation:
 
 - `git log --oneline -5` — passed. Latest relevant commit:
-  `9698fd4 planner: TASK-2026-06-22-09 Fix contact-deal link completeness`.
-- `git status --short` — passed. Showed pre-existing modified `.ai/task.md`,
-  `AGENTS.md`, and `WORKFLOW.md`.
+  `acdba54 planner: TASK-2026-06-22-10 Reconcile contact 661 explicit deal IDs`.
+- `git status --short --branch` — passed. Showed pre-existing modified
+  `.ai/task.md`, `AGENTS.md`, and `WORKFLOW.md`.
 
-Focused backend checks:
+Documentation lookup:
 
-- `cd backend && /tmp/bitrix-backend-venv/bin/python3 -m py_compile ...` —
-  passed.
-- `cd backend && /tmp/bitrix-backend-venv/bin/python3 -m pytest tests/test_contact_deal_diagnostics.py tests/test_bitrix_ingestion.py::test_deal_contact_links_are_built_from_downloaded_deal_rows tests/test_contact_selection.py::test_designer_priority_one_wins_over_primary_lower_priority_contact`
-  — passed, `3 passed`.
+- Context7 Bitrix24 REST API docs checked for `crm.deal.list` and
+  `crm.deal.contact.items.get`.
+
+Focused backend:
+
+- `cd backend && /tmp/bitrix-backend-venv/bin/python3 -m py_compile app/reports/contact_deal_diagnostics.py app/api/models.py app/main.py app/bitrix/client.py`
+  — passed.
+- `cd backend && /tmp/bitrix-backend-venv/bin/python3 -m pytest tests/test_contact_deal_diagnostics.py tests/test_bitrix_client.py tests/test_api_bitrix.py`
+  — passed, `18 passed`.
 
 Full backend:
 
 - `cd backend && /tmp/bitrix-backend-venv/bin/python3 -m pytest` — passed,
-  `61 passed`.
+  `67 passed`.
 
 Safety:
 
@@ -157,36 +194,35 @@ Frontend:
 
 Compose:
 
-- Not run. Docker/operator startup flow was not changed; only backend
-  diagnostic endpoints and docs were added.
+- Not run. Docker/operator startup behavior was not changed. New behavior is
+  internal backend diagnostics/reconciliation only and is never automatic.
 
 ## Факты
 
-- `contact_id=661` exists locally with raw type `[61]`.
-- The active local rule maps `61` to `Дизайнер`, priority `1`, active.
-- Local raw links and normalized analytical deal assignment for `661` both
-  contain exactly 4 deals.
-- Live targeted `crm.deal.list CONTACT_ID=661` also contains exactly 4 deals.
-- Current documented/safe Bitrix source for this MVP does not expose the
-  reported three additional UI deals through the tested single-contact
-  read-only list filters.
+- Deals `123`, `343`, and `1239` existed locally before reconciliation.
+- They were linked locally to contacts `1145`, `1425`, and `1145`
+  respectively, not to `661`.
+- Bitrix per-deal relation data confirmed contact `661` for all three missing
+  deals.
+- Local reconciliation inserted exactly three missing links and no raw deal
+  rows.
+- After normalization, all seven supplied deal IDs count for `661`.
 
 ## Предположения
 
-- If the Bitrix contact card still shows 7 deals, those 3 extra items likely
-  come from a Bitrix UI/card relation semantic outside `crm.deal.list
-  CONTACT_ID`, from stale UI state, from permissions/category visibility
-  differences, or from another relation path not included in MVP extraction.
+- The regular `crm.deal.list` row fields are incomplete for secondary
+  historical contact links in this case; per-deal relation data is the more
+  complete source for explicit reconciliation.
 
 ## Неизвестное
 
-- Exact IDs of the three extra UI-visible deals were not available in the
-  repository or local data.
-- A broad `crm.deal.contact.items.get` scan across all local deals was not run
-  because it is the slow/heavy path explicitly removed from normal sync.
+- Whether other contacts have similar historical secondary-link gaps. A broad
+  scan remains out of scope because it would require the heavy per-deal relation
+  path that was intentionally removed from normal sync.
 
 ## Риски или следующий шаг
 
-If the user can provide the three Bitrix UI deal IDs, the new diagnostic path
-can compare those specific IDs safely against local raw deals, raw links, and
-analytical assignment without a broad live scan.
+The implemented path fixes explicit supplied IDs safely. A broader strategy for
+finding all missing secondary links would need a separate product/ops decision
+because it may require a bounded batch job over many deals and explicit progress
+handling.

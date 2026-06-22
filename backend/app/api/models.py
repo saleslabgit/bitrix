@@ -168,17 +168,52 @@ class ContactDealDiagnosticResponse(ApiModel):
 
 class BitrixContactDealVerificationResponse(ApiModel):
     contact_id: int
-    bitrix_deals_count: int
+    supplied_deal_ids: tuple[int, ...]
     bitrix_deal_ids: tuple[int, ...]
-    local_linked_deals_count: int
-    local_linked_deal_ids: tuple[int, ...]
-    local_analytical_deals_count: int
-    local_analytical_deal_ids: tuple[int, ...]
-    missing_local_link_deal_ids: tuple[int, ...]
-    missing_raw_deal_ids: tuple[int, ...]
-    correction_applied: bool
-    raw_links_inserted: int
-    raw_deals_inserted: int
+    relations: tuple["BitrixExplicitDealRelationResponse", ...]
+    confirmed_contact_deal_ids: tuple[int, ...]
+    methods_used: tuple[str, ...]
+    explanation: str
+
+
+class ExplicitDealLocalDiagnosticResponse(ApiModel):
+    deal_id: int
+    raw_deal_exists: bool
+    has_contact_link: bool
+    linked_contact_ids: tuple[int, ...]
+    analytical_contact_id: int | None
+    analytical_contact_name: str | None
+    analytical_contact_type: str | None
+    counts_for_contact: bool
+    divergence_reason: str
+
+
+class ExplicitContactDealDiagnosticResponse(ApiModel):
+    contact_id: int
+    supplied_deal_ids: tuple[int, ...]
+    deals: tuple[ExplicitDealLocalDiagnosticResponse, ...]
+
+
+class BitrixExplicitDealRelationResponse(ApiModel):
+    deal_id: int
+    bitrix_deal_exists: bool
+    linked_contact_ids: tuple[int, ...]
+    has_contact_link: bool
+    is_primary: bool
+    sort_order: int | None
+    role_id: str | None
+    divergence_reason: str
+
+
+class ExplicitContactDealReconciliationResponse(ApiModel):
+    contact_id: int
+    supplied_deal_ids: tuple[int, ...]
+    confirmed_contact_deal_ids: tuple[int, ...]
+    inserted_raw_deal_ids: tuple[int, ...]
+    inserted_link_deal_ids: tuple[int, ...]
+    skipped_deal_ids: tuple[int, ...]
+    status: PipelineStatusResponse
+    local_after: ExplicitContactDealDiagnosticResponse
     methods_used: tuple[str, ...]
     explanation: str
 

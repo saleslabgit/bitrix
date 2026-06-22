@@ -107,12 +107,27 @@ class BitrixClient:
             )
         )
 
+    def list_deals_by_ids(self, deal_ids: Iterable[int]) -> list[dict[str, Any]]:
+        ids = sorted({int(deal_id) for deal_id in deal_ids})
+        if not ids:
+            return []
+        return list(
+            self._list_method(
+                "crm.deal.list",
+                {
+                    "filter": {"@ID": ids},
+                    "select": list(build_deal_select()),
+                    "order": {"ID": "ASC"},
+                },
+            )
+        )
+
     def get_deal_contact_links(self, deal_id: int) -> list[dict[str, Any]]:
         result = self._call("crm.deal.contact.items.get", {"id": deal_id})
         if isinstance(result, list):
-            return _dict_items(result, "deal-contact links")
+            return _deal_contact_link_items(result)
         if isinstance(result, dict) and isinstance(result.get("items"), list):
-            return _dict_items(result["items"], "deal-contact links")
+            return _deal_contact_link_items(result["items"])
         raise BitrixUnexpectedResponseError("Bitrix deal-contact links response is invalid.")
 
     def list_stages(self) -> list[dict[str, Any]]:
@@ -201,6 +216,18 @@ def _dict_items(items: list[Any], label: str) -> list[dict[str, Any]]:
     if not all(isinstance(item, dict) for item in items):
         raise BitrixUnexpectedResponseError(f"Bitrix {label} contains invalid rows.")
     return items
+
+
+def _deal_contact_link_items(items: list[Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for item in items:
+        if isinstance(item, dict):
+            rows.append(item)
+        elif isinstance(item, (int, str)) and str(item).strip().isdigit():
+            rows.append({"CONTACT_ID": item})
+        else:
+            raise BitrixUnexpectedResponseError("Bitrix deal-contact links contains invalid rows.")
+    return rows
 
 
 def _extract_next(response: dict[str, Any]) -> int | None:
