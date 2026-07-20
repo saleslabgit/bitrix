@@ -33,8 +33,6 @@ ContactAnalyticsSortField = Literal[
     "average_cycle_days",
     "last_won_date",
     "latest_deal_date",
-    "average_check_usd",
-    "average_cycle_days",
 ]
 DealAnalyticsSortField = Literal[
     "deal_id",
@@ -79,6 +77,8 @@ CONTACT_ANALYTICS_SORT_FIELDS: tuple[str, ...] = (
     "lost_budget_usd",
     "revenue_usd",
     "estimated_profit_usd",
+    "average_check_usd",
+    "average_cycle_days",
     "last_won_date",
     "latest_deal_date",
 )

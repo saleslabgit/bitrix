@@ -114,3 +114,8 @@ density.
 
 Funnel filters use local numeric IDs. ABC and KEV creation-date filters are
 drafted and explicitly applied, independently from close-date filters.
+Invalid applied or draft creation ranges show validation feedback and do not
+run a report query. Malformed cached funnel metadata is rejected as a whole;
+valid empty category lists remain supported. The Deals footer aligns with its
+12 columns and shows backend-derived won/open/lost counts, average cycle,
+budget, estimated profit, and average check for the full filtered selection.

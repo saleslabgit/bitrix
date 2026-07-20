@@ -6,6 +6,7 @@ import pytest
 
 from app.pipeline.synthetic import run_synthetic_pipeline
 from app.reports.analytics import (
+    CONTACT_ANALYTICS_SORT_FIELDS,
     NO_SALES_SEGMENT,
     get_abc_report,
     get_concentration_report,
@@ -307,6 +308,46 @@ def test_contact_analytics_sort_tie_breaks_by_contact_id() -> None:
         )
 
     assert [row.contact_id for row in page.items] == [1, 2, 3]
+
+
+def test_contact_average_sort_fields_are_in_runtime_allowlist() -> None:
+    assert CONTACT_ANALYTICS_SORT_FIELDS.count("average_check_usd") == 1
+    assert CONTACT_ANALYTICS_SORT_FIELDS.count("average_cycle_days") == 1
+
+
+@pytest.mark.parametrize("sort", ["average_check_usd", "average_cycle_days"])
+@pytest.mark.parametrize("order", ["asc", "desc"])
+def test_contact_analytics_sorts_average_fields_with_nulls_and_id_ties(
+    sort: str,
+    order: str,
+) -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        run_synthetic_pipeline(connection)
+        connection.executemany(
+            """
+            INSERT INTO normalized_contacts (
+                contact_id,
+                contact_name,
+                contact_type_raw,
+                contact_type_normalized,
+                region_normalized
+            )
+            VALUES (?, ?, NULL, 'Synthetic No Sales', 'Synthetic Region')
+            """,
+            [(98, "No averages 98"), (99, "No averages 99")],
+        )
+        page = list_contact_analytics(
+            connection,
+            limit=100,
+            sort=sort,  # type: ignore[arg-type]
+            order=order,  # type: ignore[arg-type]
+        )
+
+    values = [getattr(row, sort) for row in page.items]
+    populated = [value for value in values if value is not None]
+    assert populated == sorted(populated, reverse=order == "desc")
+    assert values[-2:] == [None, None]
+    assert [row.contact_id for row in page.items[-2:]] == [98, 99]
 
 
 def test_contact_analytics_rejects_unsupported_sort_field() -> None:

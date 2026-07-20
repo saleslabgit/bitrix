@@ -127,3 +127,7 @@ Deploy manually on the FASTVPS server when the final domain and panel settings a
 
 The same manual refresh populates funnel names and category-aware stage semantics;
 Docker startup does not call Bitrix.
+
+The funnel-aware reports now have aligned Contacts average sorting, a 12-column
+Deals body/footer with filtered status totals, explicit ABC/KEV creation-date
+validation, and strict rejection of malformed cached category metadata.

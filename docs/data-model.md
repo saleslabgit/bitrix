@@ -93,6 +93,18 @@ Stages are read separately per category: category `0` uses the technical
 `DEAL_STAGE` entity ID, positive IDs use `DEAL_STAGE_{category_id}`. Status
 resolution is exact on `(stage_id, category_id)` and unknown pairs fail refresh.
 
+### Funnel-aware report metrics
+
+Average check is won-only USD revenue divided by the number of won deals. The
+average deal cycle uses only won or lost deals with a close date and a
+non-negative `closed_at - created_at` duration; open deals and invalid durations
+are excluded. Either metric is `null` when it has no valid denominator.
+
+Contacts and Deals table summaries describe the complete filtered selection
+before pagination. They are never recalculated from the rows visible on the
+current page. Deals summaries include won/open/lost counts, total USD budget,
+won-only estimated profit, average check, and average cycle.
+
 ### Currency Rates
 
 Rates are used to normalize all financial analytics to USD. The target source is the official NBRB API. Rate details and fetch timestamps are stored locally.

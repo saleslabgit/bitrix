@@ -172,3 +172,8 @@ Set `APP_AUTH_COOKIE_SECURE=true` for HTTPS deployments.
 Deal funnels are loaded only by explicit manual refresh through read-only
 `crm.category.list`. Stages are resolved by exact `(stage_id, category_id)`;
 report endpoints query local data only.
+
+Contacts analytics accepts `average_check_usd` and `average_cycle_days` as
+stable sort fields. Null averages remain at the end in either direction and
+contact ID is the deterministic tie-breaker. Contacts and Deals filtered
+summaries are calculated before pagination.

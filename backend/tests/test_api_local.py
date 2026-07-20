@@ -332,6 +332,18 @@ def test_api_analytics_reports_return_local_typed_data() -> None:
         sort="revenue_usd",
         order="desc",
     )
+    average_check_contacts = report_contact_analytics(
+        limit=10,
+        offset=0,
+        sort="average_check_usd",
+        order="asc",
+    )
+    average_cycle_contacts = report_contact_analytics(
+        limit=10,
+        offset=0,
+        sort="average_cycle_days",
+        order="desc",
+    )
     abc = report_abc()
     abc_page = report_abc_analytics(limit=10, offset=0)
     abc_compare_page = report_abc_analytics(
@@ -396,6 +408,8 @@ def test_api_analytics_reports_return_local_typed_data() -> None:
     assert created_range_contacts.total >= 1
     assert all(item.total_deals_count >= 1 for item in created_range_contacts.items)
     assert sorted_contacts.items[0].contact_id == 1
+    assert average_check_contacts.total == 10
+    assert average_cycle_contacts.total == 10
     assert len(abc) == 10
     assert any(row.abc_12m == "Нет продаж" for row in abc)
     assert abc_page.total >= 1
