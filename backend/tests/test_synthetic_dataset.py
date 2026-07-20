@@ -23,6 +23,7 @@ ALLOWED_MODEL_FIELDS = {
         "stage_id",
         "category_id",
         "status_group",
+        "kev_held",
     },
     DealContactLink: {
         "deal_id",

@@ -28,6 +28,7 @@ class DealSnapshot(DomainModel):
     stage_id: str = Field(min_length=1)
     category_id: int | None = None
     status_group: StatusGroup
+    kev_held: bool = False
 
 
 class DealContactLink(DomainModel):

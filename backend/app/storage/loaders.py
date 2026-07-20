@@ -59,9 +59,10 @@ def load_synthetic_dataset(
             closed_at,
             stage_id,
             category_id,
-            status_group
+            status_group,
+            kev_held
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             (
@@ -74,6 +75,7 @@ def load_synthetic_dataset(
                 deal.stage_id,
                 deal.category_id,
                 deal.status_group,
+                deal.kev_held,
             )
             for deal in dataset.deals
         ],
@@ -204,9 +206,10 @@ def load_bitrix_raw_data(
             closed_at,
             stage_id,
             category_id,
-            status_group
+            status_group,
+            kev_held
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             (
@@ -219,6 +222,7 @@ def load_bitrix_raw_data(
                 deal.stage_id,
                 deal.category_id,
                 deal.status_group,
+                deal.kev_held,
             )
             for deal in deals
         ],

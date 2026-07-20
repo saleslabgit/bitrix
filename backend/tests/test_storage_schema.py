@@ -17,6 +17,7 @@ EXPECTED_COLUMNS = {
         "stage_id",
         "category_id",
         "status_group",
+        "kev_held",
     ),
     "raw_deal_contact_links": (
         "deal_id",
@@ -62,6 +63,7 @@ EXPECTED_COLUMNS = {
         "analytical_contact_name",
         "contact_type_normalized",
         "region_normalized",
+        "kev_held",
     ),
     "local_dataset_status": (
         "dataset_name",
@@ -144,6 +146,74 @@ def test_schema_initialization_is_idempotent() -> None:
         initialize_schema(connection)
 
         assert table_names(connection) == set(list_expected_tables())
+
+
+def test_schema_migrates_previous_file_without_losing_deal_rows(tmp_path) -> None:
+    database_path = tmp_path / "previous-schema.duckdb"
+    with duckdb.connect(database=str(database_path)) as connection:
+        connection.execute(
+            """
+            CREATE TABLE raw_deals (
+                deal_id BIGINT PRIMARY KEY,
+                deal_name VARCHAR NOT NULL,
+                amount_original DECIMAL(18, 2) NOT NULL,
+                currency_original VARCHAR NOT NULL,
+                created_at TIMESTAMP NOT NULL,
+                closed_at TIMESTAMP,
+                stage_id VARCHAR NOT NULL,
+                category_id INTEGER,
+                status_group VARCHAR NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE normalized_deals (
+                deal_id BIGINT PRIMARY KEY,
+                deal_name VARCHAR NOT NULL,
+                amount_original DECIMAL(18, 2) NOT NULL,
+                currency_original VARCHAR NOT NULL,
+                created_at TIMESTAMP NOT NULL,
+                closed_at TIMESTAMP,
+                stage_id VARCHAR NOT NULL,
+                category_id INTEGER,
+                status_group VARCHAR NOT NULL,
+                analytical_contact_id BIGINT,
+                analytical_contact_name VARCHAR NOT NULL,
+                contact_type_normalized VARCHAR NOT NULL,
+                region_normalized VARCHAR NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO raw_deals VALUES
+            (1, 'Previous raw deal', 10, 'USD', TIMESTAMP '2025-01-01', NULL, 'OPEN', 0, 'open')
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO normalized_deals VALUES
+            (1, 'Previous normalized deal', 10, 'USD', TIMESTAMP '2025-01-01', NULL,
+             'OPEN', 0, 'open', NULL, 'Без контакта', 'Не определено', 'Не определено')
+            """
+        )
+
+        initialize_schema(connection)
+        initialize_schema(connection)
+
+        assert connection.execute(
+            "SELECT deal_id, kev_held FROM raw_deals"
+        ).fetchall() == [(1, False)]
+        assert connection.execute(
+            "SELECT deal_id, kev_held FROM normalized_deals"
+        ).fetchall() == [(1, False)]
+        for table_name in ("raw_deals", "normalized_deals"):
+            kev_column = next(
+                row for row in connection.execute(f"PRAGMA table_info('{table_name}')").fetchall()
+                if row[1] == "kev_held"
+            )
+            assert kev_column[3] is True
 
 
 def test_configured_duckdb_file_storage_persists_across_connections(tmp_path) -> None:

@@ -59,6 +59,7 @@ class FakeBitrixClient:
                 "categoryId": "0",
                 "contactId": "10",
                 "contactIds": ["10", "20"],
+                "ufCrm1716895716": "Y",
                 "COMMENTS": "hidden",
             },
             {
@@ -151,7 +152,7 @@ def test_manual_bitrix_ingestion_loads_allowed_raw_data_and_normalizes(tmp_path)
         ).fetchall()
         raw_deals = connection.execute(
             """
-            SELECT deal_id, deal_name, status_group
+            SELECT deal_id, deal_name, status_group, kev_held
             FROM raw_deals
             ORDER BY deal_id
             """
@@ -165,7 +166,7 @@ def test_manual_bitrix_ingestion_loads_allowed_raw_data_and_normalizes(tmp_path)
         ).fetchall()
         normalized_deal = connection.execute(
             """
-            SELECT analytical_contact_id, contact_type_normalized, region_normalized
+            SELECT analytical_contact_id, contact_type_normalized, region_normalized, kev_held
             FROM normalized_deals
             WHERE deal_id = 100
             """
@@ -183,13 +184,16 @@ def test_manual_bitrix_ingestion_loads_allowed_raw_data_and_normalizes(tmp_path)
         (10, "Ada Lovelace", "partner"),
         (20, "Grace Hopper", "client"),
     ]
-    assert raw_deals == [(100, "Won deal", "won"), (200, "Open deal", "open")]
+    assert raw_deals == [
+        (100, "Won deal", "won", True),
+        (200, "Open deal", "open", False),
+    ]
     assert raw_links == [
         (100, 10, True, None, None),
         (100, 20, False, None, None),
         (200, 20, True, None, None),
     ]
-    assert normalized_deal == (10, "Partner", "West")
+    assert normalized_deal == (10, "Partner", "West", True)
 
 
 def test_manual_bitrix_ingestion_uses_item_contact_ids_for_secondary_designer() -> None:

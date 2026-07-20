@@ -10,6 +10,7 @@ from app.reports.analytics import (
     get_abc_report,
     get_concentration_report,
     get_deal_cycle_report,
+    get_kev_conversion_report,
     get_rfm_report,
     get_type_region_analytics,
     list_abc_analytics,
@@ -57,6 +58,57 @@ def test_contact_analytics_counts_only_won_revenue_and_profit() -> None:
     assert rows[2].lost_budget_usd == Decimal("0.00")
     assert rows[2].revenue_usd == Decimal("146454.55")
     assert rows[2].has_sales is True
+
+
+def test_deal_analytics_returns_and_filters_exact_kev_value() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        run_synthetic_pipeline(connection)
+        with_kev = list_deal_analytics(connection, limit=100, kev_held=True)
+        without_kev = list_deal_analytics(connection, limit=100, kev_held=False)
+
+    assert with_kev.total == 15
+    assert without_kev.total == 15
+    assert all(row.kev_held for row in with_kev.items)
+    assert all(not row.kev_held for row in without_kev.items)
+
+
+def test_kev_conversion_counts_only_closed_deals_and_uses_close_date_filters() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        run_synthetic_pipeline(connection)
+        report = get_kev_conversion_report(connection)
+        filtered = get_kev_conversion_report(
+            connection,
+            date_from=date(2026, 5, 1),
+            date_to=date(2026, 5, 31),
+            contact_type="Synthetic Retail",
+        )
+
+    assert report.with_kev.closed_deals_count == 12
+    assert report.with_kev.won_deals_count == 10
+    assert report.with_kev.lost_deals_count == 2
+    assert report.with_kev.conversion_percent == Decimal("83.3")
+    assert report.without_kev.closed_deals_count == 13
+    assert report.without_kev.won_deals_count == 10
+    assert report.without_kev.lost_deals_count == 3
+    assert report.without_kev.conversion_percent == Decimal("76.9")
+    assert report.conversion_difference_percentage_points == Decimal("6.4")
+    assert filtered.date_from == date(2026, 5, 1)
+    assert filtered.date_to == date(2026, 5, 31)
+    assert filtered.with_kev.closed_deals_count == 0
+    assert filtered.with_kev.conversion_percent is None
+    assert filtered.without_kev.closed_deals_count == 1
+    assert filtered.without_kev.won_deals_count == 1
+    assert filtered.without_kev.conversion_percent == Decimal("100.0")
+
+
+def test_kev_conversion_returns_null_for_zero_denominators() -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        initialize_schema(connection)
+        report = get_kev_conversion_report(connection)
+
+    assert report.with_kev.conversion_percent is None
+    assert report.without_kev.conversion_percent is None
+    assert report.conversion_difference_percentage_points is None
 
 
 def test_contact_analytics_abc_and_rfm_handle_no_sales_contact() -> None:

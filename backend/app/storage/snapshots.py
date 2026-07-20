@@ -16,6 +16,7 @@ RAW_SNAPSHOT_COLUMNS = {
         "stage_id",
         "category_id",
         "status_group",
+        "kev_held",
     ),
     "raw_deal_contact_links": (
         "deal_id",

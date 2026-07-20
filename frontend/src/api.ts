@@ -51,6 +51,7 @@ export type DealAnalytics = {
   estimated_profit_usd: string;
   created_date: string;
   closed_date: string | null;
+  kev_held: boolean;
 };
 
 export type DealAnalyticsPage = {
@@ -206,12 +207,34 @@ export type DealFilters = {
   clientSearch: string;
   contactType: string;
   status: string;
+  kevHeld: "" | "true" | "false";
   dealCreatedFrom: string;
   dealCreatedTo: string;
   sort: DealSort;
   order: SortOrder;
   limit: number;
   offset: number;
+};
+
+export type KevConversionGroup = {
+  closed_deals_count: number;
+  won_deals_count: number;
+  lost_deals_count: number;
+  conversion_percent: string | null;
+};
+
+export type KevConversionReport = {
+  with_kev: KevConversionGroup;
+  without_kev: KevConversionGroup;
+  conversion_difference_percentage_points: string | null;
+  date_from: string | null;
+  date_to: string | null;
+};
+
+export type KevFilters = {
+  dateFrom: string;
+  dateTo: string;
+  contactType: string;
 };
 
 export type AbcFilters = {
@@ -339,6 +362,9 @@ export async function fetchDealAnalytics(filters: DealFilters): Promise<DealAnal
   if (filters.status) {
     params.set("status", filters.status);
   }
+  if (filters.kevHeld) {
+    params.set("kev_held", filters.kevHeld);
+  }
   if (filters.dealCreatedFrom) {
     params.set("deal_created_from", filters.dealCreatedFrom);
   }
@@ -349,6 +375,23 @@ export async function fetchDealAnalytics(filters: DealFilters): Promise<DealAnal
   params.set("order", filters.order);
 
   return request<DealAnalyticsPage>(`/api/reports/deals/analytics?${params.toString()}`);
+}
+
+export async function fetchKevConversion(filters: KevFilters): Promise<KevConversionReport> {
+  const params = new URLSearchParams();
+  if (filters.dateFrom) {
+    params.set("date_from", filters.dateFrom);
+  }
+  if (filters.dateTo) {
+    params.set("date_to", filters.dateTo);
+  }
+  if (filters.contactType) {
+    params.set("contact_type", filters.contactType);
+  }
+  const query = params.toString();
+  return request<KevConversionReport>(
+    `/api/reports/kev-conversion/analytics${query ? `?${query}` : ""}`
+  );
 }
 
 export async function fetchAbcAnalytics(filters: AbcFilters): Promise<AbcAnalyticsPage> {

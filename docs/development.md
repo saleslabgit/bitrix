@@ -85,7 +85,7 @@ Simple local app flow:
 1. Run `docker compose up --build`.
 2. Open `http://localhost:5173`.
 3. If `APP_AUTH_ENABLED=true`, sign in with the configured username and password.
-4. If an active local dataset exists, the Contacts, Deals, and ABC tables load normally.
+4. If an active local dataset exists, the Contacts, Deals, ABC, and KEV reports load normally.
 5. If the frontend says `Локальная база не подготовлена.`, click
    `Обновить из Bitrix`.
 6. Wait for the manual read-only refresh to finish; it can take several
@@ -179,6 +179,7 @@ GET /api/reports/contacts/analytics
 GET /api/reports/contacts/{contact_id}/won-revenue-series
 GET /api/reports/deals/analytics
 GET /api/reports/abc/analytics
+GET /api/reports/kev-conversion/analytics
 GET /api/meta/filters
 GET /api/datasets/status
 POST /api/local/refresh-data
@@ -227,7 +228,7 @@ The Deals screen uses `/api/reports/deals/analytics` for local deal-level rows
 with exact `deal_id`, exact local analytical `client_id`, local analytical
 `client_search`, status, type, region, inclusive `deal_created_from` /
 `deal_created_to`, allowlisted `sort`, `order`, `limit`, and `offset`
-parameters. Deal rows expose the deal ID/name, status, normalized type/region,
+parameters plus exact `kev_held=true|false`. Deal rows expose the deal ID/name, status, normalized type/region,
 USD budget, USD estimated profit, created date, and closed date. The response
 also includes `filtered_budget_usd`, `filtered_revenue_usd`, and
 `filtered_estimated_profit_usd`, calculated across all filtered rows before
@@ -235,6 +236,8 @@ pagination. Deal budget is the single deal amount in USD. Deal revenue is
 won-only and sums budget only for `status_group == "won"`. Deal estimated
 profit is won-only: `budget_usd * 0.50` when `status_group == "won"`, otherwise
 `0.00`. Deals UI state is persisted separately under `bitrix-sales.deals.v1`.
+The visible `КЭВ` column shows `Был` / `Не был`; raw Bitrix checkbox values are
+not exposed.
 Shared filter metadata is cached under `bitrix-sales.filter-metadata.v1`;
 resetting either report does not clear the metadata cache. `GET /api/meta/filters`
 returns a typed local metadata payload even when one or more option lists are
@@ -251,6 +254,19 @@ remain visible. Transition direction is always `ABC было -> ABC стало`.
 Target revenue, target ABC, transition, and migration priority columns are
 shown only while `Стало` is enabled. ABC UI state is persisted separately
 under `bitrix-sales.abc.v1`; reset clears only ABC state.
+
+The KEV screen uses `/api/reports/kev-conversion/analytics` and compares only
+closed won/lost deals. Conversion is `won / (won + lost) * 100`; open deals are
+excluded, the optional period is inclusive by `closed_at`, and a group with no
+closed deals shows `—`. The difference is shown in percentage points as
+`КЭВ был - КЭВ не был`. KEV date/type filters are stored separately under
+`bitrix-sales.kev.v1`.
+
+The approved read-only Bitrix field is `UF_CRM_1716895716`. Blank or missing
+means KEV was not held. Existing DuckDB files receive the boolean columns through
+an additive schema migration. After deploying this code, the operator must
+manually click `Обновить из Bitrix` once to populate KEV values for current deal
+rows; Docker startup still performs no refresh.
 
 Region filters and region columns are temporarily hidden in the frontend while
 region detection is unfinished. The frontend does not send region query

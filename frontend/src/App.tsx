@@ -8,6 +8,7 @@ import {
   ChevronRight,
   Database,
   Filter,
+  Handshake,
   LockKeyhole,
   LogOut,
   PieChart,
@@ -32,6 +33,7 @@ import {
   fetchDatasetStatus,
   fetchDealAnalytics,
   fetchFilterMetadata,
+  fetchKevConversion,
   isApiAuthError,
   login as authLogin,
   logout as authLogout,
@@ -49,13 +51,16 @@ import {
   type DealFilters,
   type DealSort,
   type FilterMetadata,
-  type LocalDataRefreshResponse
+  type LocalDataRefreshResponse,
+  type KevConversionReport,
+  type KevFilters
 } from "./api";
 
 const PAGE_SIZE = 25;
 const CONTACTS_STORAGE_KEY = "bitrix-sales.contacts.v1";
 const DEALS_STORAGE_KEY = "bitrix-sales.deals.v1";
 const ABC_STORAGE_KEY = "bitrix-sales.abc.v1";
+const KEV_STORAGE_KEY = "bitrix-sales.kev.v1";
 const FILTER_METADATA_STORAGE_KEY = "bitrix-sales.filter-metadata.v1";
 const CONTACT_SORT_FIELDS: ContactSort[] = [
   "contact_id",
@@ -128,12 +133,19 @@ const initialDealFilters: DealFilters = {
   clientSearch: "",
   contactType: "",
   status: "",
+  kevHeld: "",
   dealCreatedFrom: "",
   dealCreatedTo: "",
   sort: "deal_id",
   order: "asc",
   limit: PAGE_SIZE,
   offset: 0
+};
+
+const initialKevFilters: KevFilters = {
+  dateFrom: "",
+  dateTo: "",
+  contactType: ""
 };
 
 const initialAbcFilters: AbcFilters = {
@@ -153,7 +165,7 @@ const initialAbcFilters: AbcFilters = {
   offset: 0
 };
 
-type ReportView = "contacts" | "deals" | "abc";
+type ReportView = "contacts" | "deals" | "abc" | "kev";
 
 export function App() {
   const queryClient = useQueryClient();
@@ -161,6 +173,7 @@ export function App() {
   const [filters, setFilters] = useState<ContactFilters>(() => loadStoredFilters());
   const [dealFilters, setDealFilters] = useState<DealFilters>(() => loadStoredDealFilters());
   const [abcFilters, setAbcFilters] = useState<AbcFilters>(() => loadStoredAbcFilters());
+  const [kevFilters, setKevFilters] = useState<KevFilters>(() => loadStoredKevFilters());
   const [searchDraft, setSearchDraft] = useState(filters.search);
   const [contactIdDraft, setContactIdDraft] = useState(filters.contactId);
   const [dealIdDraft, setDealIdDraft] = useState(dealFilters.dealId);
@@ -184,6 +197,10 @@ export function App() {
   const [abcCompareDateDrafts, setAbcCompareDateDrafts] = useState({
     from: abcFilters.compareDateFrom,
     to: abcFilters.compareDateTo
+  });
+  const [kevDateDrafts, setKevDateDrafts] = useState({
+    from: kevFilters.dateFrom,
+    to: kevFilters.dateTo
   });
   const [lastFilterMetadata, setLastFilterMetadata] = useState<FilterMetadata | null>(() =>
     loadStoredFilterMetadata()
@@ -253,6 +270,18 @@ export function App() {
     abcCompareDateDrafts.to !== abcFilters.compareDateTo;
   const isAbcCompareEnabled =
     Boolean(abcFilters.compareDateFrom) && Boolean(abcFilters.compareDateTo);
+  const isKevDateRangeInvalid =
+    Boolean(kevFilters.dateFrom) &&
+    Boolean(kevFilters.dateTo) &&
+    kevFilters.dateFrom > kevFilters.dateTo;
+  const areKevDateDraftsInvalid =
+    Boolean(kevDateDrafts.from) &&
+    Boolean(kevDateDrafts.to) &&
+    kevDateDrafts.from > kevDateDrafts.to;
+  const areKevDateDraftsComplete =
+    isEmptyOrCompleteIsoDate(kevDateDrafts.from) && isEmptyOrCompleteIsoDate(kevDateDrafts.to);
+  const areKevDateDraftsChanged =
+    kevDateDrafts.from !== kevFilters.dateFrom || kevDateDrafts.to !== kevFilters.dateTo;
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -301,6 +330,10 @@ export function App() {
   useEffect(() => {
     storeAbcFilters(abcFilters);
   }, [abcFilters]);
+
+  useEffect(() => {
+    storeKevFilters(kevFilters);
+  }, [kevFilters]);
 
   const authQuery = useQuery({
     queryKey: ["auth-session"],
@@ -366,6 +399,12 @@ export function App() {
       !isAbcCompareRangeInvalid
   });
 
+  const kevQuery = useQuery({
+    queryKey: ["kev-conversion", kevFilters],
+    queryFn: () => fetchKevConversion(kevFilters),
+    enabled: canUseApi && activeReport === "kev" && isDatasetReady && !isKevDateRangeInvalid
+  });
+
   const revenueSeriesQuery = useQuery({
     queryKey: [
       "contact-won-revenue-series",
@@ -416,7 +455,8 @@ export function App() {
         queryClient.invalidateQueries({ queryKey: ["filter-metadata"] }),
         queryClient.invalidateQueries({ queryKey: ["contacts"] }),
         queryClient.invalidateQueries({ queryKey: ["deals"] }),
-        queryClient.invalidateQueries({ queryKey: ["abc"] })
+        queryClient.invalidateQueries({ queryKey: ["abc"] }),
+        queryClient.invalidateQueries({ queryKey: ["kev-conversion"] })
       ]);
     },
     onSettled: async () => {
@@ -462,13 +502,20 @@ export function App() {
   }, [isFilterDrawerOpen]);
 
   const activeQuery =
-    activeReport === "contacts" ? contactsQuery : activeReport === "deals" ? dealsQuery : abcQuery;
+    activeReport === "contacts"
+      ? contactsQuery
+      : activeReport === "deals"
+        ? dealsQuery
+        : activeReport === "abc"
+          ? abcQuery
+          : kevQuery;
   const hasSessionExpired =
     isApiAuthError(statusQuery.error) ||
     isApiAuthError(filterQuery.error) ||
     isApiAuthError(contactsQuery.error) ||
     isApiAuthError(dealsQuery.error) ||
     isApiAuthError(abcQuery.error) ||
+    isApiAuthError(kevQuery.error) ||
     isApiAuthError(revenueSeriesQuery.error) ||
     isApiAuthError(refreshMutation.error);
   const activeFilters =
@@ -478,14 +525,25 @@ export function App() {
       ? isDealCreatedRangeInvalid
       : activeReport === "deals"
         ? isDealReportCreatedRangeInvalid
-        : isAbcDateRangeInvalid || isAbcCompareIncomplete || isAbcCompareRangeInvalid;
+        : activeReport === "abc"
+          ? isAbcDateRangeInvalid || isAbcCompareIncomplete || isAbcCompareRangeInvalid
+          : isKevDateRangeInvalid;
   const activeDraftsInvalid =
     activeReport === "contacts"
       ? areDealCreatedDraftsInvalid
       : activeReport === "deals"
         ? areDealReportCreatedDraftsInvalid
-        : areAbcDateDraftsInvalid || areAbcCompareDraftsInvalid;
-  const total = activeQuery.data?.total ?? 0;
+        : activeReport === "abc"
+          ? areAbcDateDraftsInvalid || areAbcCompareDraftsInvalid
+          : areKevDateDraftsInvalid;
+  const total =
+    activeReport === "contacts"
+      ? contactsQuery.data?.total ?? 0
+      : activeReport === "deals"
+        ? dealsQuery.data?.total ?? 0
+        : activeReport === "abc"
+          ? abcQuery.data?.total ?? 0
+          : 0;
   const isRefreshing = refreshMutation.isPending;
   const pageNumber = Math.floor(activeFilters.offset / activeFilters.limit) + 1;
   const totalPages = Math.max(1, Math.ceil(total / activeFilters.limit));
@@ -497,7 +555,8 @@ export function App() {
     !isRefreshing &&
     !activeQuery.isPending &&
     !activeQuery.isError &&
-    !activeRangeInvalid;
+    !activeRangeInvalid &&
+    activeReport !== "kev";
   const tableSubtitle = statusQuery.isPending
     ? "Проверка локального dataset"
     : !isDatasetReady
@@ -508,7 +567,9 @@ export function App() {
           ? `${total.toLocaleString("ru-RU")} контактов найдено`
           : activeReport === "deals"
             ? `${total.toLocaleString("ru-RU")} сделок найдено`
-            : `${total.toLocaleString("ru-RU")} клиентов в ABC`;
+            : activeReport === "abc"
+              ? `${total.toLocaleString("ru-RU")} клиентов в ABC`
+              : kevReportSubtitle(kevQuery.data);
 
   const selectedFilterCount = useMemo(
     () =>
@@ -529,6 +590,7 @@ export function App() {
         dealFilters.clientSearch.trim() || dealFilters.clientId.trim(),
         dealFilters.contactType,
         dealFilters.status,
+        dealFilters.kevHeld,
         dealFilters.dealCreatedFrom,
         dealFilters.dealCreatedTo
       ].filter(Boolean).length,
@@ -550,12 +612,18 @@ export function App() {
       ].filter(Boolean).length,
     [abcFilters, isAbcCompareEnabled]
   );
+  const selectedKevFilterCount = useMemo(
+    () => [kevFilters.dateFrom, kevFilters.dateTo, kevFilters.contactType].filter(Boolean).length,
+    [kevFilters]
+  );
   const activeSelectedFilterCount =
     activeReport === "contacts"
       ? selectedFilterCount
       : activeReport === "deals"
         ? selectedDealFilterCount
-        : selectedAbcFilterCount;
+        : activeReport === "abc"
+          ? selectedAbcFilterCount
+          : selectedKevFilterCount;
 
   useEffect(() => {
     if (!canUseApi || !hasSessionExpired) {
@@ -612,6 +680,17 @@ export function App() {
     window.localStorage.removeItem(ABC_STORAGE_KEY);
     setAbcFilters(initialAbcFilters);
     void queryClient.invalidateQueries({ queryKey: ["abc"] });
+  }
+
+  function resetKevFilters() {
+    setKevDateDrafts({ from: "", to: "" });
+    window.localStorage.removeItem(KEV_STORAGE_KEY);
+    setKevFilters(initialKevFilters);
+    void queryClient.invalidateQueries({ queryKey: ["kev-conversion"] });
+  }
+
+  function updateKevFilter(name: keyof KevFilters, value: string) {
+    setKevFilters((current) => ({ ...current, [name]: value }));
   }
 
   function updateContactIdFilter(value: string) {
@@ -783,6 +862,21 @@ export function App() {
     }));
   }
 
+  function updateKevDateDraft(name: "from" | "to", value: string) {
+    setKevDateDrafts((current) => ({ ...current, [name]: value }));
+  }
+
+  function applyKevDateDrafts() {
+    if (!areKevDateDraftsComplete || areKevDateDraftsInvalid) {
+      return;
+    }
+    setKevFilters((current) => ({
+      ...current,
+      dateFrom: kevDateDrafts.from,
+      dateTo: kevDateDrafts.to
+    }));
+  }
+
   function changePage(direction: "previous" | "next") {
     if (activeReport === "contacts") {
       setFilters((current) => ({
@@ -875,6 +969,15 @@ export function App() {
           >
             <PieChart size={18} strokeWidth={1.5} />
             ABC
+          </button>
+          <button
+            className={activeReport === "kev" ? "nav-item nav-item-active" : "nav-item"}
+            type="button"
+            onClick={() => setActiveReport("kev")}
+            aria-current={activeReport === "kev" ? "page" : undefined}
+          >
+            <Handshake size={18} strokeWidth={1.5} />
+            КЭВ
           </button>
         </nav>
       </aside>
@@ -981,7 +1084,7 @@ export function App() {
 
           {statusQuery.isError ? (
             <TableError
-              entityLabel={activeReport === "contacts" ? "контакты" : "сделки"}
+              entityLabel={entityLabel(activeReport)}
               message={statusQuery.error.message}
               onRetry={() => void statusQuery.refetch()}
             />
@@ -1009,7 +1112,9 @@ export function App() {
                   ? resetFilters
                   : activeReport === "deals"
                     ? resetDealFilters
-                    : resetAbcFilters
+                    : activeReport === "abc"
+                      ? resetAbcFilters
+                      : resetKevFilters
               }
             />
           ) : activeQuery.isPending ? (
@@ -1020,6 +1125,12 @@ export function App() {
             <EmptyState entityLabel="Сделки" onReset={resetDealFilters} />
           ) : activeReport === "abc" && (abcQuery.data?.items.length ?? 0) === 0 ? (
             <EmptyState entityLabel="ABC" onReset={resetAbcFilters} />
+          ) : activeReport === "kev" &&
+            kevQuery.data &&
+            kevQuery.data.with_kev.closed_deals_count +
+              kevQuery.data.without_kev.closed_deals_count ===
+              0 ? (
+            <KevNoDataState onReset={resetKevFilters} />
           ) : activeReport === "contacts" ? (
             <ContactsTable
               contacts={contactsQuery.data?.items ?? []}
@@ -1040,7 +1151,7 @@ export function App() {
               />
               {dealsQuery.data && <DealTotalsBar page={dealsQuery.data} />}
             </>
-          ) : (
+          ) : activeReport === "abc" ? (
             <>
               {abcQuery.data && (
                 <AbcSummaryBar page={abcQuery.data} isCompareEnabled={isAbcCompareEnabled} />
@@ -1056,6 +1167,8 @@ export function App() {
                 <AbcSummaryBar page={abcQuery.data} isCompareEnabled={isAbcCompareEnabled} />
               )}
             </>
+          ) : (
+            <KevConversionComparison report={kevQuery.data!} />
           )}
 
           {showPagination && (
@@ -1237,6 +1350,10 @@ export function App() {
                     onChange={(value) => updateDealFilter("status", value)}
                     options={filterMetadata?.statuses ?? []}
                     disabled={!filterMetadata}
+                  />
+                  <KevSelectField
+                    value={dealFilters.kevHeld}
+                    onChange={(value) => updateDealFilter("kevHeld", value)}
                   />
                   <SelectField
                     label="Тип"
@@ -1423,6 +1540,53 @@ export function App() {
                   </button>
                 </div>
               )}
+
+              {activeReport === "kev" && (
+                <div className="drawer-form">
+                  <SelectField
+                    label="Тип"
+                    value={kevFilters.contactType}
+                    onChange={(value) => updateKevFilter("contactType", value)}
+                    options={filterMetadata?.contact_types ?? []}
+                    disabled={!filterMetadata}
+                  />
+                  <label className="field">
+                    <span>Закрыта с</span>
+                    <input
+                      className="date-input"
+                      value={kevDateDrafts.from}
+                      onChange={(event) => updateKevDateDraft("from", event.target.value)}
+                      min={dateOnly(filterMetadata?.min_closed_at)}
+                      max={dateOnly(filterMetadata?.max_closed_at)}
+                      type="date"
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Закрыта по</span>
+                    <input
+                      className="date-input"
+                      value={kevDateDrafts.to}
+                      onChange={(event) => updateKevDateDraft("to", event.target.value)}
+                      min={dateOnly(filterMetadata?.min_closed_at)}
+                      max={dateOnly(filterMetadata?.max_closed_at)}
+                      type="date"
+                    />
+                  </label>
+                  <button
+                    className="button button-secondary"
+                    type="button"
+                    disabled={
+                      !areKevDateDraftsChanged ||
+                      !areKevDateDraftsComplete ||
+                      areKevDateDraftsInvalid
+                    }
+                    onClick={applyKevDateDrafts}
+                  >
+                    <Filter size={16} strokeWidth={1.5} />
+                    Применить даты
+                  </button>
+                </div>
+              )}
             </div>
 
             <footer className="drawer-footer">
@@ -1434,7 +1598,9 @@ export function App() {
                     ? resetFilters
                     : activeReport === "deals"
                       ? resetDealFilters
-                      : resetAbcFilters
+                      : activeReport === "abc"
+                        ? resetAbcFilters
+                        : resetKevFilters
                 }
               >
                 <Filter size={16} strokeWidth={1.5} />
@@ -1598,6 +1764,28 @@ function SelectField({
             {option}
           </option>
         ))}
+      </select>
+    </label>
+  );
+}
+
+function KevSelectField({
+  value,
+  onChange
+}: {
+  value: "" | "true" | "false";
+  onChange: (value: "" | "true" | "false") => void;
+}) {
+  return (
+    <label className="field">
+      <span>КЭВ</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value as "" | "true" | "false")}
+      >
+        <option value="">Все</option>
+        <option value="true">Был</option>
+        <option value="false">Не был</option>
       </select>
     </label>
   );
@@ -2009,6 +2197,7 @@ function DealsTable({
               order={order}
               onSort={onSort}
             />
+            <th>КЭВ</th>
             <SortableHeader
               label="Тип"
               field="contact_type_normalized"
@@ -2074,6 +2263,11 @@ function DealsTable({
                 </span>
               </td>
               <td>
+                <span className={`badge ${deal.kev_held ? "badge-success" : "badge-neutral"}`}>
+                  {deal.kev_held ? "Был" : "Не был"}
+                </span>
+              </td>
+              <td>
                 <span className="badge badge-neutral">{deal.contact_type_normalized}</span>
               </td>
               <td className="number-cell money-cell">{formatUsd(deal.budget_usd)}</td>
@@ -2084,6 +2278,70 @@ function DealsTable({
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function KevConversionComparison({ report }: { report: KevConversionReport }) {
+  const rows = [
+    { label: "КЭВ был", value: report.with_kev, accent: true },
+    { label: "КЭВ не был", value: report.without_kev, accent: false }
+  ];
+  return (
+    <div className="kev-report">
+      <div className="kev-difference" aria-label="Разница конверсии">
+        <span>Разница конверсии</span>
+        <strong>{formatPercentagePoints(report.conversion_difference_percentage_points)}</strong>
+        <small>КЭВ был минус КЭВ не был</small>
+      </div>
+      <div className="table-scroll kev-table-scroll">
+        <table className="kev-table">
+          <thead>
+            <tr>
+              <th>Группа</th>
+              <th className="number-cell">Закрытые</th>
+              <th className="number-cell">Успешные</th>
+              <th className="number-cell">Проигранные</th>
+              <th className="number-cell">Конверсия</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.label}>
+                <td>
+                  <span className={`badge ${row.accent ? "badge-success" : "badge-neutral"}`}>
+                    {row.label}
+                  </span>
+                </td>
+                <td className="number-cell">{row.value.closed_deals_count.toLocaleString("ru-RU")}</td>
+                <td className="number-cell">{row.value.won_deals_count.toLocaleString("ru-RU")}</td>
+                <td className="number-cell">{row.value.lost_deals_count.toLocaleString("ru-RU")}</td>
+                <td className="number-cell money-cell">
+                  {formatNullablePercent(row.value.conversion_percent)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {(report.with_kev.conversion_percent === null ||
+        report.without_kev.conversion_percent === null) && (
+        <p className="kev-note">Для группы без закрытых сделок конверсия и разница показаны как «—».</p>
+      )}
+    </div>
+  );
+}
+
+function KevNoDataState({ onReset }: { onReset: () => void }) {
+  return (
+    <div className="state-panel">
+      <Handshake size={28} strokeWidth={1.5} />
+      <h3>Нет закрытых сделок</h3>
+      <p>В выбранных фильтрах нет выигранных или проигранных сделок с датой закрытия.</p>
+      <button className="button button-secondary" type="button" onClick={onReset}>
+        <Filter size={16} strokeWidth={1.5} />
+        Сбросить фильтры
+      </button>
     </div>
   );
 }
@@ -2554,7 +2812,7 @@ function reportTitle(report: ReportView) {
   if (report === "deals") {
     return "Deals";
   }
-  return "ABC";
+  return report === "abc" ? "ABC" : "КЭВ";
 }
 
 function reportSubtitle(report: ReportView) {
@@ -2564,7 +2822,9 @@ function reportSubtitle(report: ReportView) {
   if (report === "deals") {
     return "Таблица сделок с фильтрами по локальным данным.";
   }
-  return "ABC-анализ клиентов по won-only USD выручке из локальной базы.";
+  return report === "abc"
+    ? "ABC-анализ клиентов по won-only USD выручке из локальной базы."
+    : "Сравнение конверсии закрытых сделок с КЭВ и без КЭВ.";
 }
 
 function tableTitle(report: ReportView) {
@@ -2574,7 +2834,7 @@ function tableTitle(report: ReportView) {
   if (report === "deals") {
     return "Список сделок";
   }
-  return "ABC клиентов";
+  return report === "abc" ? "ABC клиентов" : "Конверсия по КЭВ";
 }
 
 function entityLabel(report: ReportView) {
@@ -2584,7 +2844,7 @@ function entityLabel(report: ReportView) {
   if (report === "deals") {
     return "сделки";
   }
-  return "ABC";
+  return report === "abc" ? "ABC" : "отчёт КЭВ";
 }
 
 function rangeValidationMessage(report: ReportView, isCompareIncomplete: boolean) {
@@ -2594,12 +2854,18 @@ function rangeValidationMessage(report: ReportView, isCompareIncomplete: boolean
   if (report === "abc") {
     return "Дата начала периода должна быть не позже даты окончания периода.";
   }
+  if (report === "kev") {
+    return "Дата «Закрыта с» должна быть не позже даты «Закрыта по».";
+  }
   return "Дата «Создана с» должна быть не позже даты «Создана по».";
 }
 
 function draftRangeValidationMessage(report: ReportView) {
   if (report === "abc") {
     return "В черновике дат «Было» или «Стало» начало должно быть не позже окончания.";
+  }
+  if (report === "kev") {
+    return "В черновике дат значение «Закрыта с» должно быть не позже «Закрыта по».";
   }
   return "В черновике дат значение «Создана с» должно быть не позже «Создана по».";
 }
@@ -2657,6 +2923,34 @@ function formatPercent(value: string) {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1
   }).format(numeric)}%`;
+}
+
+function formatNullablePercent(value: string | null) {
+  return value === null ? "—" : formatPercent(value);
+}
+
+function formatPercentagePoints(value: string | null) {
+  if (value === null) {
+    return "—";
+  }
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return `${value} п.п.`;
+  }
+  const formatted = new Intl.NumberFormat("ru-RU", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+    signDisplay: "exceptZero"
+  }).format(numeric);
+  return `${formatted} п.п.`;
+}
+
+function kevReportSubtitle(report: KevConversionReport | undefined) {
+  if (!report) {
+    return "Сравнение закрытых сделок";
+  }
+  const total = report.with_kev.closed_deals_count + report.without_kev.closed_deals_count;
+  return `${total.toLocaleString("ru-RU")} закрытых сделок в сравнении`;
 }
 
 function formatCounts(counts: Record<string, number>) {
@@ -2734,6 +3028,9 @@ function loadStoredDealFilters(): DealFilters {
       clientSearch: stringValue(parsed.clientSearch),
       contactType: stringValue(parsed.contactType),
       status: stringValue(parsed.status),
+      kevHeld: ["true", "false"].includes(stringValue(parsed.kevHeld))
+        ? (stringValue(parsed.kevHeld) as "true" | "false")
+        : "",
       dealCreatedFrom: dateValue(parsed.dealCreatedFrom),
       dealCreatedTo: dateValue(parsed.dealCreatedTo),
       sort: dealSortValue(parsed.sort),
@@ -2775,6 +3072,23 @@ function loadStoredAbcFilters(): AbcFilters {
     };
   } catch {
     return initialAbcFilters;
+  }
+}
+
+function loadStoredKevFilters(): KevFilters {
+  try {
+    const stored = window.localStorage.getItem(KEV_STORAGE_KEY);
+    if (!stored) {
+      return initialKevFilters;
+    }
+    const parsed = JSON.parse(stored) as Partial<Record<keyof KevFilters, unknown>>;
+    return {
+      dateFrom: dateValue(parsed.dateFrom),
+      dateTo: dateValue(parsed.dateTo),
+      contactType: stringValue(parsed.contactType)
+    };
+  } catch {
+    return initialKevFilters;
   }
 }
 
@@ -2821,6 +3135,14 @@ function storeAbcFilters(filters: AbcFilters) {
     return;
   }
   window.localStorage.setItem(ABC_STORAGE_KEY, JSON.stringify(filters));
+}
+
+function storeKevFilters(filters: KevFilters) {
+  if (JSON.stringify(filters) === JSON.stringify(initialKevFilters)) {
+    window.localStorage.removeItem(KEV_STORAGE_KEY);
+    return;
+  }
+  window.localStorage.setItem(KEV_STORAGE_KEY, JSON.stringify(filters));
 }
 
 function storeFilterMetadata(metadata: FilterMetadata) {

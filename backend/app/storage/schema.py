@@ -41,7 +41,8 @@ def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
             closed_at TIMESTAMP,
             stage_id VARCHAR NOT NULL,
             category_id INTEGER,
-            status_group VARCHAR NOT NULL CHECK (status_group IN ('won', 'open', 'lost'))
+            status_group VARCHAR NOT NULL CHECK (status_group IN ('won', 'open', 'lost')),
+            kev_held BOOLEAN NOT NULL DEFAULT false
         )
         """
     )
@@ -116,7 +117,8 @@ def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
             analytical_contact_id BIGINT,
             analytical_contact_name VARCHAR NOT NULL,
             contact_type_normalized VARCHAR NOT NULL,
-            region_normalized VARCHAR NOT NULL
+            region_normalized VARCHAR NOT NULL,
+            kev_held BOOLEAN NOT NULL DEFAULT false
         )
         """
     )
@@ -168,3 +170,23 @@ def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
         )
         """
     )
+    _migrate_kev_columns(connection)
+
+
+def _migrate_kev_columns(connection: duckdb.DuckDBPyConnection) -> None:
+    for table_name in ("raw_deals", "normalized_deals"):
+        columns = {
+            row[1] for row in connection.execute(f"PRAGMA table_info('{table_name}')").fetchall()
+        }
+        if "kev_held" in columns:
+            continue
+        connection.execute(
+            f"ALTER TABLE {table_name} ADD COLUMN kev_held BOOLEAN DEFAULT false"
+        )
+        connection.execute(f"UPDATE {table_name} SET kev_held = false WHERE kev_held IS NULL")
+        connection.execute(
+            f"ALTER TABLE {table_name} ALTER COLUMN kev_held SET DEFAULT false"
+        )
+        connection.execute(
+            f"ALTER TABLE {table_name} ALTER COLUMN kev_held SET NOT NULL"
+        )

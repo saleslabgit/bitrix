@@ -330,6 +330,7 @@ class DealAnalyticsResponse(ApiModel):
     estimated_profit_usd: Decimal
     created_date: date
     closed_date: date | None
+    kev_held: bool
 
 
 class DealAnalyticsPageResponse(ApiModel):
@@ -340,6 +341,21 @@ class DealAnalyticsPageResponse(ApiModel):
     filtered_revenue_usd: Decimal
     filtered_estimated_profit_usd: Decimal
     items: tuple[DealAnalyticsResponse, ...]
+
+
+class KevConversionGroupResponse(ApiModel):
+    closed_deals_count: int
+    won_deals_count: int
+    lost_deals_count: int
+    conversion_percent: Decimal | None
+
+
+class KevConversionReportResponse(ApiModel):
+    with_kev: KevConversionGroupResponse
+    without_kev: KevConversionGroupResponse
+    conversion_difference_percentage_points: Decimal | None
+    date_from: date | None
+    date_to: date | None
 
 
 class AbcAnalyticsResponse(ApiModel):

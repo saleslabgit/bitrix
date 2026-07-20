@@ -83,6 +83,9 @@ GET /api/datasets/status
 GET /api/meta/filters
 GET /api/reports/contacts
 GET /api/reports/contacts/analytics
+GET /api/reports/deals/analytics
+GET /api/reports/abc/analytics
+GET /api/reports/kev-conversion/analytics
 GET /api/reports/abc
 GET /api/reports/rfm
 GET /api/reports/stale-deals
@@ -99,6 +102,11 @@ loads the synthetic fixture, writes allowlisted raw snapshots under
 `APP_DATA_DIR`, and activates it as the local dataset. It is not a real Bitrix
 sync. Report endpoints calculate local analytics on demand and do not call
 Bitrix, NBRB, or external APIs.
+
+Deal ingestion allowlists the approved checkbox `UF_CRM_1716895716` and stores
+only `kev_held`; blank/missing means false. Schema initialization additively
+migrates existing raw/normalized deal tables. The KEV conversion endpoint counts
+only closed won/lost deals and filters periods inclusively by `closed_at`.
 
 Manual Bitrix endpoints after starting the backend:
 

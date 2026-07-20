@@ -1,6 +1,13 @@
 import pytest
 
-from app.bitrix.allowlist import build_contact_select, build_deal_item_select, build_deal_select
+from app.bitrix.allowlist import (
+    KEV_DEAL_FIELD,
+    build_contact_select,
+    build_deal_item_select,
+    build_deal_select,
+)
+from app.bitrix.transform import parse_kev_held, transform_deals
+from app.domain import StageSnapshot
 from app.bitrix.client import BitrixApiError, BitrixClient, BitrixConfigurationError
 
 
@@ -25,6 +32,7 @@ def test_bitrix_allowlists_exclude_forbidden_fields_by_default() -> None:
     assert "UF_CRM_CONTACT_TYPE" not in contact_select
     assert "CONTACT_ID" in deal_select
     assert "CONTACT_IDS" in deal_select
+    assert KEV_DEAL_FIELD in deal_select
     assert all(
         forbidden not in field
         for field in all_fields
@@ -44,6 +52,7 @@ def test_deal_item_select_uses_only_safe_available_fields() -> None:
         "categoryId": {},
         "contactId": {},
         "contactIds": {},
+        "ufCrm1716895716": {},
         "fm": {},
         "comments": {},
         "PHONE": {},
@@ -62,11 +71,56 @@ def test_deal_item_select_uses_only_safe_available_fields() -> None:
         "categoryId",
         "contactId",
         "contactIds",
+        "ufCrm1716895716",
     )
     assert "*" not in select
     assert "fm" not in select
     assert "comments" not in select
     assert "PHONE" not in select
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, False),
+        ("", False),
+        (False, False),
+        (0, False),
+        ("0", False),
+        ("N", False),
+        ("NO", False),
+        ("FALSE", False),
+        (True, True),
+        (1, True),
+        ("1", True),
+        ("Y", True),
+        ("YES", True),
+        ("TRUE", True),
+        ("unexpected", False),
+    ],
+)
+def test_kev_checkbox_parser_is_explicit(value: object, expected: bool) -> None:
+    assert parse_kev_held(value) is expected
+
+
+def test_transform_deals_supports_universal_kev_alias() -> None:
+    deal = transform_deals(
+        [
+            {
+                "id": "1",
+                "title": "KEV deal",
+                "opportunity": "10",
+                "currencyId": "USD",
+                "createdTime": "2025-01-01T00:00:00+00:00",
+                "stageId": "WON",
+                "categoryId": "0",
+                "ufCrm1716895716": "Y",
+            }
+        ],
+        [StageSnapshot(stage_id="WON", category_id=0, status_group="won")],
+    )[0]
+
+    assert deal.kev_held is True
 
 
 def test_contact_type_field_is_requested_only_when_configured() -> None:

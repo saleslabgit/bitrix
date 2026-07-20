@@ -20,6 +20,7 @@ from app.main import (
     report_contacts,
     report_deal_analytics,
     report_deal_cycle,
+    report_kev_conversion_analytics,
     report_rfm,
     report_stale_deals,
     report_type_region,
@@ -349,6 +350,8 @@ def test_api_analytics_reports_return_local_typed_data() -> None:
     concentration = report_concentration()
     type_region = report_type_region()
     deals = report_deal_analytics(limit=10, offset=0)
+    kev_deals = report_deal_analytics(limit=100, offset=0, kev_held=True)
+    kev_conversion = report_kev_conversion_analytics()
     deal_by_id = report_deal_analytics(limit=10, offset=0, deal_id=4)
     open_deals = report_deal_analytics(limit=10, offset=0, status="open")
     filtered_deals = report_deal_analytics(
@@ -411,6 +414,13 @@ def test_api_analytics_reports_return_local_typed_data() -> None:
     assert type_region.region_rows
     assert deals.total == 30
     assert deals.items[0].deal_id == 1
+    assert "kev_held" in deals.items[0].model_dump()
+    assert kev_deals.total == 15
+    assert all(item.kev_held for item in kev_deals.items)
+    assert kev_conversion.with_kev.closed_deals_count == 12
+    assert kev_conversion.with_kev.conversion_percent == Decimal("83.3")
+    assert kev_conversion.without_kev.closed_deals_count == 13
+    assert kev_conversion.conversion_difference_percentage_points == Decimal("6.4")
     assert deals.items[0].estimated_profit_usd == deals.items[0].budget_usd * Decimal("0.50")
     assert deal_by_id.total == 1
     assert deal_by_id.items[0].deal_id == 4

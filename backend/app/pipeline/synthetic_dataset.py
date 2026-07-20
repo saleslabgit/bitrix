@@ -159,6 +159,7 @@ def build_synthetic_dataset() -> SyntheticDataset:
             stage_id=stage_id,
             category_id=1,
             status_group=status_group,
+            kev_held=deal_id % 2 == 1,
         )
         for deal_id, name, amount, currency, created_at, closed_at, stage_id, status_group in deal_specs
     )

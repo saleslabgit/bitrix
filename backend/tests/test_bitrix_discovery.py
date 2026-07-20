@@ -28,6 +28,7 @@ def test_discovery_reports_configured_contact_type_field_present() -> None:
                 "CATEGORY_ID": {},
                 "CONTACT_ID": {},
                 "CONTACT_IDS": {},
+                "UF_CRM_1716895716": {},
             }
         }
 

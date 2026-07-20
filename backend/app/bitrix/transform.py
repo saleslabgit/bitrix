@@ -53,6 +53,14 @@ def transform_deals(
                     (stage_id, category_id),
                     status_by_stage_id.get(stage_id, "open"),
                 ),
+                kev_held=parse_kev_held(
+                    _first(
+                        row,
+                        "UF_CRM_1716895716",
+                        "ufCrm1716895716",
+                        "uf_crm_1716895716",
+                    )
+                ),
             )
         )
     return deals
@@ -138,6 +146,22 @@ def _status_group(value: Any) -> str:
     if normalized in {"f", "failure", "lost"}:
         return "lost"
     return "open"
+
+
+def parse_kev_held(value: Any) -> bool:
+    if value is None or value is False:
+        return False
+    if value is True:
+        return True
+    if isinstance(value, (int, float, Decimal)):
+        return value != 0
+
+    normalized = str(value).strip().upper()
+    if normalized in {"", "0", "N", "NO", "FALSE"}:
+        return False
+    if normalized in {"1", "Y", "YES", "TRUE"}:
+        return True
+    return False
 
 
 def _required_int(row: dict[str, Any], *keys: str) -> int:

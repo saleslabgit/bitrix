@@ -35,11 +35,15 @@ Real Bitrix ingestion stores only the allowed deal columns:
 - `DATE_CREATE` -> `created_at`;
 - `CLOSEDATE` -> `closed_at`;
 - `STAGE_ID` -> `stage_id`;
-- `CATEGORY_ID` -> `category_id`.
+- `CATEGORY_ID` -> `category_id`;
+- `UF_CRM_1716895716` -> `kev_held`.
 - `contactId` and `contactIds` from `crm.item.list` are selected only to build
   local deal-contact links; they are not stored in `raw_deals`.
 
 `status_group` is derived locally from loaded Bitrix stage semantics.
+The approved KEV checkbox is parsed through an explicit boolean allowlist;
+missing or blank values mean `kev_held = false` (KEV was not held). Only the
+normalized boolean is stored and written to raw Parquet snapshots.
 
 ### Deal-Contact Links
 
@@ -136,6 +140,11 @@ Fields:
 - `contact_type_raw`;
 - `contact_type_normalized`;
 - `region_normalized`.
+- `kev_held`.
+
+`initialize_schema()` additively migrates existing DuckDB `raw_deals` and
+`normalized_deals` tables with `kev_held BOOLEAN NOT NULL DEFAULT false`.
+Existing rows are preserved and default to `false`; repeated initialization is safe.
 
 Unknown or inactive type rules normalize to `Не определено`.
 
@@ -227,7 +236,8 @@ Implemented local report outputs:
 - contact won revenue series with one row per close date for one analytical
   contact, aggregating closed `won` deals in USD and exposing only totals,
   counts, and close dates for charting;
-- deal analytics with one row per normalized deal: deal ID/name, status group, normalized analytical type/region, USD budget, USD estimated profit, created date, and closed date;
+- deal analytics with one row per normalized deal: deal ID/name, status group, KEV boolean, normalized analytical type/region, USD budget, USD estimated profit, created date, and closed date;
+- KEV conversion comparison for closed deals with and without KEV;
 - ABC comparison for full period vs last 12 months, with `Нет продаж` for contacts without won revenue in a period;
 - paginated ABC analytics with filters, sorting, source/base `Было`
   classification, and optional target/result `Стало` segment transitions in
@@ -251,6 +261,17 @@ stable allowlisted sorting before pagination. Deal analytics page totals
 `filtered_estimated_profit_usd` are calculated across all filtered rows before
 pagination. `filtered_revenue_usd` is won-only and sums deal budget only for
 filtered rows where `status_group == "won"`.
+The Deals endpoint also supports exact `kev_held=true|false` filtering and never
+returns the raw Bitrix checkbox value.
+
+`GET /api/reports/kev-conversion/analytics` reads only local
+`normalized_deals`. It includes rows with `closed_at IS NOT NULL` and
+`status_group IN ('won', 'lost')`; open deals never participate. Each KEV group
+returns closed, won, and lost counts plus `won / (won + lost) * 100`, rounded to
+one decimal place. A zero denominator returns `null`. The difference is
+`with_kev - without_kev` in percentage points and is `null` when either group
+has no denominator. Optional `date_from` / `date_to` filters apply inclusively
+to `closed_at`, and `contact_type` filters the normalized analytical type.
 
 `GET /api/reports/contacts/{contact_id}/won-revenue-series` calculates a
 customer chart series on demand from local normalized data. It includes only

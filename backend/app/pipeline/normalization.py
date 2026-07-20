@@ -107,6 +107,7 @@ def normalize_local_data(connection: duckdb.DuckDBPyConnection) -> None:
                 analytical_contact_name,
                 contact_type_normalized,
                 region_normalized,
+                deal.kev_held,
             )
         )
 
@@ -126,9 +127,10 @@ def normalize_local_data(connection: duckdb.DuckDBPyConnection) -> None:
                 analytical_contact_id,
                 analytical_contact_name,
                 contact_type_normalized,
-                region_normalized
+                region_normalized,
+                kev_held
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             normalized_deal_rows,
         )
@@ -178,6 +180,7 @@ def _load_deals(connection: duckdb.DuckDBPyConnection) -> list[DealSnapshot]:
             stage_id,
             category_id,
             status_group
+            ,kev_held
         FROM raw_deals
         ORDER BY deal_id
         """
@@ -193,6 +196,7 @@ def _load_deals(connection: duckdb.DuckDBPyConnection) -> list[DealSnapshot]:
             stage_id=row[6],
             category_id=row[7],
             status_group=row[8],
+            kev_held=row[9],
         )
         for row in rows
     ]

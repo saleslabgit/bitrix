@@ -174,6 +174,7 @@ class DealAnalyticsRow:
     estimated_profit_usd: Decimal
     created_date: date
     closed_date: date | None
+    kev_held: bool
 
 
 @dataclass(frozen=True)
@@ -185,6 +186,23 @@ class DealAnalyticsPage:
     filtered_revenue_usd: Decimal
     filtered_estimated_profit_usd: Decimal
     items: tuple[DealAnalyticsRow, ...]
+
+
+@dataclass(frozen=True)
+class KevConversionGroup:
+    closed_deals_count: int
+    won_deals_count: int
+    lost_deals_count: int
+    conversion_percent: Decimal | None
+
+
+@dataclass(frozen=True)
+class KevConversionReport:
+    with_kev: KevConversionGroup
+    without_kev: KevConversionGroup
+    conversion_difference_percentage_points: Decimal | None
+    date_from: date | None
+    date_to: date | None
 
 
 @dataclass(frozen=True)
@@ -356,6 +374,7 @@ class _DealFact:
     analytical_contact_name: str
     contact_type_normalized: str
     region_normalized: str
+    kev_held: bool
     target_date: date
     rate_date: date
     source_rate_byn: Decimal
@@ -506,6 +525,7 @@ def list_deal_analytics(
     client_search: str | None = None,
     deal_created_from: date | None = None,
     deal_created_to: date | None = None,
+    kev_held: bool | None = None,
     sort: DealAnalyticsSortField = "deal_id",
     order: SortOrder = "asc",
 ) -> DealAnalyticsPage:
@@ -525,6 +545,7 @@ def list_deal_analytics(
         and (status is None or deal.status_group == status)
         and (contact_type is None or deal.contact_type_normalized == contact_type)
         and (region is None or deal.region_normalized == region)
+        and (kev_held is None or deal.kev_held is kev_held)
         and (
             client_id is not None
             or normalized_client_search is None
@@ -559,6 +580,59 @@ def list_deal_analytics(
             sum((row.estimated_profit_usd for row in filtered_rows), Decimal("0"))
         ),
         items=rows[offset : offset + limit],
+    )
+
+
+def get_kev_conversion_report(
+    connection: duckdb.DuckDBPyConnection,
+    *,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    contact_type: str | None = None,
+) -> KevConversionReport:
+    initialize_schema(connection)
+    filters = ["status_group IN ('won', 'lost')", "closed_at IS NOT NULL"]
+    parameters: list[object] = []
+    if date_from is not None:
+        filters.append("CAST(closed_at AS DATE) >= ?")
+        parameters.append(date_from)
+    if date_to is not None:
+        filters.append("CAST(closed_at AS DATE) <= ?")
+        parameters.append(date_to)
+    if contact_type is not None:
+        filters.append("contact_type_normalized = ?")
+        parameters.append(contact_type)
+
+    rows = connection.execute(
+        f"""
+        SELECT
+            kev_held,
+            COUNT(*) AS closed_deals_count,
+            COUNT(*) FILTER (WHERE status_group = 'won') AS won_deals_count,
+            COUNT(*) FILTER (WHERE status_group = 'lost') AS lost_deals_count
+        FROM normalized_deals
+        WHERE {' AND '.join(filters)}
+        GROUP BY kev_held
+        """,
+        parameters,
+    ).fetchall()
+    counts = {bool(row[0]): (int(row[1]), int(row[2]), int(row[3])) for row in rows}
+    with_kev = _kev_conversion_group(counts.get(True, (0, 0, 0)))
+    without_kev = _kev_conversion_group(counts.get(False, (0, 0, 0)))
+    difference = (
+        None
+        if with_kev.conversion_percent is None or without_kev.conversion_percent is None
+        else (with_kev.conversion_percent - without_kev.conversion_percent).quantize(
+            PERCENT_QUANT,
+            rounding=ROUND_HALF_UP,
+        )
+    )
+    return KevConversionReport(
+        with_kev=with_kev,
+        without_kev=without_kev,
+        conversion_difference_percentage_points=difference,
+        date_from=date_from,
+        date_to=date_to,
     )
 
 
@@ -1045,7 +1119,8 @@ def _load_deal_facts(
             analytical_contact_id,
             analytical_contact_name,
             contact_type_normalized,
-            region_normalized
+            region_normalized,
+            kev_held
         FROM normalized_deals
         ORDER BY deal_id
         """
@@ -1076,6 +1151,7 @@ def _load_deal_facts(
                 analytical_contact_name=row[8],
                 contact_type_normalized=row[9],
                 region_normalized=row[10],
+                kev_held=row[11],
                 target_date=target_date,
                 rate_date=rate_date,
                 source_rate_byn=source_rate_byn,
@@ -1349,6 +1425,21 @@ def _build_deal_analytics_row(deal: _DealFact) -> DealAnalyticsRow:
         estimated_profit_usd=_profit(budget_usd) if deal.status_group == "won" else Decimal("0.00"),
         created_date=deal.created_at.date(),
         closed_date=deal.closed_at.date() if deal.closed_at else None,
+        kev_held=deal.kev_held,
+    )
+
+
+def _kev_conversion_group(counts: tuple[int, int, int]) -> KevConversionGroup:
+    closed_count, won_count, lost_count = counts
+    return KevConversionGroup(
+        closed_deals_count=closed_count,
+        won_deals_count=won_count,
+        lost_deals_count=lost_count,
+        conversion_percent=(
+            None
+            if closed_count == 0
+            else _percent(Decimal(won_count), Decimal(closed_count))
+        ),
     )
 
 

@@ -1,110 +1,134 @@
-# Отчет: TASK-2026-06-22-31
+# Отчет: TASK-2026-07-20-01
 
 Статус: done
 
 ## Кратко
 
-Подготовил FASTVPS Docker deployment path без изменения локального dev-flow.
-Локально по-прежнему используется `docker compose up --build`. Для production
-добавлен отдельный `docker-compose.prod.yml`: backend работает только внутри
-Docker-сети, built frontend отдается nginx-контейнером, а наружу для панели
-публикуется только `127.0.0.1:8080:80`.
+Добавлено локальное чтение утвержденного Bitrix-поля сделки
+`UF_CRM_1716895716`, его явное преобразование в `kev_held: bool`, безопасная
+аддитивная миграция существующей DuckDB и отчет, сравнивающий конверсию
+закрытых сделок с проведенным КЭВ и без него. Добавлены API-фильтр и колонка КЭВ
+в отчете по сделкам, а также отдельный frontend-экран `КЭВ`.
 
 ## Измененные файлы
 
-- `.dockerignore`
-- `.gitignore`
-- `docker-compose.prod.yml`
-- `deploy/fastvps/.env.production.example`
-- `frontend/Dockerfile`
-- `frontend/nginx.conf`
-- `docs/deployment.md`
+- `backend/app/bitrix/allowlist.py`
+- `backend/app/bitrix/transform.py`
+- `backend/app/domain/models.py`
+- `backend/app/storage/schema.py`
+- `backend/app/storage/loaders.py`
+- `backend/app/storage/snapshots.py`
+- `backend/app/pipeline/normalization.py`
+- `backend/app/pipeline/synthetic_dataset.py`
+- `backend/app/reports/analytics.py`
+- `backend/app/api/models.py`
+- `backend/app/main.py`
+- релевантные backend-тесты
+- `frontend/src/api.ts`
+- `frontend/src/App.tsx`
+- `frontend/src/styles.css`
+- `backend/README.md`
+- `frontend/README.md`
+- `docs/data-model.md`
 - `docs/development.md`
 - `docs/project-status.md`
 - `.ai/report.md`
 
 ## Что сделано
 
-- Добавлен production frontend Dockerfile с Node build stage и nginx runtime
-  stage.
-- Добавлен nginx config со SPA fallback на `index.html`.
-- `/api/*` и `/health` проксируются из nginx в `http://backend:8000` внутри
-  Compose-сети.
-- Добавлен production Compose файл с `restart: unless-stopped`, persistent
-  bind mount `./data:/app/data`, приватным backend и единственным опубликованным
-  web-портом для reverse proxy панели.
-- Добавлен safe production env template для FASTVPS с auth enabled и secure
-  cookies by default guidance.
-- Добавлена `.dockerignore`, чтобы root build context для frontend image не
-  включал `.env`, локальные базы, raw/generated data, logs, caches,
-  `node_modules` или `frontend/dist`.
-- Добавлена документация ручного FASTVPS deploy через HTTPS/reverse proxy панели,
-  server commands, update flow, backup/restore guidance и ручной Bitrix refresh
-  после login.
-- Обновлен project status: production preparation exists; actual server deploy,
-  final domain, panel setup, and backup destination remain operator steps.
+- Добавлена константа `UF_CRM_1716895716` и только явные разрешенные варианты
+  поля для traditional и universal CRM deal select. Read-only allowlist методов
+  не расширялся, `select: ["*"]` не добавлялся.
+- Добавлен небольшой явный parser checkbox-значений. Missing/blank, false, zero,
+  `N`, `NO`, `FALSE` и неожиданные значения дают `false`; true, ненулевые числа,
+  `Y`, `YES`, `TRUE` дают `true`. Сырой Bitrix payload не попадает в API/UI.
+- `kev_held` проведен через domain snapshot, raw loader, raw/normalized DuckDB,
+  normalization, Parquet snapshot allowlist и synthetic fixture.
+- `initialize_schema()` теперь идемпотентно добавляет в существующие
+  `raw_deals` и `normalized_deals` колонку
+  `BOOLEAN NOT NULL DEFAULT false`, сохраняя строки. Для нового файла колонка
+  создается сразу.
+- `GET /api/reports/deals/analytics` возвращает `kev_held` и поддерживает точный
+  фильтр `kev_held=true|false`. В Deals добавлены колонка `КЭВ`, значения
+  `Был`/`Не был` и фильтр `Все`/`Был`/`Не был`.
+- Добавлен локальный typed endpoint
+  `GET /api/reports/kev-conversion/analytics` с inclusive-фильтрами по
+  `closed_at` и optional `contact_type`. Он считает только won/lost сделки,
+  исключает open и строки без `closed_at`, возвращает обе группы, nullable
+  conversion и nullable разницу в процентных пунктах.
+- Добавлен экран `КЭВ` с отдельным browser-storage key, фильтрами периода
+  закрытия и типа контакта, компактной таблицей сравнения, разницей в п.п.,
+  loading/error/retry/empty/no-denominator states и сохранением auth behavior.
+- Документация фиксирует семантику blank = КЭВ не был, формулу
+  `won / (won + lost) * 100`, использование `closed_at`, аддитивную миграцию и
+  обязательное ручное `Обновить из Bitrix` после deployment.
 
 ## Запущенные проверки
 
-- `git log --oneline -5` — passed; последний релевантный коммит:
-  `planner: TASK-2026-06-22-31 Prepare FASTVPS Docker deployment`.
-- `git status --short` — checked before changes; existing local modifications
-  in `.ai/task.md`, `AGENTS.md`, and `WORKFLOW.md` were present and were not
-  touched for this task.
-- `docker compose config` — passed. Command loaded the local `.env`; no values
-  were copied into docs or committed files.
-- `docker compose -f docker-compose.prod.yml config` — passed. Command loaded
-  the local `.env`; no values were copied into docs or committed files.
-- `cd frontend && npm run build` — passed. Vite reported the existing
-  Recharts-related bundle-size warning; build succeeded.
-- `docker compose -f docker-compose.prod.yml up --build -d` — passed with Docker
-  daemon access. It built backend and web images and started the production
-  topology. Compose warned about an existing orphan `bitrix-frontend-1` from a
-  different/local compose service; it was not removed because it was outside
-  this task.
-- `curl -f http://127.0.0.1:8080/health` — passed through production nginx to
-  backend.
-- `curl -f http://127.0.0.1:8080/` — passed and returned the built frontend
-  HTML from nginx.
-- `docker compose -f docker-compose.prod.yml down` — stopped and removed the
-  production backend/web containers. The default network remained because the
-  pre-existing orphan container still used it.
-- `rg "crm\.[A-Za-z0-9_.]*(add|update|delete|set)" backend/app backend/tests frontend/src deploy docs`
-  — found only the existing negative test `crm.deal.update`; no Bitrix write
-  method was added.
+- `git log --oneline -5` и `git status --short` — выполнены до изменений.
+  Существовавшие локальные изменения в `.ai/task.md`, `AGENTS.md` и
+  `WORKFLOW.md` сохранены и не относятся к staging этого задания.
+- `cd backend && python -m pytest` — системный Python не содержит `pytest`.
+- `docker run --rm -v /mnt/e/Projects/bitrix/backend:/app -w /app bitrix-backend sh -c 'pip install -e ".[dev]" >/tmp/pip.log && python -m pytest'`
+  — passed: `144 passed in 116.90s`.
+- Полный backend suite покрывает новый schema, file-backed migration предыдущей
+  schema с сохранением строк, checked/blank и alias payload variants,
+  won/lost/open grouping, inclusive close-date filters, zero denominators, Deals
+  boolean filtering и regression существующего analytical contact assignment.
+- `cd frontend && npm run build` — passed. Vite оставил существующее
+  предупреждение о chunk больше 500 kB; build завершен успешно.
+- `docker compose config` — passed.
+- `docker compose -f docker-compose.prod.yml config` — passed.
+- `docker compose up --build -d` — passed; запуск поднял только сервисы и не
+  инициировал refresh.
+- `curl -f http://localhost:8000/health` — passed.
+- `curl -f http://localhost:5173/` — passed.
+- Browser-facing проверка загрузила frontend и ожидаемый login screen при
+  включенной локальной auth-конфигурации.
+- `docker compose down -v` — passed; временный runtime был остановлен.
+- Отдельная локальная проверка на synthetic dataset вызвала только
+  `/api/sync/run`; endpoint подтвердил `No Bitrix calls were made`, загрузил 10
+  contacts и 30 deals. Временный контейнер после проверки остановлен.
+- `rg "crm\.[A-Za-z0-9_.]*(add|update|delete|set)" backend/app backend/tests frontend/src docs`
+  — найден только существующий negative test с `crm.deal.update`; Bitrix write
+  methods не добавлены.
+- `git diff --check -- ':!AGENTS.md' ':!.ai/task.md'` — ожидаемо сообщает
+  trailing whitespace только в существующем локальном изменении `WORKFLOW.md`.
+  Этот файл не изменялся и не будет staged в рамках задания.
+- `git diff --check -- ':!AGENTS.md' ':!.ai/task.md' ':!WORKFLOW.md'` — passed
+  для всех файлов задания.
 
 ## Факты
 
-- Default `docker-compose.yml` was not changed.
-- Production Compose does not publish backend port `8000`.
-- Production browser path is same-origin through nginx: frontend static files,
-  `/api/*`, and `/health` use the same web service.
-- Docker Compose startup still only starts services. It does not call Bitrix or
-  refresh local data automatically.
-- `frontend/dist` was generated during build but remains ignored and was not
-  staged.
-- No real `.env`, webhook URL, auth password, session secret, local database,
-  Parquet, CSV, log, cache, `node_modules`, or `ui-kits/` change was added.
+- Во время реализации и проверок live Bitrix calls не выполнялись.
+- Endpoint конверсии читает только локальную `normalized_deals`.
+- Open deals не участвуют в знаменателе; период фильтруется по inclusive
+  `closed_at`, а не по `created_at`.
+- При нулевом знаменателе API возвращает `null`, UI показывает `—`.
+- Существующие won-only revenue и `revenue_usd * 0.50` semantics не менялись.
+- Deal-contact assignment и существующие analytics filters/sorting/pagination
+  сохранены.
+- Docker Compose по-прежнему только запускает сервисы и не обновляет Bitrix
+  автоматически.
+- Реальные `.env`, webhook, credentials, DuckDB, Parquet, CSV, raw data, logs,
+  caches, `node_modules`, `frontend/dist` и `ui-kits/` не добавлялись.
 
 ## Предположения
 
-- FASTVPS panel can reverse proxy the public HTTPS site to
-  `http://127.0.0.1:8080`, or the operator can adjust the published host
-  binding/port according to panel requirements.
-- The repository-local `./data` directory is acceptable as the first production
-  persistence location until the operator chooses a backup destination and
-  retention policy.
+- Поддержанные формы checkbox payload (`true`/`false`, числа, `Y`/`N`,
+  `YES`/`NO`, `TRUE`/`FALSE`, camel-case universal alias) покрывают ожидаемый
+  контракт до первой ручной production-загрузки.
 
 ## Неизвестное
 
-- Final domain name.
-- Exact FASTVPS panel UI labels and proxy field names.
-- Backup destination and retention policy.
-- Whether the first server dataset will be restored from an existing `data/`
-  backup or refreshed manually from Bitrix after deployment.
+- Точный live Bitrix payload type/value и metadata casing не проверялись по
+  условию задания.
+- Неизвестна дата, с которой поле исторически заполнялось последовательно.
 
 ## Риски или следующий шаг
 
-- On the real VPS, create `.env` from `deploy/fastvps/.env.production.example`,
-  set strong auth credentials/session secret and the read-only Bitrix webhook,
-  then configure the FASTVPS panel HTTPS reverse proxy to the local app port.
+- Существующие строки после migration корректно получают `kev_held = false`.
+  После deployment оператору нужно вручную нажать `Обновить из Bitrix`, чтобы
+  локально заполнить новое поле актуальными read-only данными.
+- Отчет показывает корреляционное сравнение и не доказывает причинность или
+  статистическую значимость, что остается вне scope задания.

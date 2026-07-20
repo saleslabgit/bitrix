@@ -26,6 +26,7 @@ from app.api.models import (
     ExplicitContactDealReconciliationResponse,
     FilterMetadataResponse,
     LocalDataRefreshResponse,
+    KevConversionReportResponse,
     PipelineStatusResponse,
     RfmResponse,
     StaleDealResponse,
@@ -60,6 +61,7 @@ from app.reports.analytics import (
     get_concentration_report,
     get_deal_cycle_report,
     get_rfm_report,
+    get_kev_conversion_report,
     get_type_region_analytics,
     list_contact_analytics,
     list_abc_analytics,
@@ -600,6 +602,7 @@ def report_deal_analytics(
     client_search: str | None = None,
     deal_created_from: date | None = None,
     deal_created_to: date | None = None,
+    kev_held: bool | None = None,
     sort: DealAnalyticsSortQuery = "deal_id",
     order: SortOrderQuery = "asc",
 ) -> DealAnalyticsPageResponse:
@@ -617,6 +620,7 @@ def report_deal_analytics(
                 client_search=client_search,
                 deal_created_from=deal_created_from,
                 deal_created_to=deal_created_to,
+                kev_held=kev_held,
                 sort=sort,
                 order=order,
             )
@@ -626,6 +630,25 @@ def report_deal_analytics(
             detail=str(exc),
         ) from exc
     return DealAnalyticsPageResponse.model_validate(page)
+
+
+@app.get(
+    "/api/reports/kev-conversion/analytics",
+    response_model=KevConversionReportResponse,
+)
+def report_kev_conversion_analytics(
+    date_from: date | None = None,
+    date_to: date | None = None,
+    contact_type: str | None = None,
+) -> KevConversionReportResponse:
+    with connection_scope() as connection:
+        report = get_kev_conversion_report(
+            connection,
+            date_from=date_from,
+            date_to=date_to,
+            contact_type=contact_type,
+        )
+    return KevConversionReportResponse.model_validate(report)
 
 
 @app.get(

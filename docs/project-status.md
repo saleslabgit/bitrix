@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-Frontend reporting milestone for the Bitrix sales analytics MVP: local analytics backend plus React/Vite Contacts, Deals, and ABC report screens reading local backend endpoints. The local app has a manual UI-triggered data refresh flow for local testing after `docker compose up --build`; Contacts, Deals, and ABC financial columns use local USD analytics metrics instead of original-currency totals. A separate FASTVPS-oriented Docker production setup now exists for running the built frontend behind a hosting panel HTTPS reverse proxy.
+Frontend reporting milestone for the Bitrix sales analytics MVP: local analytics backend plus React/Vite Contacts, Deals, ABC, and KEV report screens reading local backend endpoints. The local app has a manual UI-triggered data refresh flow for local testing after `docker compose up --build`; financial columns use local USD analytics metrics instead of original-currency totals. A separate FASTVPS-oriented Docker production setup now exists for running the built frontend behind a hosting panel HTTPS reverse proxy.
 
 ## Done In This Task
 
@@ -82,6 +82,8 @@ Frontend reporting milestone for the Bitrix sales analytics MVP: local analytics
 - Added a compact full-height report workspace: Contacts, Deals, and ABC filters open in a right-side drawer, table cards fill the available viewport height with sticky headers and visible bottom controls, and Contacts names open a local won-revenue chart modal.
 - Added a simple single-user auth gate controlled by environment variables. When enabled, `/api/auth/session`, `/api/auth/login`, and `/api/auth/logout` manage an HttpOnly SameSite=Lax signed session cookie, while all other `/api/*` routes require a valid session. Local development remains open by default with `APP_AUTH_ENABLED=false`.
 - Added FASTVPS/Docker deployment preparation: separate `docker-compose.prod.yml`, production frontend nginx image, safe production env template, and deployment documentation for a panel-managed HTTPS reverse proxy to `127.0.0.1:8080`.
+- Added approved deal field `UF_CRM_1716895716` as normalized `kev_held`, including explicit parsing, raw/normalized propagation, allowlisted Parquet snapshots, and an additive existing-DuckDB migration.
+- Added Deals KEV output/filter UI and local `GET /api/reports/kev-conversion/analytics` with a compact KEV comparison report. Only closed won/lost deals participate; periods use inclusive `closed_at` dates and zero denominators remain unavailable.
 
 ## Intentionally Not Done
 
@@ -89,7 +91,7 @@ Frontend reporting milestone for the Bitrix sales analytics MVP: local analytics
 - Persisted analytics output tables.
 - Full staging-table swap mechanics beyond the current transaction-backed single active table set.
 - Production migration tooling.
-- Frontend screens beyond Contacts, Deals, and ABC.
+- Frontend screens beyond Contacts, Deals, ABC, and KEV.
 - Background refresh queues, schedulers, and automatic refresh on Docker startup.
 - Storybook.
 - CI.
@@ -121,4 +123,4 @@ Frontend reporting milestone for the Bitrix sales analytics MVP: local analytics
 
 ## Next Likely Steps
 
-Deploy manually on the FASTVPS server when the final domain and panel settings are known, or review the Contacts, Deals, and ABC frontend reports before planning the next product screen.
+Deploy manually on the FASTVPS server when the final domain and panel settings are known. After deployment, manually run `Обновить из Bitrix` to populate KEV values in the local dataset.

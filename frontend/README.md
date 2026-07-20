@@ -11,11 +11,13 @@ Implemented screen:
 - `Deals` report table with client search, exact deal ID, status, type, deal creation date filters, pagination, loading, error, empty, reset, Bitrix deal-card links, and sortable local USD budget/profit columns.
 - The Deals table uses `/api/reports/deals/analytics`. `Бюджет` is the single deal amount in local USD, `Выручка` is won-only USD revenue, and `Прибыль` is won-only: `budget_usd * 0.50` for `won`, otherwise `0.00`. Filtered budget/revenue/profit totals are shown above and below the table and are calculated across all filtered rows before pagination.
 - Deals table state is persisted in browser local storage under `bitrix-sales.deals.v1`; reset clears only Deals table state.
+- Deals exposes the normalized `КЭВ` status as `Был` / `Не был` and supports an exact KEV filter.
 - `ABC` report table with exact customer ID, customer search, type, `Было` ABC segment, migration priority, changed-only filter, applied `Было` period, optional applied `Стало` period, pagination, loading, error, empty, reset, Bitrix contact-card links, and sortable local USD revenue/share columns.
 - The ABC table uses `/api/reports/abc/analytics`. `Было` ABC is calculated from won-only USD revenue by local `closed_at` dates. When both `Стало` dates are applied, target revenue/segment, transition, and priority columns are shown in the same table; customers with revenue in either period are included so lost and reappeared customers remain visible. Transition direction is always `ABC было -> ABC стало`.
 - Contacts, Deals, and ABC filters open in a right-side drawer from the compact workspace action row. Closing the drawer does not reset report state; reset clears only the active report state.
 - In the ABC drawer, `Только изменившие ABC` is disabled until `Стало` is applied and is not sent for single-period ABC requests.
 - ABC table state is persisted separately under `bitrix-sales.abc.v1`; reset clears only ABC table state.
+- `КЭВ` report compares closed won/lost deal conversion for `КЭВ был` and `КЭВ не был`, with inclusive close-date and contact-type filters, percentage-point difference, loading/error/retry/empty states, and `—` for zero denominators. Its filters persist separately under `bitrix-sales.kev.v1`.
 - Last valid filter metadata is persisted under `bitrix-sales.filter-metadata.v1` so transient empty metadata snapshots do not clear dropdown options.
 - Local Vite serves `/favicon.ico` from `frontend/public/favicon.ico`.
 - Region filters and columns are temporarily hidden in Contacts, Deals, and ABC while region detection is unfinished. Existing backend region support remains available for later use.
@@ -45,11 +47,14 @@ http://localhost:5173
 
 Compose only starts services. It does not automatically call Bitrix or refresh
 local data. If an active `data/analytics.duckdb` dataset exists, the Contacts,
-Deals, and ABC tables load normally. If the screen says `Локальная база не подготовлена.`,
+Deals, ABC, and KEV reports load normally. If the screen says `Локальная база не подготовлена.`,
 click `Обновить из Bitrix`; the backend runs the manual read-only refresh,
 applies approved contact type rules, reruns local normalization, loads NBRB
 rates, and then the screen reloads status, filters, and report rows. Local
 databases and generated data are intentionally not committed.
+
+After deploying the KEV field change, click `Обновить из Bitrix` manually once
+to populate `UF_CRM_1716895716`. Blank/missing values mean KEV was not held.
 
 Auth is disabled by default in `.env.example`. To test the login flow locally,
 create a real `.env` with `APP_AUTH_ENABLED=true`, `APP_AUTH_USERNAME`,
