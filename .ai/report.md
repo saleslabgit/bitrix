@@ -10,6 +10,11 @@
 закрытых сделок с проведенным КЭВ и без него. Добавлены API-фильтр и колонка КЭВ
 в отчете по сделкам, а также отдельный frontend-экран `КЭВ`.
 
+После проверки на локальной production-like базе исправлен boundary alias:
+universal CRM для deal-поля использует `ufCrm_1716895716` с подчеркиванием
+после `Crm`. До исправления refresh загружал сделки, но explicit select не
+включал фактический metadata key, поэтому все значения становились `false`.
+
 ## Измененные файлы
 
 - `backend/app/bitrix/allowlist.py`
@@ -39,6 +44,8 @@
 - Добавлена константа `UF_CRM_1716895716` и только явные разрешенные варианты
   поля для traditional и universal CRM deal select. Read-only allowlist методов
   не расширялся, `select: ["*"]` не добавлялся.
+- В universal select и transformation boundary добавлен фактический deal alias
+  `ufCrm_1716895716`; прежние безопасные варианты оставлены для совместимости.
 - Добавлен небольшой явный parser checkbox-значений. Missing/blank, false, zero,
   `N`, `NO`, `FALSE` и неожиданные значения дают `false`; true, ненулевые числа,
   `Y`, `YES`, `TRUE` дают `true`. Сырой Bitrix payload не попадает в API/UI.
@@ -70,7 +77,10 @@
   `WORKFLOW.md` сохранены и не относятся к staging этого задания.
 - `cd backend && python -m pytest` — системный Python не содержит `pytest`.
 - `docker run --rm -v /mnt/e/Projects/bitrix/backend:/app -w /app bitrix-backend sh -c 'pip install -e ".[dev]" >/tmp/pip.log && python -m pytest'`
-  — passed: `144 passed in 116.90s`.
+  — после alias correction passed: `144 passed in 118.26s`.
+- Focused alias/ingestion verification:
+  `python -m pytest tests/test_bitrix_client.py tests/test_bitrix_ingestion.py`
+  в том же Docker environment — `33 passed in 4.19s`.
 - Полный backend suite покрывает новый schema, file-backed migration предыдущей
   schema с сохранением строк, checked/blank и alias payload variants,
   won/lost/open grouping, inclusive close-date filters, zero denominators, Deals
@@ -101,6 +111,10 @@
 ## Факты
 
 - Во время реализации и проверок live Bitrix calls не выполнялись.
+- Read-only агрегатная диагностика существующей DuckDB показала 9 230 raw и
+  normalized deals, ноль `kev_held=true` в обеих таблицах и успешный active
+  manual refresh от 2026-07-20. Это локализовало проблему до Bitrix boundary;
+  row-level данные не выводились.
 - Endpoint конверсии читает только локальную `normalized_deals`.
 - Open deals не участвуют в знаменателе; период фильтруется по inclusive
   `closed_at`, а не по `created_at`.
@@ -116,8 +130,8 @@
 ## Предположения
 
 - Поддержанные формы checkbox payload (`true`/`false`, числа, `Y`/`N`,
-  `YES`/`NO`, `TRUE`/`FALSE`, camel-case universal alias) покрывают ожидаемый
-  контракт до первой ручной production-загрузки.
+  `YES`/`NO`, `TRUE`/`FALSE`, фактический `ufCrm_1716895716` и совместимые
+  aliases) покрывают ожидаемый контракт до следующей ручной production-загрузки.
 
 ## Неизвестное
 

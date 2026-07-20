@@ -104,9 +104,11 @@ sync. Report endpoints calculate local analytics on demand and do not call
 Bitrix, NBRB, or external APIs.
 
 Deal ingestion allowlists the approved checkbox `UF_CRM_1716895716` and stores
-only `kev_held`; blank/missing means false. Schema initialization additively
-migrates existing raw/normalized deal tables. The KEV conversion endpoint counts
-only closed won/lost deals and filters periods inclusively by `closed_at`.
+only `kev_held`; universal CRM exposes this deal field as
+`ufCrm_1716895716`, and blank/missing means false. Schema initialization
+additively migrates existing raw/normalized deal tables. The KEV conversion
+endpoint counts only closed won/lost deals and filters periods inclusively by
+`closed_at`.
 
 Manual Bitrix endpoints after starting the backend:
 

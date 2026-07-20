@@ -52,7 +52,7 @@ def test_deal_item_select_uses_only_safe_available_fields() -> None:
         "categoryId": {},
         "contactId": {},
         "contactIds": {},
-        "ufCrm1716895716": {},
+        "ufCrm_1716895716": {},
         "fm": {},
         "comments": {},
         "PHONE": {},
@@ -71,7 +71,7 @@ def test_deal_item_select_uses_only_safe_available_fields() -> None:
         "categoryId",
         "contactId",
         "contactIds",
-        "ufCrm1716895716",
+        "ufCrm_1716895716",
     )
     assert "*" not in select
     assert "fm" not in select
@@ -114,7 +114,7 @@ def test_transform_deals_supports_universal_kev_alias() -> None:
                 "createdTime": "2025-01-01T00:00:00+00:00",
                 "stageId": "WON",
                 "categoryId": "0",
-                "ufCrm1716895716": "Y",
+                "ufCrm_1716895716": "Y",
             }
         ],
         [StageSnapshot(stage_id="WON", category_id=0, status_group="won")],

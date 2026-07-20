@@ -32,7 +32,12 @@ DEAL_ITEM_FIELD_CANDIDATES = {
     "category": ("categoryId", "category_id", "CATEGORY_ID"),
     "primary_contact": ("contactId", "contact_id", "CONTACT_ID"),
     "contact_list": ("contactIds", "contact_ids", "CONTACT_IDS"),
-    "kev_held": ("ufCrm1716895716", "UF_CRM_1716895716", "uf_crm_1716895716"),
+    "kev_held": (
+        "ufCrm_1716895716",
+        "ufCrm1716895716",
+        "UF_CRM_1716895716",
+        "uf_crm_1716895716",
+    ),
 }
 
 LINK_ALLOWED_FIELDS = (

@@ -36,14 +36,16 @@ Real Bitrix ingestion stores only the allowed deal columns:
 - `CLOSEDATE` -> `closed_at`;
 - `STAGE_ID` -> `stage_id`;
 - `CATEGORY_ID` -> `category_id`;
-- `UF_CRM_1716895716` -> `kev_held`.
+- `UF_CRM_1716895716` -> universal CRM key `ufCrm_1716895716` -> `kev_held`.
 - `contactId` and `contactIds` from `crm.item.list` are selected only to build
   local deal-contact links; they are not stored in `raw_deals`.
 
 `status_group` is derived locally from loaded Bitrix stage semantics.
 The approved KEV checkbox is parsed through an explicit boolean allowlist;
 missing or blank values mean `kev_held = false` (KEV was not held). Only the
-normalized boolean is stored and written to raw Parquet snapshots.
+normalized boolean is stored and written to raw Parquet snapshots. Universal
+CRM deal selects use the metadata key with the underscore after `ufCrm`;
+compatible aliases remain accepted at the transformation boundary.
 
 ### Deal-Contact Links
 

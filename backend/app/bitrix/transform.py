@@ -57,6 +57,7 @@ def transform_deals(
                     _first(
                         row,
                         "UF_CRM_1716895716",
+                        "ufCrm_1716895716",
                         "ufCrm1716895716",
                         "uf_crm_1716895716",
                     )
