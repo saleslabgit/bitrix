@@ -2,9 +2,10 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 import duckdb
+import app.reports.contact_deal_diagnostics as diagnostics_module
 
 from app.pipeline.normalization import normalize_local_data
-from app.reports.analytics import list_contact_analytics
+from app.reports.analytics import list_contact_analytics, list_deal_analytics
 from app.reports.contact_deal_diagnostics import (
     get_explicit_contact_deal_diagnostic,
     reconcile_explicit_contact_deals,
@@ -12,6 +13,7 @@ from app.reports.contact_deal_diagnostics import (
     verify_explicit_bitrix_contact_deals,
 )
 from app.storage import initialize_schema
+from app.storage.status import get_active_dataset_run
 
 
 SUPPLIED_DEAL_IDS = (1, 2, 3, 4, 5, 6, 7)
@@ -144,6 +146,180 @@ def test_reconciliation_does_not_change_local_data_without_confirmed_links() -> 
     assert links == [(1,), (2,), (3,), (4,)]
 
 
+def test_reconciliation_stores_planned_and_actual_close_history_and_kev_idempotently() -> None:
+    client = FactualReconciliationClient()
+    with duckdb.connect(database=":memory:") as connection:
+        _load_designer_mismatch_dataset(connection)
+
+        first = reconcile_explicit_contact_deals(
+            connection, client=client, contact_id=661, deal_ids=(8,)
+        )
+        second = reconcile_explicit_contact_deals(
+            connection, client=client, contact_id=661, deal_ids=(8,)
+        )
+        raw = connection.execute(
+            """
+            SELECT closed_at, planned_close_at, actual_closed_at, kev_held
+            FROM raw_deals WHERE deal_id = 8
+            """
+        ).fetchone()
+        normalized = connection.execute(
+            "SELECT actual_closed_at FROM normalized_deals WHERE deal_id = 8"
+        ).fetchone()
+        history = connection.execute(
+            "SELECT history_id, deal_id, stage_id, stage_semantic_id FROM raw_deal_stage_history WHERE deal_id = 8 ORDER BY history_id"
+        ).fetchall()
+        api_row = list_deal_analytics(connection, deal_id=8).items[0]
+
+    assert first.status.state == "success"
+    assert first.inserted_raw_deal_ids == (8,)
+    assert first.methods_used[-1] == "crm.stagehistory.list"
+    assert second.status.state == "success"
+    assert client.history_calls == ((8,),)
+    assert raw == (None, datetime(2025, 2, 1), datetime(2025, 6, 1), True)
+    assert normalized == (datetime(2025, 6, 1),)
+    assert history == [(799, 8, "WON", "S"), (800, 8, "WON", "S")]
+    assert api_row.closed_date.isoformat() == "2025-06-01"
+    assert api_row.cycle_days == 151
+
+
+def test_reconciliation_repairs_existing_missing_factual_close_and_supports_moved_time() -> None:
+    client = FactualReconciliationClient(history_rows=[])
+    with duckdb.connect(database=":memory:") as connection:
+        _load_designer_mismatch_dataset(connection)
+        connection.execute("UPDATE raw_deals SET actual_closed_at = NULL WHERE deal_id = 5")
+
+        result = reconcile_explicit_contact_deals(
+            connection, client=client, contact_id=661, deal_ids=(5,)
+        )
+        actual = connection.execute(
+            "SELECT actual_closed_at FROM raw_deals WHERE deal_id = 5"
+        ).fetchone()[0]
+
+    assert result.status.state == "success"
+    assert actual == datetime(2025, 7, 1)
+    assert client.history_calls == ((5,),)
+
+
+def test_reconciliation_loads_history_once_for_multiple_closed_deals() -> None:
+    client = FactualReconciliationClient()
+    with duckdb.connect(database=":memory:") as connection:
+        _load_designer_mismatch_dataset(connection)
+
+        result = reconcile_explicit_contact_deals(
+            connection, client=client, contact_id=661, deal_ids=(9, 8)
+        )
+
+    assert result.status.state == "success"
+    assert result.inserted_raw_deal_ids == (8, 9)
+    assert client.history_calls == ((8, 9),)
+
+
+def test_reconciliation_open_deal_clears_factual_close_without_using_old_history() -> None:
+    client = FactualReconciliationClient(status="open")
+    with duckdb.connect(database=":memory:") as connection:
+        _load_designer_mismatch_dataset(connection)
+        connection.execute("INSERT INTO raw_stages VALUES ('OPEN', 0, 'open')")
+        connection.execute(
+            "UPDATE raw_deals SET actual_closed_at = TIMESTAMP '2025-01-05' WHERE deal_id = 5"
+        )
+        connection.execute(
+            "INSERT INTO raw_deal_stage_history VALUES (500, 5, 3, TIMESTAMP '2025-01-05', 0, 'WON', 'S')"
+        )
+
+        result = reconcile_explicit_contact_deals(
+            connection, client=client, contact_id=661, deal_ids=(5,)
+        )
+        actual = connection.execute(
+            "SELECT actual_closed_at FROM raw_deals WHERE deal_id = 5"
+        ).fetchone()[0]
+
+    assert result.status.state == "success"
+    assert actual is None
+    assert client.history_calls == ()
+
+
+def test_reconciliation_missing_factual_close_preserves_previous_active_dataset() -> None:
+    client = FactualReconciliationClient(history_rows=[], moved_time=None)
+    with duckdb.connect(database=":memory:") as connection:
+        _load_designer_mismatch_dataset(connection)
+        successful = reconcile_explicit_contact_deals(
+            connection,
+            client=FactualReconciliationClient(),
+            contact_id=661,
+            deal_ids=(8,),
+        )
+        before = connection.execute("SELECT COUNT(*) FROM raw_deals").fetchone()[0]
+        active_before = get_active_dataset_run(connection)
+
+        result = reconcile_explicit_contact_deals(
+            connection, client=client, contact_id=661, deal_ids=(9,)
+        )
+        raw_count = connection.execute("SELECT COUNT(*) FROM raw_deals").fetchone()[0]
+        history_count = connection.execute(
+            "SELECT COUNT(*) FROM raw_deal_stage_history WHERE deal_id = 9"
+        ).fetchone()[0]
+        link_count = connection.execute(
+            "SELECT COUNT(*) FROM raw_deal_contact_links WHERE deal_id = 9"
+        ).fetchone()[0]
+        active_after = get_active_dataset_run(connection)
+
+    assert successful.status.state == "success"
+    assert result.status.state == "error"
+    assert result.status.is_active is False
+    assert raw_count == before
+    assert history_count == 0
+    assert link_count == 0
+    assert active_before is not None
+    assert active_after == active_before
+
+
+def test_reconciliation_rolls_back_deal_history_and_link_when_normalization_fails(
+    monkeypatch,
+) -> None:
+    with duckdb.connect(database=":memory:") as connection:
+        _load_designer_mismatch_dataset(connection)
+        successful = reconcile_explicit_contact_deals(
+            connection,
+            client=FactualReconciliationClient(),
+            contact_id=661,
+            deal_ids=(8,),
+        )
+        active_before = get_active_dataset_run(connection)
+        raw_before = connection.execute("SELECT COUNT(*) FROM raw_deals").fetchone()[0]
+
+        def fail_normalization(connection) -> None:
+            raise RuntimeError("test failure")
+
+        monkeypatch.setattr(
+            diagnostics_module,
+            "normalize_local_data",
+            fail_normalization,
+        )
+
+        result = reconcile_explicit_contact_deals(
+            connection,
+            client=FactualReconciliationClient(),
+            contact_id=661,
+            deal_ids=(9,),
+        )
+        active_after = get_active_dataset_run(connection)
+        raw_after = connection.execute("SELECT COUNT(*) FROM raw_deals").fetchone()[0]
+        history_after = connection.execute(
+            "SELECT COUNT(*) FROM raw_deal_stage_history WHERE deal_id = 9"
+        ).fetchone()[0]
+        link_after = connection.execute(
+            "SELECT COUNT(*) FROM raw_deal_contact_links WHERE deal_id = 9"
+        ).fetchone()[0]
+
+    assert successful.status.state == "success"
+    assert result.status.state == "error"
+    assert raw_after == raw_before
+    assert history_after == 0
+    assert link_after == 0
+    assert active_after == active_before
+
+
 def test_diagnostic_response_contains_only_safe_fields() -> None:
     with duckdb.connect(database=":memory:") as connection:
         _load_designer_mismatch_dataset(connection)
@@ -228,6 +404,9 @@ def _load_designer_mismatch_dataset(connection: duckdb.DuckDBPyConnection) -> No
             for deal_id in range(1, 8)
         ],
     )
+    connection.execute(
+        "UPDATE raw_deals SET planned_close_at = closed_at, actual_closed_at = closed_at"
+    )
     connection.executemany(
         """
         INSERT INTO raw_deal_contact_links (
@@ -283,6 +462,76 @@ class ExplicitDealVerificationClient:
             {"DEAL_ID": str(deal_id), "CONTACT_ID": "900", "IS_PRIMARY": "Y"},
             {"DEAL_ID": str(deal_id), "CONTACT_ID": "661", "IS_PRIMARY": "N"},
         ]
+
+
+class FactualReconciliationClient(ExplicitDealVerificationClient):
+    def __init__(
+        self,
+        *,
+        history_rows: list[dict[str, object]] | None = None,
+        moved_time: str | None = "2025-07-01T00:00:00+00:00",
+        status: str = "won",
+    ) -> None:
+        super().__init__()
+        self.history_calls: tuple[tuple[int, ...], ...] = ()
+        self.history_rows = history_rows
+        self.moved_time = moved_time
+        self.status = status
+
+    def list_deals_by_ids(self, deal_ids: tuple[int, ...]) -> list[dict[str, object]]:
+        self.listed_deal_ids = (*self.listed_deal_ids, tuple(deal_ids))
+        return [self._row(deal_id) for deal_id in deal_ids]
+
+    def get_deal_contact_links(self, deal_id: int) -> list[dict[str, object]]:
+        self.linked_deal_ids = (*self.linked_deal_ids, deal_id)
+        return [{"DEAL_ID": str(deal_id), "CONTACT_ID": "661", "IS_PRIMARY": "Y"}]
+
+    def list_deal_stage_history(self, deal_ids: tuple[int, ...]) -> list[dict[str, object]]:
+        self.history_calls = (*self.history_calls, tuple(deal_ids))
+        if self.history_rows is not None:
+            return self.history_rows
+        return [
+            row
+            for deal_id in deal_ids
+            for row in (
+                {
+                    "ID": str(deal_id * 100 - 1),
+                    "TYPE_ID": "3",
+                    "OWNER_ID": str(deal_id),
+                    "CREATED_TIME": "2025-05-01T00:00:00+00:00",
+                    "CATEGORY_ID": "0",
+                    "STAGE_ID": "WON",
+                    "STAGE_SEMANTIC_ID": "S",
+                },
+                {
+                    "ID": str(deal_id * 100),
+                    "TYPE_ID": "3",
+                    "OWNER_ID": str(deal_id),
+                    "CREATED_TIME": "2025-06-01T00:00:00+00:00",
+                    "CATEGORY_ID": "0",
+                    "STAGE_ID": "WON",
+                    "STAGE_SEMANTIC_ID": "S",
+                },
+            )
+        ]
+
+    def _row(self, deal_id: int) -> dict[str, object]:
+        stage_id = "OPEN" if self.status == "open" else "WON"
+        row = {
+            "ID": str(deal_id),
+            "TITLE": f"Deal {deal_id}",
+            "OPPORTUNITY": "100.00",
+            "CURRENCY_ID": "USD",
+            "DATE_CREATE": "2025-01-01T00:00:00+00:00",
+            "CLOSEDATE": "2025-02-01T00:00:00+00:00",
+            "STAGE_ID": stage_id,
+            "CATEGORY_ID": "0",
+            "CONTACT_ID": "661",
+            "UF_CRM_1716895716": "Y",
+        }
+        if self.moved_time is not None:
+            row["MOVED_TIME"] = self.moved_time
+        return row
 
 
 class NoContactRelationClient(ExplicitDealVerificationClient):

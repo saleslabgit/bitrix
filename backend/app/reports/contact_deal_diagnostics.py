@@ -5,14 +5,16 @@ from datetime import datetime, timezone
 
 import duckdb
 
-from app.bitrix.client import BitrixClient
+from app.bitrix.client import BitrixClient, BitrixClientError
 from app.bitrix.allowlist import build_deal_item_select
 from app.bitrix.transform import (
+    apply_actual_close_times,
     transform_deal_contact_links,
     transform_deal_contact_links_from_deals,
+    transform_deal_stage_history,
     transform_deals,
 )
-from app.domain import ContactSnapshot, ContactTypeRule, DealContactLink, DealSnapshot, StageSnapshot
+from app.domain import ContactSnapshot, ContactTypeRule, DealContactLink, DealSnapshot, DealStageHistorySnapshot, StageSnapshot
 from app.domain.contact_type_resolution import resolve_contact_type
 from app.pipeline.normalization import normalize_local_data
 from app.storage.snapshots import build_run_id
@@ -281,10 +283,49 @@ def reconcile_explicit_contact_deals(
     )
     local_before_by_id = {deal.deal_id: deal for deal in local_before.deals}
     raw_deal_ids = _raw_deal_ids(connection, supplied_ids)
-    deal_rows_to_insert = tuple(
+    candidate_ids = tuple(
+        deal_id for deal_id in confirmed_ids if deal_id in facts.deal_rows_by_id
+    )
+    transformed_by_id = {
+        deal.deal_id: deal
+        for deal in transform_deals(
+            [facts.deal_rows_by_id[deal_id] for deal_id in candidate_ids],
+            _load_stages(connection),
+        )
+    }
+    local_deal_state = _raw_deal_state(connection, candidate_ids)
+    deal_ids_to_write = tuple(
         deal_id
-        for deal_id in confirmed_ids
-        if deal_id not in raw_deal_ids and deal_id in facts.deal_rows_by_id
+        for deal_id in candidate_ids
+        if deal_id not in raw_deal_ids
+        or _deal_requires_reconciliation(
+            transformed_by_id[deal_id], local_deal_state.get(deal_id)
+        )
+    )
+    closed_ids_to_resolve = tuple(
+        deal_id
+        for deal_id in deal_ids_to_write
+        if transformed_by_id[deal_id].status_group in {"won", "lost"}
+    )
+    history: list[DealStageHistorySnapshot] = []
+    resolved_deals: list[DealSnapshot] = []
+    resolution_error: ValueError | BitrixClientError | None = None
+    try:
+        if closed_ids_to_resolve:
+            history = transform_deal_stage_history(
+                client.list_deal_stage_history(closed_ids_to_resolve)
+            )
+            closed_id_set = set(closed_ids_to_resolve)
+            history = [row for row in history if row.deal_id in closed_id_set]
+        resolved_deals = apply_actual_close_times(
+            [transformed_by_id[deal_id] for deal_id in deal_ids_to_write],
+            [facts.deal_rows_by_id[deal_id] for deal_id in deal_ids_to_write],
+            history,
+        )
+    except (ValueError, BitrixClientError) as exc:
+        resolution_error = exc
+    deal_rows_to_insert = tuple(
+        deal_id for deal_id in deal_ids_to_write if deal_id not in raw_deal_ids
     )
     link_rows_to_insert = tuple(
         deal_id
@@ -309,16 +350,27 @@ def reconcile_explicit_contact_deals(
             started_at=started_at,
             is_active=False,
         )
+    elif skipped_ids:
+        status = _store_reconciliation_status(
+            connection,
+            state="error",
+            message="Explicit reconciliation failed: confirmed deal facts are incomplete.",
+            started_at=started_at,
+            is_active=False,
+        )
+    elif resolution_error is not None:
+        status = _store_reconciliation_status(
+            connection,
+            state="error",
+            message="Explicit reconciliation failed: factual close data is unavailable.",
+            started_at=started_at,
+            is_active=False,
+        )
     else:
         connection.execute("BEGIN TRANSACTION")
         try:
-            _insert_raw_deals(
-                connection,
-                transform_deals(
-                    [facts.deal_rows_by_id[deal_id] for deal_id in deal_rows_to_insert],
-                    _load_stages(connection),
-                ),
-            )
+            _upsert_raw_deals(connection, resolved_deals)
+            _upsert_raw_stage_history(connection, history)
             _insert_raw_links(
                 connection,
                 [
@@ -343,7 +395,13 @@ def reconcile_explicit_contact_deals(
             inserted_link_deal_ids = link_rows_to_insert
         except Exception:
             connection.execute("ROLLBACK")
-            raise
+            status = _store_reconciliation_status(
+                connection,
+                state="error",
+                message="Explicit reconciliation failed before activation.",
+                started_at=started_at,
+                is_active=False,
+            )
 
     local_after = get_explicit_contact_deal_diagnostic(
         connection,
@@ -359,7 +417,11 @@ def reconcile_explicit_contact_deals(
         skipped_deal_ids=skipped_ids,
         status=status,
         local_after=local_after,
-        methods_used=facts.verification.methods_used,
+        methods_used=(
+            (*facts.verification.methods_used, "crm.stagehistory.list")
+            if closed_ids_to_resolve
+            else facts.verification.methods_used
+        ),
         explanation=_reconciliation_explanation(
             confirmed_ids=confirmed_ids,
             inserted_link_ids=inserted_link_deal_ids,
@@ -595,6 +657,48 @@ def _raw_deal_ids(
     return {row[0] for row in rows}
 
 
+def _raw_deal_state(
+    connection: duckdb.DuckDBPyConnection,
+    deal_ids: tuple[int, ...],
+) -> dict[int, tuple[datetime | None, datetime | None, str, int | None, str, bool]]:
+    if not deal_ids:
+        return {}
+    placeholders = ", ".join("?" for _ in deal_ids)
+    rows = connection.execute(
+        f"""
+        SELECT deal_id, actual_closed_at, planned_close_at, stage_id,
+               category_id, status_group, kev_held
+        FROM raw_deals WHERE deal_id IN ({placeholders})
+        """,
+        list(deal_ids),
+    ).fetchall()
+    return {row[0]: (row[1], row[2], row[3], row[4], row[5], row[6]) for row in rows}
+
+
+def _deal_requires_reconciliation(
+    deal: DealSnapshot,
+    local_state: tuple[datetime | None, datetime | None, str, int | None, str, bool] | None,
+) -> bool:
+    if local_state is None:
+        return True
+    actual, planned, stage_id, category_id, status_group, kev_held = local_state
+    return (
+        (deal.status_group in {"won", "lost"} and actual is None)
+        or (deal.status_group == "open" and actual is not None)
+        or _naive_utc(deal.planned_close_at) != planned
+        or deal.stage_id != stage_id
+        or deal.category_id != category_id
+        or deal.status_group != status_group
+        or deal.kev_held != kev_held
+    )
+
+
+def _naive_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
 def _linked_contact_ids_by_deal_id(
     connection: duckdb.DuckDBPyConnection,
     deal_ids: tuple[int, ...],
@@ -639,7 +743,7 @@ def _normalized_deals_by_id(
     return {row[0]: (row[1], row[2], row[3]) for row in rows}
 
 
-def _insert_raw_deals(
+def _upsert_raw_deals(
     connection: duckdb.DuckDBPyConnection,
     deals: list[DealSnapshot],
 ) -> None:
@@ -653,13 +757,27 @@ def _insert_raw_deals(
             amount_original,
             currency_original,
             created_at,
+            closed_at,
+            planned_close_at,
             actual_closed_at,
             stage_id,
             category_id,
-            status_group
+            status_group,
+            kev_held
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT (deal_id) DO NOTHING
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (deal_id) DO UPDATE SET
+            deal_name = excluded.deal_name,
+            amount_original = excluded.amount_original,
+            currency_original = excluded.currency_original,
+            created_at = excluded.created_at,
+            closed_at = NULL,
+            planned_close_at = excluded.planned_close_at,
+            actual_closed_at = excluded.actual_closed_at,
+            stage_id = excluded.stage_id,
+            category_id = excluded.category_id,
+            status_group = excluded.status_group,
+            kev_held = excluded.kev_held
         """,
         [
             (
@@ -668,12 +786,49 @@ def _insert_raw_deals(
                 deal.amount_original,
                 deal.currency_original,
                 deal.created_at,
-                deal.closed_at,
+                None,
+                deal.planned_close_at,
+                deal.actual_closed_at,
                 deal.stage_id,
                 deal.category_id,
                 deal.status_group,
+                deal.kev_held,
             )
             for deal in deals
+        ],
+    )
+
+
+def _upsert_raw_stage_history(
+    connection: duckdb.DuckDBPyConnection,
+    history: list[DealStageHistorySnapshot],
+) -> None:
+    if not history:
+        return
+    connection.executemany(
+        """
+        INSERT INTO raw_deal_stage_history (
+            history_id, deal_id, type_id, created_at, category_id, stage_id, stage_semantic_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (history_id) DO UPDATE SET
+            deal_id = excluded.deal_id,
+            type_id = excluded.type_id,
+            created_at = excluded.created_at,
+            category_id = excluded.category_id,
+            stage_id = excluded.stage_id,
+            stage_semantic_id = excluded.stage_semantic_id
+        """,
+        [
+            (
+                row.history_id,
+                row.deal_id,
+                row.type_id,
+                row.created_at,
+                row.category_id,
+                row.stage_id,
+                row.stage_semantic_id,
+            )
+            for row in history
         ],
     )
 

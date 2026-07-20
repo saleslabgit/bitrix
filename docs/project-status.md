@@ -123,6 +123,11 @@ Frontend reporting milestone for the Bitrix sales analytics MVP: local analytics
 
 ## Next Likely Steps
 
+Explicit contact-deal reconciliation now enforces the same factual-close rule
+as manual refresh. It cannot activate an affected current closed deal without
+exact final-stage history or `movedTime`, and deal/history/link writes roll back
+together on handled failure.
+
 Deal close analytics now use the actual transition into the current final stage.
 `CLOSEDATE` is preserved as planned data only; exact stage history wins and
 `movedTime` is the sole fallback. A manual `Обновить из Bitrix` is required once

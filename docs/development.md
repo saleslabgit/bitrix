@@ -389,9 +389,13 @@ and completeness flags. It never requests `*` or `fm`.
 `POST /api/internal/reconciliation/contacts/{contact_id}/explicit-deals` is the
 separate mutating operator helper for explicit-ID reconciliation. It uses the
 same bounded read-only Bitrix verification, inserts only confirmed missing
-local links for the supplied contact/deal IDs, inserts only allowed safe deal
-fields if a supplied confirmed deal is absent locally, reruns normalization, and
-records a local dataset run/status. It is not part of normal page load, Docker
+local links for the supplied contact/deal IDs, repairs new or existing confirmed
+closed deals through one bounded `crm.stagehistory.list` load, and stores the
+full approved deal fields and approved history transactionally. Exact current
+category/stage/semantic history wins; `movedTime` is the sole fallback. A closed
+deal without either source returns an error without partial writes or active
+dataset replacement. It then reruns normalization and records a local dataset
+run/status. It is not part of normal page load, Docker
 startup, scheduled refresh, or the regular manual Bitrix refresh flow.
 
 `GET /api/bitrix/discovery` reads Bitrix field metadata and reports whether

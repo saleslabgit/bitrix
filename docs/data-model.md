@@ -76,8 +76,11 @@ bounded list of deal IDs. Diagnostics are read-only by default. A separate
 explicit reconciliation helper can be invoked by an operator/developer for a
 supplied contact ID and supplied deal IDs only. It verifies Bitrix
 `crm.deal.contact.items.get` relation data for those deal IDs, inserts only
-confirmed missing local links and allowed safe deal rows when needed, reruns
-normalization, and records a local dataset run/status. This path is not part of
+confirmed missing local links and the full approved deal row when needed. For
+affected closed deals it uses the same exact stage-history/`movedTime` factual
+close resolver as manual refresh and stores approved history idempotently. Deal,
+history, link, normalization, status, and activation changes share one
+transaction; a handled failure preserves the previous active dataset. This path is not part of
 Docker startup, normal page load, broad scheduled sync, or the regular manual
 Bitrix refresh flow.
 

@@ -117,6 +117,13 @@ won/lost deals (`entityTypeId=2`, bounded batches, pagination). Фактичес
 `S`/`F`; `movedTime` — единственный fallback. Для open deals дата всегда `NULL`.
 Отсутствие и history, и `movedTime` безопасно отменяет refresh.
 
+Explicit contact-deal reconciliation follows the same factual-close contract.
+For affected confirmed closed deals it loads `crm.stagehistory.list` once for
+the bounded ID set, resolves before writes, and transactionally upserts the full
+approved deal state plus seven-column raw history. A current closed deal cannot
+activate without exact history or `movedTime`; failures preserve the previous
+active dataset.
+
 Manual Bitrix endpoints after starting the backend:
 
 ```text
