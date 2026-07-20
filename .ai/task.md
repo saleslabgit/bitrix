@@ -9,6 +9,6 @@ Complete and verify funnel analytics, creation-date filters, average metrics, an
 
 ## Goal
 
-Finish and correct the partial implementation from `TASK-2026-07-20-02` so the funnel-aware data flow and all requested report behavior are production-ready and fully tested.
+Finish and correct the partial implementation from `TASK-2026-07-20-02` so the funnel-aware data flow and all requested report behavior are production-ready, internally consistent, and fully tested.
 
-The existing implementation must be repaired rather
+The existing implementation must be repaired rather than replaced. Preserve correct parts, make surgical changes, and do not expand the product scope.
