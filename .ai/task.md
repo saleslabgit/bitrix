@@ -1,231 +1,367 @@
-# Task: TASK-2026-07-20-03
+# Task: TASK-2026-07-20-04
 
 Status: planned
-Created from: `6886b334484dff5cd6222a66c3de3e5efeca1a0d`
+Created from: `2dc1775246155064171ab43549b149f3cc894632`
 
 ## Title
 
-Complete and verify funnel analytics, creation-date filters, average metrics, and filter-wide table summaries
+Repair and independently verify the rejected funnel analytics implementation
 
 ## Goal
 
-Fix the remaining review blockers in the partial implementation of funnel-aware analytics and make the current task acceptable.
+Repair the current rejected implementation of funnel-aware reports and make the Contacts, Deals, ABC, and KEV behavior internally consistent, user-visible, tested, and safe.
 
-Preserve the correct parts already implemented. Make surgical corrections only. Do not introduce new reports, redesign the application, or expand product scope.
+This is a new task for an independent implementation model. Do not trust prior `.ai/report.md` claims as proof. Inspect the current code and verify every acceptance criterion directly.
+
+Preserve working funnel ingestion, local category storage, exact `(stage_id, category_id)` status resolution, read-only Bitrix access, existing authentication, and existing report behavior outside the defects listed below.
 
 ## Review Status
 
-The Codex commit `6886b334484dff5cd6222a66c3de3e5efeca1a0d` is not accepted.
+The following Codex commits were reviewed and rejected:
 
-The implementation still has blocking backend/frontend contract defects and does not satisfy the documentation and verification requirements.
+```text
+6886b334484dff5cd6222a66c3de3e5efeca1a0d
+2dc1775246155064171ab43549b149f3cc894632
+```
+
+The current repository contains partial changes from those commits. Repair the implementation rather than reverting all funnel work.
+
+## Verified Current Defects
+
+### Backend sort contract
+
+- `ContactAnalyticsSortField` contains duplicate declarations of:
+  - `average_check_usd`;
+  - `average_cycle_days`.
+- The actual runtime `CONTACT_ANALYTICS_SORT_FIELDS` tuple still does not include those fields.
+- FastAPI and frontend expose the fields, so clicking the sortable headers can raise:
+
+```text
+Unsupported contact analytics sort field
+```
+
+### Deals table alignment
+
+The current Deals headers are ordered as:
+
+```text
+ID
+Deal name
+Status
+KEV
+Funnel
+Cycle
+Contact type
+Budget
+Estimated profit
+Created date
+Closed date
+Average check
+```
+
+The current body renders funnel and cycle before KEV. Values therefore appear under the wrong headers.
+
+### Deals footer
+
+- The footer does not display filtered won/open/lost counts.
+- The footer cell meanings do not match the 12 visible columns.
+- Filter-wide average cycle, budget, profit, and average check must remain backend-derived before pagination.
+
+### ABC and KEV date validation UI
+
+- Separate creation-date drafts were added.
+- Queries are disabled for invalid applied creation ranges.
+- However, the global `activeRangeInvalid` and `activeDraftsInvalid` logic does not include the ABC/KEV creation-date ranges.
+- Therefore the user may see an empty or stale table without the required validation message.
+
+### Cached funnel metadata validation
+
+- `validCategoryOptions()` can turn invalid category input into an empty list.
+- `isFilterMetadataValidForDataset()` does not validate `categories`.
+- Invalid cached categories can therefore still be treated as valid filter metadata.
+
+### Tests and verification
+
+- The reported `144 passed` suite does not contain focused tests for average-check and average-cycle sorting in both directions with null values.
+- No frontend regression test exists for Deals header/body/footer alignment.
+- The required browser/operator verification was not completed.
+
+### Frontend quality
+
+The touched sections still contain compressed one-line JSX, long one-line conditions, and malformed comma placement. Clean only the relevant sections.
+
+### Documentation
+
+`docs/data-model.md` was required by the previous task but was not updated in the latest implementation commit.
 
 ## Facts
 
-- Bitrix remains strictly read-only.
-- Funnel/category ingestion and exact `(stage_id, category_id)` resolution already exist and must be preserved.
-- Contacts-to-Deals navigation now propagates category and creation-date filters and must remain working.
-- Full backend tests were reported as passing, but required acceptance behavior is still missing from the implementation.
-- Revenue remains won-only.
-- Estimated profit remains `revenue_usd * 0.50`.
+- Bitrix is strictly read-only.
+- The only funnel directory method allowed is `crm.category.list`.
+- Deals already store `category_id` locally.
+- A local category directory stores category ID, name, and optional sort order.
+- Deal stages must resolve only by exact `(stage_id, category_id)`.
+- Revenue is won-only.
+- Estimated profit is `revenue_usd * 0.50`.
 - Average check is won revenue divided by won deal count.
-- Average cycle uses valid closed `won` and `lost` deals, excluding open deals, missing close dates, and negative durations.
-- Filter-wide summaries must be calculated before pagination from the entire filtered selection.
+- Average cycle uses valid closed `won` and `lost` deals.
+- Open deals, missing close dates, and negative cycles do not participate in average cycle.
+- Missing denominators return `null`; UI displays `—`.
+- Table summaries represent the complete filtered selection before pagination.
+- Docker startup starts services only and must never refresh Bitrix automatically.
 
 ## Scope
 
-### 1. Fix Contacts average metric sorting
+### 1. Inspect the current repository before editing
 
-The API and frontend expose:
+Read:
+
+- `AGENTS.md`;
+- `WORKFLOW.md`;
+- `SPEC.md`;
+- `.ai/task.md`;
+- `.ai/report.md`;
+- `backend/README.md`;
+- `frontend/README.md`;
+- `docs/data-model.md`;
+- `docs/development.md`;
+- `docs/deployment.md`;
+- `docs/project-status.md`.
+
+Run:
+
+```bash
+git log --oneline -8
+git status --short
+```
+
+Do not overwrite unknown local changes.
+
+### 2. Fix the Contacts average sort contract
+
+Make these fields work end to end:
 
 ```text
 average_check_usd
 average_cycle_days
 ```
 
-but the actual backend `CONTACT_ANALYTICS_SORT_FIELDS` allowlist does not include them.
+Requirements:
+
+- Remove duplicate values from `ContactAnalyticsSortField`.
+- Add both fields exactly once to the actual `CONTACT_ANALYTICS_SORT_FIELDS` runtime allowlist.
+- Keep FastAPI `ContactAnalyticsSortQuery` aligned.
+- Keep frontend `ContactSort` and `CONTACT_SORT_FIELDS` aligned.
+- Preserve the existing generic sort implementation, null handling, and contact-ID tie-breaker.
+- Do not add unsupported sort values.
+
+Add focused tests proving:
+
+- average check ascending;
+- average check descending;
+- average cycle ascending;
+- average cycle descending;
+- rows with `null` average values do not crash sorting;
+- null placement is deterministic;
+- equal values use contact ID as the deterministic tie-breaker;
+- the FastAPI endpoint accepts both fields.
+
+### 3. Fix the Deals table column order
+
+The exact header and body order must be:
+
+1. ID;
+2. deal name;
+3. status;
+4. KEV;
+5. funnel;
+6. cycle, days;
+7. contact type;
+8. budget;
+9. estimated profit;
+10. created date;
+11. closed date;
+12. average check.
 
 Requirements:
 
-- Add both fields to the actual backend allowlist used by `list_contact_analytics()`.
-- Preserve stable sorting, null handling, and contact-ID tie-breaking.
-- Keep FastAPI query typing and frontend `ContactSort` aligned with the backend.
-- Add focused backend tests for ascending and descending sorting of both fields.
-- Include rows with `null` averages in sorting tests.
-- Verify the endpoint no longer returns `Unsupported contact analytics sort field` for these two fields.
-
-### 2. Fix Deals header and row alignment
-
-The exact visible Deals column order must be:
-
-1. ID
-2. Deal name
-3. Status
-4. KEV
-5. Funnel
-6. Cycle, days
-7. Contact type
-8. Budget
-9. Estimated profit
-10. Created date
-11. Closed date
-12. Average check
-
-Requirements:
-
-- Render row cells in exactly the same order as headers.
-- KEV must appear under the KEV header.
-- Funnel name must appear under the Funnel header.
-- Cycle must appear under the Cycle header.
+- Render KEV immediately after status.
+- Render funnel immediately after KEV.
+- Render cycle immediately after funnel.
 - Row-level average check is not applicable and displays `—`.
 - Open deals, missing close dates, and negative cycles display `—`.
-- Add a frontend-oriented regression test if the current test stack supports it; otherwise document and perform an explicit browser/operator check.
+- The number of `<td>` cells must exactly match the number of headers.
 
-### 3. Fix Deals filter-wide footer
+### 4. Fix the Deals filter-wide footer
 
-Keep one authoritative footer labeled:
+Keep one footer labeled:
 
 ```text
 Итого по выборке
 ```
 
-Requirements:
+The footer must contain exactly 12 column positions matching the table.
 
-- Footer cell count and order must exactly match the 12 visible columns.
-- Display filtered won/open/lost counts clearly without shifting the table.
-- A compact combined status-count cell is acceptable, for example:
+Required mapping:
+
+1. ID column: label `Итого по выборке`, using an appropriate `colSpan` only if the resulting total column count remains exactly correct;
+2. deal-name/non-aggregatable position: `—` when not covered by the label;
+3. status position: compact filtered status counts;
+4. KEV position: `—`;
+5. funnel position: `—`;
+6. cycle position: `filtered_average_cycle_days` or `—`;
+7. contact-type position: `—`;
+8. budget position: `filtered_budget_usd`;
+9. profit position: `filtered_estimated_profit_usd`;
+10. created-date position: `—`;
+11. closed-date position: `—`;
+12. average-check position: `filtered_average_check_usd` or `—`.
+
+The status position must clearly show all three backend counts, for example:
 
 ```text
 Успешные: N / Открытые: N / Проигранные: N
 ```
 
-- Funnel and non-aggregatable text/date columns display `—`.
-- Cycle column displays `filtered_average_cycle_days`.
-- Budget displays `filtered_budget_usd`.
-- Profit displays `filtered_estimated_profit_usd`.
-- Average-check column displays `filtered_average_check_usd`.
-- Use backend response values calculated before pagination.
-- Do not calculate footer metrics from current-page rows.
+Use:
 
-### 4. Implement deal-creation draft/apply behavior for ABC
+- `filtered_won_deals_count`;
+- `filtered_open_deals_count`;
+- `filtered_lost_deals_count`.
 
-The ABC creation-date fields currently write directly to applied filters.
+Do not derive footer values from visible page rows.
 
-Add separate draft state for:
+### 5. Complete ABC creation-date draft/apply validation
 
-```text
-dealCreatedFrom
-dealCreatedTo
-```
+Preserve the separate ABC creation-date draft state.
 
 Requirements:
 
-- Initialize drafts from applied ABC filters.
-- Draft edits must not trigger report requests or browser-storage changes.
-- Validate complete ISO dates.
-- Validate that start is not later than end.
-- Add an explicit `Применить даты создания` action.
-- Applying valid drafts updates both applied values and resets offset to zero.
+- Draft inputs use `abcDealCreatedDrafts`.
+- Editing a draft must not update applied filters, query keys, or local storage.
+- Applying valid dates updates `abcFilters.dealCreatedFrom` and `abcFilters.dealCreatedTo` and resets offset to zero.
 - Reset clears both draft and applied creation dates.
-- Invalid applied creation ranges disable the ABC query and show validation UI.
+- Reverse applied ranges disable the ABC query.
+- Reverse applied ranges must also set `activeRangeInvalid` for ABC so the existing validation state is visible.
+- Reverse draft ranges must set `activeDraftsInvalid` for ABC.
+- `rangeValidationMessage()` and `draftRangeValidationMessage()` must clearly mention creation dates when that is the invalid range.
 - Keep creation dates independent from `Было` and `Стало` close-date periods.
 
-### 5. Implement deal-creation draft/apply behavior for KEV
+### 6. Complete KEV creation-date draft/apply validation
 
-The KEV creation-date fields currently write directly to applied filters.
-
-Add separate draft state for:
-
-```text
-dealCreatedFrom
-dealCreatedTo
-```
+Preserve the separate KEV creation-date draft state.
 
 Requirements:
 
-- Initialize drafts from applied KEV filters.
-- Draft edits must not trigger report requests or browser-storage changes.
-- Validate complete ISO dates and reverse ranges.
-- Add an explicit `Применить даты создания` action.
-- Applying valid drafts updates applied values.
+- Draft inputs use `kevDealCreatedDrafts`.
+- Editing a draft must not update applied filters or local storage.
+- Applying valid dates updates the applied KEV creation range.
 - Reset clears both draft and applied creation dates.
-- Invalid applied creation ranges disable the KEV query and show validation UI.
-- Keep creation dates independent from existing close-date filters.
+- Reverse applied ranges disable the KEV query and set `activeRangeInvalid`.
+- Reverse draft ranges set `activeDraftsInvalid`.
+- Validation messages distinguish creation-date errors from close-date errors.
+- Keep creation dates independent from close-date filters.
 
-### 6. Complete active-filter badge counts
+### 7. Validate cached category metadata correctly
 
-Include all currently omitted filters.
+Do not silently turn invalid category metadata into valid empty category metadata.
 
-Contacts:
+Implement a clear validation contract, for example one of these approaches:
 
-- `categoryId`.
-
-Deals:
-
-- `categoryId`.
-
-ABC:
-
-- `categoryId`;
-- `dealCreatedFrom`;
-- `dealCreatedTo`.
-
-KEV:
-
-- `categoryId`;
-- `dealCreatedFrom`;
-- `dealCreatedTo`.
-
-Add focused pure frontend helper tests when practical, or document an explicit operator verification.
-
-### 7. Validate cached funnel metadata
-
-Update cached filter metadata validation.
+- parser returns `null`/failure when any category item is invalid; or
+- parser returns both parsed values and an explicit validity flag.
 
 Requirements:
 
 - `categories` must be an array.
-- Every category must contain a non-negative integer `category_id`.
-- Every category must contain a non-empty trimmed `category_name`.
-- Invalid category entries must not make cached metadata appear valid.
-- Preserve safe fallback to fresh metadata or no metadata.
-- Funnel select values remain numeric category IDs encoded as strings in the frontend.
-- Funnel labels remain category names.
+- Every item must be an object.
+- `category_id` must be a non-negative integer.
+- `category_name` must be a non-empty trimmed string.
+- Invalid category input makes the whole cached metadata invalid.
+- `isFilterMetadataValidForDataset()` explicitly validates categories.
+- Valid empty categories are allowed only when the active dataset genuinely has no category directory; do not confuse this with malformed cached input.
+- Fresh valid metadata may replace invalid cached metadata.
+- Invalid cached metadata must not be used for funnel selectors.
 
-### 8. Clean up frontend formatting
+Add focused tests for valid, empty, and malformed category metadata. If no frontend unit-test framework exists, extract pure parsing/validation helpers into a small testable TypeScript module and add the smallest practical test setup without introducing a large framework. If adding frontend tests is disproportionate, perform and document a concrete browser/operator test and keep the helper logic simple and reviewable.
 
-The current implementation still contains compressed one-line JSX and malformed comma placement.
+### 8. Preserve and verify active filter badge counts
+
+Confirm the badges count:
+
+Contacts:
+
+- category ID.
+
+Deals:
+
+- category ID.
+
+ABC:
+
+- category ID;
+- applied deal creation from;
+- applied deal creation to.
+
+KEV:
+
+- category ID;
+- applied deal creation from;
+- applied deal creation to.
+
+Reformat the arrays normally. Remove malformed leading-comma formatting.
+
+### 9. Clean relevant frontend code
+
+Reformat only the touched areas:
+
+- `initialKevFilters`;
+- ABC/KEV creation-date state and validation expressions;
+- active-filter arrays;
+- category select component;
+- ABC/KEV creation-date controls;
+- Contacts and Deals table footers;
+- Deals row cells.
 
 Requirements:
 
-- Reformat the newly touched funnel/date/footer sections to match existing repository style.
-- Do not globally reformat unrelated code.
-- Keep behavior unchanged outside this task.
+- no compressed one-line JSX in these sections;
+- no comma placed at the beginning of a line or expression;
+- use existing project style;
+- no unrelated frontend redesign.
 
-### 9. Add missing tests
+### 10. Add regression tests for the actual defects
 
-Add or update tests proving the remaining acceptance behavior:
+Backend tests must include:
 
-- Contacts sorts by average check ascending and descending.
-- Contacts sorts by average cycle ascending and descending.
-- Null average values are deterministic and do not crash sorting.
-- Funnel filters work in Contacts, Deals, ABC, and KEV.
-- ABC deal-creation filtering remains inclusive.
-- KEV deal-creation filtering remains inclusive and composes with close dates.
-- Contacts and Deals summaries are calculated before pagination.
-- Weighted average check uses underlying won deals, not average-of-averages.
-- Weighted average cycle uses underlying valid closed deals.
-- Open and negative-cycle deals are excluded.
-- Empty denominators return `null`.
-- Funnel metadata response remains sorted and typed.
-- Category-list pagination and exact category-aware stage behavior remain covered.
-- Unknown category/stage continues to fail safely without replacing the active dataset.
-- Contact `661` analytical assignment regression remains correct.
+- average sort fields in the runtime allowlist;
+- API acceptance of both average sort fields;
+- asc/desc/null/tie sorting cases;
+- filter-wide summary values before pagination;
+- funnel filters in Contacts, Deals, ABC, and KEV;
+- inclusive ABC creation-date filtering;
+- inclusive KEV creation-date filtering combined with close dates;
+- weighted average check and cycle;
+- open and negative cycles excluded;
+- empty denominators return `null`;
+- exact category-aware stage behavior and safe refresh failure remain covered;
+- contact `661` analytical assignment regression remains covered.
 
-Do not reduce existing test coverage to make the suite pass.
+Frontend verification must cover:
 
-### 10. Update documentation
+- Deals header/body/footer alignment;
+- status counts visible in the footer;
+- ABC creation drafts do not apply until the button is clicked;
+- KEV creation drafts do not apply until the button is clicked;
+- invalid applied and draft ranges show validation UI;
+- active-filter badge counts include funnel and creation ranges;
+- malformed cached categories are rejected.
 
-Update all required documentation to match the final implementation:
+Prefer automated tests. Where the repository lacks the required frontend test infrastructure, perform a browser/operator check and document exact steps and outcomes in `.ai/report.md`.
+
+### 11. Update documentation
+
+Update, when necessary to match final behavior:
 
 - `SPEC.md`;
 - `backend/README.md`;
@@ -233,44 +369,58 @@ Update all required documentation to match the final implementation:
 - `docs/data-model.md`;
 - `docs/development.md`;
 - `docs/deployment.md`;
-- `docs/project-status.md`;
-- `.ai/report.md`.
+- `docs/project-status.md`.
 
-Document at minimum:
+`docs/data-model.md` must explicitly document:
 
-- funnel directory and exact category filtering;
-- category-aware stage resolution;
-- creation-date filters in all four reports;
-- ABC/KEV draft/apply behavior;
+- local funnel/category directory;
+- exact category-aware stage resolution;
 - average check and cycle semantics;
-- filter-wide footer semantics;
-- required manual `Обновить из Bitrix` after deployment;
-- Docker startup still does not refresh data automatically.
+- filter-wide summary semantics.
 
-`.ai/report.md` must contain only the current task report and exact executed checks. Do not claim functionality that is not present in code.
+Do not append contradictory text to outdated sections. Correct existing documentation where necessary.
+
+### 12. Replace the implementation report
+
+Replace `.ai/report.md` with a clean report for `TASK-2026-07-20-04` only.
+
+The report must include:
+
+- exact changed files;
+- exact test commands and results;
+- frontend build result;
+- Compose config results;
+- browser/operator verification steps and results;
+- safety search result;
+- confirmation that no live Bitrix call occurred;
+- known remaining risks.
+
+Set:
+
+```text
+Статус: done
+```
+
+only when every acceptance criterion is satisfied.
 
 ## Out Of Scope
 
 - Live Bitrix calls.
 - Any Bitrix write operation.
 - New reports or charts.
-- Stage-history or time-in-stage analytics.
+- Stage history or time-in-stage analytics.
 - Responsible-manager analytics.
 - Automatic or scheduled refresh.
-- Background queues.
+- Background jobs.
 - Production deployment itself.
-- Unrelated refactoring or visual redesign.
+- General frontend redesign.
+- Unrelated refactoring.
 
 ## Constraints
 
-- Follow `AGENTS.md`, `WORKFLOW.md`, `SPEC.md`, and current documentation.
+- Work from the current repository state.
 - Keep Bitrix strictly read-only.
-- The allowed funnel read method remains:
-
-```text
-crm.category.list
-```
-
+- Preserve `crm.category.list` as the only added funnel-directory method.
 - Never add or call:
 
 ```text
@@ -280,37 +430,58 @@ crm.*.delete
 crm.*.set
 ```
 
-- Never use `select: ["*"]`.
+- Never use:
+
+```text
+select: ["*"]
+```
+
 - Do not make live Bitrix calls.
-- Do not expose or commit `.env`, webhook URLs, credentials, DuckDB, Parquet, CSV, raw rows, logs, caches, `node_modules`, `frontend/dist`, or `ui-kits` changes.
+- Do not expose or commit `.env`, webhook URLs, credentials, DuckDB files, Parquet, CSV, raw Bitrix rows, logs, caches, `node_modules`, `frontend/dist`, or `ui-kits` changes.
 - Docker startup must continue to start services only and never refresh Bitrix automatically.
 - Do not modify `.ai/task.md` during implementation.
 - Do not use `git add .`.
+- Do not weaken or delete tests merely to obtain a passing suite.
 
 ## Acceptance Criteria
 
 ### Backend
 
-- Average check and average cycle sort fields work end to end.
-- Funnel and creation-date filters remain correct and inclusive.
-- Filter-wide totals and weighted averages remain calculated before pagination.
+- `average_check_usd` and `average_cycle_days` appear exactly once in the type contract and runtime allowlist.
+- Both average sort fields work through the FastAPI endpoint.
+- Ascending, descending, null, and tie behavior are tested.
+- Funnel and date filters remain correct.
+- Weighted summaries remain calculated before pagination.
 - Complete backend suite passes.
 
-### Frontend
+### Deals UI
 
-- Deals headers, body cells, and footer align exactly.
-- Deals footer shows status counts, average cycle, budget, profit, and average check.
-- ABC creation dates use draft/apply/validation/reset behavior.
-- KEV creation dates use draft/apply/validation/reset behavior.
-- Active-filter badges count every new funnel and creation-date filter.
-- Cached categories are validated safely.
+- Header and body order match exactly.
+- Footer aligns with all 12 visible columns.
+- Footer displays won/open/lost counts.
+- Footer displays average cycle, budget, profit, and average check from backend page totals.
+- Row-level average check and unavailable cycle values display `—`.
+
+### ABC and KEV UI
+
+- Creation dates use draft/apply behavior.
+- Draft edits do not trigger applied queries.
+- Invalid drafts show validation UI.
+- Invalid applied ranges show validation UI and disable queries.
+- Reset clears draft and applied values.
+- Creation dates remain independent from close-date periods.
+
+### Metadata and state
+
+- Malformed cached categories are rejected.
+- Valid category IDs and names remain available to all report selectors.
+- Active-filter badges include all funnel and creation-date filters.
 - Contacts-to-Deals filter propagation remains working.
-- Frontend build passes.
 
 ### Documentation and safety
 
-- All required documentation is updated.
-- `.ai/report.md` is accurate and contains only this task.
+- Required documentation is current and non-contradictory.
+- `.ai/report.md` is accurate and task-specific.
 - No Bitrix write methods or wildcard selects are added.
 - No live Bitrix calls occur.
 - No secrets or generated/private data are committed.
@@ -318,33 +489,35 @@ crm.*.set
 
 ## Checks
 
-Before implementation:
+Before editing:
 
 ```bash
-git log --oneline -5
+git log --oneline -8
 git status --short
 ```
 
-Complete backend suite:
+Backend complete suite:
 
 ```bash
 cd backend
 python -m pytest
 ```
 
-If dependencies are unavailable, use the existing Docker/dev environment:
+If dependencies are unavailable, use an isolated Python 3.12 Docker/dev environment and install:
 
 ```bash
 pip install -e ".[dev]"
 python -m pytest
 ```
 
-Frontend:
+Frontend build:
 
 ```bash
 cd frontend
 npm run build
 ```
+
+Run any added frontend tests and record the exact command.
 
 Compose:
 
@@ -353,7 +526,7 @@ docker compose config
 docker compose -f docker-compose.prod.yml config
 ```
 
-When Docker runtime is available:
+Runtime/operator flow when Docker is available:
 
 ```bash
 docker compose up --build -d
@@ -366,6 +539,7 @@ Safety search:
 
 ```bash
 rg "crm\.[A-Za-z0-9_.]*(add|update|delete|set)" backend/app backend/tests frontend/src docs
+rg 'select\s*[:=]\s*\[\s*["'"']\*["'"']\s*\]' backend/app backend/tests
 ```
 
 Diff validation:
@@ -376,24 +550,23 @@ git diff --check -- ':!AGENTS.md' ':!.ai/task.md' ':!WORKFLOW.md'
 
 ## Hard Workflow Gate
 
-Before commit:
+Before committing:
 
 - complete backend suite passes;
 - frontend build passes;
+- any added frontend tests pass;
 - Compose config checks pass;
-- browser/operator verification confirms Deals alignment and ABC/KEV draft/apply behavior;
-- `.ai/report.md` contains accurate exact results;
-- all required documentation is updated;
+- browser/operator verification confirms Deals alignment, footer status counts, ABC/KEV draft/apply, validation states, and filter badges;
+- `.ai/report.md` contains exact results for this task only;
+- required documentation is updated;
 - only task-related files and `.ai/report.md` are staged;
-- no secrets, databases, snapshots, generated files, caches, `node_modules`, `frontend/dist`, or `ui-kits` changes are staged;
+- no secrets, databases, snapshots, generated data, caches, `node_modules`, `frontend/dist`, or `ui-kits` changes are staged;
 - no live Bitrix call was made;
-- no Bitrix write method was added;
+- no Bitrix write method or wildcard select was added;
 - Docker startup behavior remains unchanged.
-
-Set `.ai/report.md` status to `done` only after all criteria and checks pass.
 
 Commit message:
 
 ```text
-codex: TASK-2026-07-20-03 Fix remaining funnel analytics blockers
+codex: TASK-2026-07-20-04 Repair rejected funnel analytics implementation
 ```
