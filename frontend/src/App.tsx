@@ -2260,8 +2260,22 @@ function ContactsTable({
               onSort={onSort}
               align="right"
             />
-            <SortableHeader label="Средний чек" field="average_check_usd" sort={sort} order={order} onSort={onSort} />
-            <SortableHeader label="Средний цикл, дн." field="average_cycle_days" sort={sort} order={order} onSort={onSort} />
+            <SortableHeader
+              label="Средний чек"
+              field="average_check_usd"
+              sort={sort}
+              order={order}
+              onSort={onSort}
+              align="right"
+            />
+            <SortableHeader
+              label="Средний цикл, дн."
+              field="average_cycle_days"
+              sort={sort}
+              order={order}
+              onSort={onSort}
+              align="right"
+            />
             <SortableHeader
               label="Дата закрытия"
               field="last_won_date"
@@ -2343,14 +2357,49 @@ function ContactsTable({
               <td className="number-cell money-cell">
                 {formatUsd(contact.estimated_profit_usd)}
               </td>
-              <td className="number-cell money-cell">{contact.average_check_usd ? formatUsd(contact.average_check_usd) : "—"}</td>
+              <td className="number-cell money-cell">
+                {contact.average_check_usd !== null
+                  ? formatUsd(contact.average_check_usd)
+                  : "—"}
+              </td>
               <td className="number-cell">{contact.average_cycle_days ?? "—"}</td>
               <td>{formatDate(contact.last_won_date)}</td>
               <td>{formatDate(contact.latest_deal_date)}</td>
             </tr>
           ))}
         </tbody>
-        {page && <tfoot><tr><th colSpan={3}>Итого по выборке</th><th>{page.filtered_total_deals_count}</th><th>{page.filtered_won_deals_count}</th><th>{page.filtered_open_deals_count}</th><th>{page.filtered_lost_deals_count}</th><th>{formatUsd(page.filtered_budget_usd)}</th><th>{formatUsd(page.filtered_budget_in_work_usd)}</th><th>{formatUsd(page.filtered_lost_budget_usd)}</th><th>{formatUsd(page.filtered_revenue_usd)}</th><th>{formatUsd(page.filtered_estimated_profit_usd)}</th><th>{page.filtered_average_check_usd ? formatUsd(page.filtered_average_check_usd) : "—"}</th><th>{page.filtered_average_cycle_days ?? "—"}</th><th>—</th><th>—</th></tr></tfoot>}
+        {page && (
+          <tfoot className="table-summary-footer">
+            <tr>
+              <th colSpan={3} scope="row">
+                Итого по выборке
+              </th>
+              <td className="number-cell">{page.filtered_total_deals_count}</td>
+              <td className="number-cell">{page.filtered_won_deals_count}</td>
+              <td className="number-cell">{page.filtered_open_deals_count}</td>
+              <td className="number-cell">{page.filtered_lost_deals_count}</td>
+              <td className="number-cell money-cell">{formatUsd(page.filtered_budget_usd)}</td>
+              <td className="number-cell money-cell">
+                {formatUsd(page.filtered_budget_in_work_usd)}
+              </td>
+              <td className="number-cell money-cell">
+                {formatUsd(page.filtered_lost_budget_usd)}
+              </td>
+              <td className="number-cell money-cell">{formatUsd(page.filtered_revenue_usd)}</td>
+              <td className="number-cell money-cell">
+                {formatUsd(page.filtered_estimated_profit_usd)}
+              </td>
+              <td className="number-cell money-cell">
+                {page.filtered_average_check_usd !== null
+                  ? formatUsd(page.filtered_average_check_usd)
+                  : "—"}
+              </td>
+              <td className="number-cell">{page.filtered_average_cycle_days ?? "—"}</td>
+              <td>—</td>
+              <td>—</td>
+            </tr>
+          </tfoot>
+        )}
       </table>
     </div>
   );
@@ -2391,7 +2440,7 @@ function DealsTable({
             />
             <th>КЭВ</th>
             <th>Воронка</th>
-            <th>Цикл, дн.</th>
+            <th className="number-cell">Цикл, дн.</th>
             <SortableHeader
               label="Тип"
               field="contact_type_normalized"
@@ -2429,7 +2478,7 @@ function DealsTable({
               order={order}
               onSort={onSort}
             />
-            <th>Средний чек</th>
+            <th className="number-cell">Средний чек</th>
           </tr>
         </thead>
         <tbody>
@@ -2471,32 +2520,34 @@ function DealsTable({
               <td className="number-cell money-cell">{formatUsd(deal.estimated_profit_usd)}</td>
               <td>{formatDate(deal.created_date)}</td>
               <td>{formatDate(deal.closed_date)}</td>
-              <td className="number-cell">—</td>
+              <td className="number-cell money-cell">—</td>
             </tr>
           ))}
         </tbody>
         {page && (
-          <tfoot>
+          <tfoot className="table-summary-footer">
             <tr>
-              <th>Итого по выборке</th>
-              <th>—</th>
-              <th>
+              <th scope="row">Итого по выборке</th>
+              <td>—</td>
+              <td>
                 Успешные: {page.filtered_won_deals_count} / Открытые:{" "}
                 {page.filtered_open_deals_count} / Проигранные: {page.filtered_lost_deals_count}
-              </th>
-              <th>—</th>
-              <th>—</th>
-              <th>{page.filtered_average_cycle_days ?? "—"}</th>
-              <th>—</th>
-              <th>{formatUsd(page.filtered_budget_usd)}</th>
-              <th>{formatUsd(page.filtered_estimated_profit_usd)}</th>
-              <th>—</th>
-              <th>—</th>
-              <th>
-                {page.filtered_average_check_usd
+              </td>
+              <td>—</td>
+              <td>—</td>
+              <td className="number-cell">{page.filtered_average_cycle_days ?? "—"}</td>
+              <td>—</td>
+              <td className="number-cell money-cell">{formatUsd(page.filtered_budget_usd)}</td>
+              <td className="number-cell money-cell">
+                {formatUsd(page.filtered_estimated_profit_usd)}
+              </td>
+              <td>—</td>
+              <td>—</td>
+              <td className="number-cell money-cell">
+                {page.filtered_average_check_usd !== null
                   ? formatUsd(page.filtered_average_check_usd)
                   : "—"}
-              </th>
+              </td>
             </tr>
           </tfoot>
         )}

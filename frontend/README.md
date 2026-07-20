@@ -21,7 +21,7 @@ Implemented screen:
 - Last valid filter metadata is persisted under `bitrix-sales.filter-metadata.v1` so transient empty metadata snapshots do not clear dropdown options.
 - Local Vite serves `/favicon.ico` from `frontend/public/favicon.ico`.
 - Region filters and columns are temporarily hidden in Contacts, Deals, and ABC while region detection is unfinished. Existing backend region support remains available for later use.
-- Contacts, Deals, and ABC use a dense full-height workspace without a large page title/subtitle block. Table cards fill the available viewport height; rows scroll inside the card with sticky table headers, while pagination remains visible at the bottom. Deals and ABC totals remain outside the row scroll area.
+- Contacts, Deals, and ABC use a dense full-height workspace without a large page title/subtitle block. Table cards fill the available viewport height; rows scroll inside the card with sticky table headers, while pagination remains visible at the bottom. Contacts and Deals keep their backend-derived filter-wide summary rows sticky at the bottom of the same table viewport; summary values align with their corresponding columns and move horizontally with the table. ABC totals remain outside the row scroll area.
 - Optional single-user login is driven by backend auth settings. When
   `APP_AUTH_ENABLED=true`, the app checks `/api/auth/session`, shows a compact
   username/password form before the analytics workspace, uses the backend

@@ -131,3 +131,8 @@ Docker startup does not call Bitrix.
 The funnel-aware reports now have aligned Contacts average sorting, a 12-column
 Deals body/footer with filtered status totals, explicit ABC/KEV creation-date
 validation, and strict rejection of malformed cached category metadata.
+
+Contacts and Deals keep their backend-derived filter-wide summary rows pinned
+to the bottom of each table's scrolling viewport. Summary text, counts, averages,
+and money values align with their corresponding columns while both footers remain
+part of the table during horizontal scrolling.

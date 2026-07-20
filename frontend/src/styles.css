@@ -705,6 +705,21 @@ th {
   text-transform: uppercase;
 }
 
+.table-summary-footer th,
+.table-summary-footer td {
+  position: sticky;
+  top: auto;
+  bottom: 0;
+  z-index: 2;
+  border-top: 1px solid var(--color-border-default);
+  border-bottom: 0;
+  background: var(--color-surface-base);
+}
+
+.table-summary-footer th {
+  color: var(--color-text-primary);
+}
+
 .sort-button {
   display: inline-flex;
   width: 100%;
