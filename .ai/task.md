@@ -1,64 +1,96 @@
 # Task: TASK-2026-07-20-06
 
 Status: planned
-Created from: `2a1a7494906d72f64ea93fd599a3f8e41e188c8b`
+Created from: `16bd3ef49e046e7072b4113e50df31c5439b0382`
 
 ## Title
 
-Use actual final-stage transition timestamps for deal close analytics
+Complete factual close timestamp handling in explicit deal reconciliation
 
 ## Goal
 
-Correct the meaning of deal completion dates throughout the local dataset and analytics.
+Repair the remaining rejected path in the factual deal-close implementation.
 
-The current implementation maps Bitrix `CLOSEDATE` / `closedate` directly to local `closed_at`. In Bitrix this field is an editable planned/end date and can default to creation date plus seven days. It is not a reliable factual timestamp of closing the deal.
+The normal manual Bitrix refresh now separates planned `CLOSEDATE` from factual `actual_closed_at` and resolves the factual timestamp from exact final-stage history with `movedTime` as the only fallback. Preserve that implementation.
 
-Use the actual transition time into the current final stage for closed deals. Preserve the Bitrix planned close date separately and ensure every close-dependent metric, filter, report, and displayed close date uses the factual timestamp.
+The explicit contact-deal reconciliation path must follow the same factual-close contract before it inserts, normalizes, or activates any closed deal.
 
-This is a backend/data correctness task with compatible API behavior. It must remain strictly read-only and transaction-safe.
+## Review Status
+
+The following implementation commit was reviewed and rejected:
+
+```text
+16bd3ef49e046e7072b4113e50df31c5439b0382
+```
+
+The implementation is mostly correct. Do not revert the stage-history client, additive migration, factual-close analytics, documentation, or completed tests.
+
+One blocking defect remains in `backend/app/reports/contact_deal_diagnostics.py`.
+
+## Verified Remaining Defect
+
+`reconcile_explicit_contact_deals()` can currently activate a closed deal without a factual close timestamp.
+
+The current flow:
+
+1. loads explicit deal rows from Bitrix;
+2. calls `transform_deals()` for missing local deals;
+3. `transform_deals()` sets `actual_closed_at = None` before history resolution;
+4. inserts the deal through `_insert_raw_deals()`;
+5. normalizes data and records a successful active reconciliation run.
+
+The reconciliation path does not:
+
+- call `crm.stagehistory.list`;
+- call `transform_deal_stage_history()`;
+- call `apply_actual_close_times()`;
+- persist approved history rows;
+- reject a closed deal that has neither exact history nor `movedTime`.
+
+`_insert_raw_deals()` also does not currently preserve the complete approved deal state. It omits at least:
+
+- `planned_close_at`;
+- `kev_held`;
+- approved stage-history rows.
+
+This can produce an active closed deal with:
+
+- `actual_closed_at = NULL`;
+- no factual `closed_date` in reports;
+- no cycle;
+- missing planned close information;
+- a wrong default KEV value;
+- no auditable local final-stage history.
 
 ## Facts
 
-- Official Bitrix documentation defines deal `CLOSEDATE` / `closedate` as the item end/completion date; imported items default it to creation date plus seven days. It is user-editable and is not an immutable factual close timestamp.
-- Official Bitrix documentation defines `MOVED_TIME` / `movedTime` as the time the item was moved into its current stage.
-- Official `crm.stagehistory.list` documentation states:
-  - `entityTypeId = 2` means deal;
-  - `TYPE_ID = 3` means transfer to a final stage;
-  - `CREATED_TIME` is the time the item was transferred to that stage;
-  - `STAGE_SEMANTIC_ID = S` means successful final stage;
-  - `STAGE_SEMANTIC_ID = F` means failed final stage;
-  - deal records include `OWNER_ID`, `CATEGORY_ID`, `STAGE_ID`, and `STAGE_SEMANTIC_ID`.
-- The current project requests `CLOSEDATE` / `closedTime` and maps it directly to `DealSnapshot.closed_at`.
-- Current close-dependent analytics include deal cycles, close-date filters, Contacts last-won dates and average cycles, ABC periods, KEV periods, won-revenue series, RFM/recency, deal-cycle reports, and historical currency-rate selection for closed deals.
-- Funnel and stage resolution is exact on `(stage_id, category_id)` and must remain exact.
-- Revenue remains won-only.
-- Estimated profit remains `revenue_usd * 0.50`.
-- Bitrix is strictly read-only.
-- Docker startup must never call Bitrix or refresh data automatically.
-- A manual `Обновить из Bitrix` action is required after deployment to populate the new factual close timestamps.
+- Bitrix remains strictly read-only.
+- `CLOSEDATE` / `closedTime` is planned close information only.
+- `actual_closed_at` is the factual timestamp used by all close-dependent analytics.
+- A current open deal always has `actual_closed_at = NULL`.
+- A current won/lost deal must resolve factual close from:
+  1. the latest exact current final-stage history record; or
+  2. current-stage `movedTime` as the only fallback.
+- `CLOSEDATE` must never be used as a factual fallback.
+- The existing `BitrixClient.list_deal_stage_history()` already provides bounded batched and paginated read-only loading.
+- The existing `apply_actual_close_times()` already implements the approved resolver contract.
+- The normal manual refresh already stores approved raw history transactionally.
+- Explicit reconciliation is bounded to a small operator-supplied deal-ID set.
+- The previous active dataset must remain unchanged on handled reconciliation failure.
+- Docker startup must not call Bitrix or refresh data automatically.
 
 ## Assumptions
 
-- For a deal whose current local status is `open`, the factual close timestamp is always `null`, even if the history contains an older final-stage transition from a previous close/reopen cycle.
-- For a deal whose current local status is `won` or `lost`, the primary factual close timestamp is the latest stage-history record that matches all of:
-  - the deal ID;
-  - `TYPE_ID = 3`;
-  - the deal's current `category_id`;
-  - the deal's current `stage_id`;
-  - the semantic corresponding to the current status: `S` for `won`, `F` for `lost`.
-- If several exact matching final-stage entries exist because the deal was reopened and closed again into the same stage, use the latest `CREATED_TIME`; use history record ID as the deterministic tie-breaker.
-- If an exact history record is missing for a currently closed deal, `MOVED_TIME` / `movedTime` may be used as a row-level fallback because it is the factual entry time into the current stage.
-- `CLOSEDATE` must never be used as a fallback for factual closing or cycle calculations.
-- If a currently closed deal has neither an exact final-stage history timestamp nor a valid current-stage `MOVED_TIME`, fail the refresh safely rather than silently producing a false close date.
-- The existing public API field names such as `closed_date` may remain unchanged, but their meaning becomes the factual close timestamp.
+- Reuse the existing stage-history client, transformer, and factual-close resolver rather than implementing a second version.
+- For every confirmed reconciliation deal that is closed and either missing locally or missing `actual_closed_at`, reconciliation must resolve the current factual close before activation.
+- Existing local deals that already contain a valid factual timestamp do not need to be overwritten unnecessarily.
+- Approved history rows for the affected deals may be inserted with an idempotent upsert/replace strategy consistent with the current raw dataset model.
+- The existing public reconciliation response shape should remain compatible unless a small additive safe field is required.
 
 ## Unknowns
 
-- Whether every legacy deal in the live tenant has complete stage-history records.
-- Whether the current webhook permissions include `crm.stagehistory.list`.
-- The total live stage-history volume and optimal batch size.
-
-Do not resolve these unknowns with live calls during implementation. Implement mocked coverage, bounded batching, pagination, safe fallback, and clear operator errors.
+- Live tenant history completeness and webhook permission remain intentionally unverified.
+- Do not make live Bitrix calls while implementing or testing this correction.
 
 ## Scope
 
@@ -78,6 +110,19 @@ Read and follow:
 - `docs/deployment.md`;
 - `docs/project-status.md`.
 
+Inspect at minimum:
+
+- `reconcile_explicit_contact_deals()`;
+- `_collect_bitrix_explicit_deal_facts()`;
+- `_insert_raw_deals()`;
+- the reconciliation API endpoint and response handling;
+- `BitrixClient.list_deal_stage_history()`;
+- `transform_deals()`;
+- `transform_deal_stage_history()`;
+- `apply_actual_close_times()`;
+- raw history storage and normalization;
+- reconciliation tests.
+
 Before editing run:
 
 ```bash
@@ -87,285 +132,214 @@ git status --short
 
 Do not overwrite unknown local changes.
 
-### 2. Add a read-only Bitrix stage-history boundary
+### 2. Resolve factual close timestamps in explicit reconciliation
 
-Add an allowlisted client method for:
+For confirmed deals that reconciliation will insert or materially update:
 
-```text
-crm.stagehistory.list
-```
-
-Requirements:
-
-- Always pass `entityTypeId = 2`.
-- Fetch history only for deals whose current resolved status is `won` or `lost`.
-- Use bounded deal-ID batches instead of one request per deal.
-- Use the documented list pagination mechanism and consume every page.
-- Filter to final-stage transitions where practical:
-
-```text
-TYPE_ID = 3
-```
-
-- Select only approved fields:
-
-```text
-ID
-TYPE_ID
-OWNER_ID
-CREATED_TIME
-CATEGORY_ID
-STAGE_ID
-STAGE_SEMANTIC_ID
-```
-
-- Accept official response shape `result.items` and any already-supported connector normalization pattern without wildcard fields.
-- Keep webhook/error redaction intact.
-- Add `crm.stagehistory.list` to the explicit read-only method allowlist.
-- Keep every `crm.*.add`, `crm.*.update`, `crm.*.delete`, and `crm.*.set` method forbidden.
-
-### 3. Add typed stage-history transformation
-
-Add a typed local snapshot/model for the approved history fields.
-
-Transformation requirements:
-
-- Parse numeric IDs safely.
-- Parse `CREATED_TIME` into UTC.
-- Normalize stage semantics strictly to `S`, `F`, or `P` where present.
-- Preserve exact `category_id` and `stage_id`.
-- Reject malformed rows required for factual close resolution.
-- Do not store the full raw Bitrix payload.
-
-Implement a pure resolver for factual close time with explicit inputs:
-
-- current deal ID;
-- current category ID;
-- current stage ID;
-- current status group;
-- current-stage `movedTime` fallback;
-- stage-history rows.
-
-Resolver behavior:
-
-- `open` -> `null`;
-- `won` -> latest exact `TYPE_ID=3`, category/stage match, semantic `S`;
-- `lost` -> latest exact `TYPE_ID=3`, category/stage match, semantic `F`;
-- exact matching history wins over `movedTime`;
-- valid `movedTime` is the only allowed fallback for currently closed deals;
-- no `CLOSEDATE` fallback;
-- no usable factual timestamp for a closed deal -> explicit safe error.
-
-### 4. Separate planned and factual close dates in the domain and storage
-
-Stop using one ambiguous field for two meanings.
-
-Required semantic fields:
-
-```text
-planned_close_at
-actual_closed_at
-```
-
-- `planned_close_at` comes from Bitrix `CLOSEDATE` / `closedate`.
-- `actual_closed_at` comes from the resolver described above.
-
-Use an additive migration compatible with existing DuckDB files.
+1. collect current Bitrix deal rows using the existing bounded explicit-deal flow;
+2. transform current stages and statuses using the existing exact `(stage_id, category_id)` directory;
+3. identify current won/lost deals that require factual resolution;
+4. call `client.list_deal_stage_history()` once for the bounded set, not once per deal;
+5. transform history with `transform_deal_stage_history()`;
+6. resolve deals with `apply_actual_close_times()`;
+7. only then begin or continue the local write/activation transaction.
 
 Requirements:
 
-- Existing databases remain openable after deployment.
-- Preserve legacy data; do not drop tables or recreate the database.
-- Add the new columns to both raw and normalized deal storage as needed.
-- If the legacy `closed_at` column must remain temporarily for compatibility, document it as deprecated and stop using it for analytics.
-- Do not treat legacy `closed_at` values as factual close timestamps.
-- Before the first post-deployment manual refresh, missing `actual_closed_at` must produce null/unavailable close analytics rather than silently falling back to legacy planned values.
-- New successful refreshes populate both planned and factual timestamps.
-- Update typed domain models, loaders, normalization, synthetic fixture builders, snapshot allowlists, schema/profile expectations, and serialization tests.
+- No per-deal history N+1 pattern.
+- Open deals remain `actual_closed_at = NULL` even if old final history exists.
+- Won deals require exact semantic `S`; lost deals require exact semantic `F`.
+- Category and stage must match the deal's current values.
+- Reopened/reclosed deals use the latest exact matching transition.
+- Exact history wins over `movedTime`.
+- `movedTime` is the only fallback.
+- Never use `CLOSEDATE` as factual close.
+- A factual timestamp before `created_at` is invalid.
+- Missing both exact history and `movedTime` for a current closed deal must fail safely before activation.
 
-Add an approved raw history table or equivalent auditable local representation containing only:
+### 3. Cover existing confirmed deals with missing factual timestamps
 
-```text
-history_id
-deal_id
-type_id
-created_at
-category_id
-stage_id
-stage_semantic_id
-```
+Do not limit the correction only to brand-new raw deal rows.
 
-The stage-history data must participate in the same transactional dataset replacement and approved Parquet snapshot policy as the other raw tables.
+For each operator-confirmed deal involved in reconciliation:
 
-### 5. Integrate stage history into manual ingestion safely
+- if the deal is currently won/lost and the local row has no `actual_closed_at`, resolve and update it transactionally;
+- if the deal is open, ensure the factual value is `NULL`;
+- if a valid local factual value already exists and the current deal facts have not changed, avoid unnecessary destructive rewriting;
+- do not promote legacy `closed_at` into `actual_closed_at`.
 
-Update the manual read-only refresh flow:
+The reconciliation must not report success while any affected current closed deal remains without a valid factual timestamp.
 
-1. load category directory;
-2. load category-aware stages;
-3. load deals and contacts using existing safe methods;
-4. resolve current deal status;
-5. fetch final-stage history in batches for current won/lost deals;
-6. transform and resolve `actual_closed_at`;
-7. load raw data, normalize, load currency rates, write snapshots, and activate in one safe transaction.
+### 4. Preserve the full approved deal fields
+
+Update `_insert_raw_deals()` or the appropriate shared loader so reconciled deal rows preserve:
+
+- `deal_id`;
+- `deal_name`;
+- `amount_original`;
+- `currency_original`;
+- `created_at`;
+- deprecated physical `closed_at` as `NULL`;
+- `planned_close_at` from `CLOSEDATE`;
+- `actual_closed_at` from factual resolution;
+- `stage_id`;
+- `category_id`;
+- `status_group`;
+- `kev_held`.
+
+Do not rely on database defaults for approved values already returned and transformed from Bitrix.
+
+Keep the insert/update idempotent and limited to explicitly confirmed deal IDs.
+
+### 5. Persist approved stage history transactionally
+
+Store the transformed approved history rows for affected reconciliation deals in `raw_deal_stage_history`.
 
 Requirements:
 
-- No per-deal N+1 API calls.
-- A stage-history API error rolls back the refresh.
-- A malformed or unresolved factual close timestamp for a currently closed deal rolls back the refresh with a safe message.
-- The previous active dataset remains active and readable after a handled failure.
-- Open deals never receive an actual close timestamp from an old history row.
-- Reopened/reclosed deals use the latest exact current-final-stage entry.
-- Repeated refresh is idempotent.
+- only the seven approved columns are stored;
+- no full Bitrix payload is persisted;
+- repeated reconciliation is idempotent;
+- history writes, deal writes, link writes, normalization, status storage, and activation succeed or fail together;
+- do not delete unrelated history rows;
+- use deterministic conflict handling for existing `history_id` values.
 
-### 6. Replace planned close usage across analytics
+### 6. Preserve previous active data on failure
 
-Audit every usage of the legacy close field and explicitly classify it.
+A handled failure during:
 
-All factual close-dependent behavior must use `actual_closed_at`, including at minimum:
+- history loading;
+- history transformation;
+- factual-close resolution;
+- deal/history/link storage;
+- normalization;
+- activation;
 
-- Deals `closed_date` output and sorting;
-- deal row `cycle_days`;
-- Contacts `last_won_date`;
-- Contacts average cycle;
-- Deals filter-wide average cycle;
-- deal-cycle report mean/median/P75/P90;
-- close-date filters on Contacts/Deals where supported;
-- ABC base and comparison periods;
-- KEV close-date periods;
-- won-revenue time series;
-- RFM recency and latest won date;
-- reactivation/stale-sales logic based on last successful close;
-- won revenue and profit period filters;
-- currency-rate date selection for won/lost closed deals.
+must not leave partial raw or normalized changes and must not replace the previous active dataset.
 
-Rules:
+Requirements:
 
-- Open deals have no factual close date and are excluded from close-date filters and closed-cycle denominators.
-- Won/lost deals with factual close before creation are invalid and excluded from cycle calculations; the refresh should normally reject impossible source resolution before activation.
-- Inclusive date-filter behavior remains unchanged, but applies to the factual date.
-- Revenue remains won-only.
-- Planned close date must not affect ABC, KEV, RFM, revenue series, cycle, or conversion reports.
+- no transaction begins before remote facts are sufficiently validated, where practical;
+- any exception after transaction start rolls back all task writes;
+- store or return a safe reconciliation error consistent with the existing API/operator contract;
+- error text must not expose the webhook URL, token, raw private rows, or full Bitrix payload;
+- `.ai/report.md` must describe the exact failure behavior tested.
 
-### 7. Preserve compatible API and frontend behavior
+### 7. Preserve the completed TASK-06 implementation
 
-Keep existing response field names and frontend contracts wherever practical.
+Do not regress:
 
-- `closed_date` in Deals now means factual close date.
-- The Deals column label `Дата закрытия` continues to display the factual date.
-- Existing close-date filter controls now filter factual close time.
-- Do not add a planned-close-date column or new UI screen in this task.
-- Existing loading, error, empty, filter, sorting, sticky footer, pagination, auth, and refresh behavior must remain working.
-- The frontend must display `—` when the factual date or cycle is unavailable.
+- read-only `crm.stagehistory.list` allowlisting;
+- approved select fields;
+- batching and pagination;
+- official `result.items` parsing;
+- exact factual-close resolver semantics;
+- additive DuckDB migration;
+- normal manual refresh safety;
+- factual close usage in Deals, Contacts, ABC, KEV, RFM, revenue series, cycle reports, filters, metadata, profile, and currency-rate selection;
+- sticky table footers;
+- authentication;
+- contact `661` assignment regression;
+- funnel/category semantics;
+- KEV behavior;
+- Docker startup behavior.
 
-### 8. Build deterministic fixtures and regression scenarios
+### 8. Add focused reconciliation regression tests
 
-Add synthetic/mocked datasets covering:
+Add tests covering at minimum:
 
-1. Planned date differs from actual close:
-   - created in January;
-   - `CLOSEDATE` in February;
-   - final-stage history in June;
-   - displayed close date and cycle use June.
-2. Open deal with an old final-stage record:
-   - current status open;
-   - actual close remains null.
-3. Reopened and reclosed into the same final stage:
-   - multiple matching `TYPE_ID=3` records;
-   - latest factual transition wins.
-4. Final stage in another funnel or another final stage:
-   - mismatched history is ignored.
-5. Won and lost semantics:
-   - `S` resolves won;
-   - `F` resolves lost.
-6. Missing exact history with valid `movedTime`:
-   - fallback is used.
-7. Missing history and missing `movedTime` for a closed deal:
-   - refresh fails safely;
-   - previous active dataset remains unchanged.
-8. Pagination and multiple deal-ID batches.
-9. Invalid/malformed history rows.
-10. Timezone conversion to UTC and deterministic latest-record tie-breaking.
+#### New closed deal: planned February, actual June
 
-### 9. Required automated coverage
+- explicit deal created in January;
+- Bitrix `CLOSEDATE` is in February;
+- exact final-stage history is in June;
+- `movedTime` may differ to prove exact history wins;
+- reconciliation succeeds;
+- `planned_close_at` stores February;
+- `actual_closed_at` stores June;
+- deprecated physical `closed_at` remains `NULL`;
+- `kev_held` preserves the transformed Bitrix value;
+- raw approved history is stored;
+- normalized deal and Deals API display June;
+- cycle is calculated through June.
 
-Add or update tests proving:
+#### Open deal with old close history
 
-- `crm.stagehistory.list` is allowed and all write methods remain rejected;
-- exact request parameters, approved select fields, batching, and pagination;
-- nested `result.items` response parsing;
-- no N+1 per-deal history pattern;
-- pure factual-close resolver behavior for every scenario above;
-- planned and factual dates are stored separately;
-- additive migration opens an existing DuckDB file safely;
-- legacy planned values are never consumed as factual close values;
-- raw history storage and snapshots contain only approved columns;
-- failed history loading preserves the previous active dataset;
-- Deals displayed/API close date is factual;
-- cycle uses factual close date;
-- close-date filters are inclusive on factual close date;
-- Contacts last-won date and average cycle use factual dates;
-- ABC, KEV, RFM, revenue series, conversion, and period revenue use factual dates;
-- currency rate selection for closed deals uses factual close date;
-- open deals with old final history remain open with null actual close;
-- existing funnel, KEV, contact `661`, summaries, sorting, auth, and read-only tests still pass.
+- current status is open;
+- old final-stage history exists;
+- reconciliation stores or preserves `actual_closed_at = NULL`.
 
-Do not reduce existing coverage to make the suite pass.
+#### Reopened/reclosed deal
 
-### 10. Documentation and operator flow
+- several exact final-stage records exist;
+- latest exact current-stage record wins.
 
-Update:
+#### Existing local closed deal missing factual close
 
-- `SPEC.md`;
+- raw deal already exists with `actual_closed_at = NULL`;
+- reconciliation confirms it;
+- factual history is resolved and the local row is updated transactionally.
+
+#### `movedTime` fallback
+
+- exact history is missing;
+- valid current-stage `movedTime` exists;
+- factual close is populated from `movedTime`.
+
+#### Safe failure
+
+- closed confirmed deal has neither exact history nor `movedTime`, or history loading fails;
+- no raw deal, history, or link partial write remains;
+- normalized data remains unchanged;
+- previous active dataset remains active;
+- reconciliation is not reported as successful.
+
+#### Batching
+
+- multiple closed reconciliation deals use the existing bounded batched history method;
+- prove there is no one-history-request-per-deal implementation.
+
+#### Idempotency
+
+- running the same successful reconciliation twice does not duplicate history, deals, or links and does not corrupt status.
+
+### 9. Documentation and report
+
+Update only documentation that needs to describe the corrected operator path, including as applicable:
+
 - `backend/README.md`;
-- `frontend/README.md` only if visible semantics need clarification;
 - `docs/data-model.md`;
 - `docs/development.md`;
-- `docs/deployment.md`;
 - `docs/project-status.md`;
 - `.ai/report.md`.
 
-Document clearly:
+Document that explicit reconciliation follows the same factual-close contract as normal refresh and cannot activate a current closed deal without history or `movedTime`.
 
-- `CLOSEDATE` is planned and is not used as factual close time;
-- factual close comes from the current final-stage transition;
-- `crm.stagehistory.list` is read-only and uses `entityTypeId=2`;
-- exact current category/stage/semantic matching;
-- reopened deals use the latest matching closure;
-- open deals have null actual close;
-- `movedTime` is the only permitted fallback;
-- no planned-date fallback;
-- every close-dependent report uses factual close time;
-- deployment requires one manual `Обновить из Bitrix` after updating;
-- Docker startup does not refresh automatically.
-
-Replace `.ai/report.md` with a clean report for this task only. Record exact commands and outcomes. Do not claim live verification unless a live call was explicitly performed; live calls are prohibited for implementation verification.
+Replace `.ai/report.md` with an accurate report for this correction. The previous `done` report is not proof and must not remain unchanged.
 
 ## Out Of Scope
 
-- Displaying the planned close date in the frontend.
-- A stage-history timeline screen.
+- Changing the approved factual-close business rule.
+- Displaying planned close date in the frontend.
+- New UI screens or stage-history timelines.
 - Time-in-stage analytics.
 - Historical as-of reporting.
 - Automatic or scheduled refresh.
-- Background queues.
-- Any Bitrix write method.
-- Live Bitrix inspection during implementation.
-- Unrelated frontend redesign.
-- Production deployment itself.
+- Broad reconciliation redesign unrelated to factual close correctness.
+- Any Bitrix write operation.
+- Live Bitrix inspection.
+- Production deployment.
 
 ## Constraints
 
-- Follow `AGENTS.md`, `WORKFLOW.md`, and current repository documentation.
+- Follow current repository instructions and documentation.
 - Keep Bitrix strictly read-only.
-- Allowed new Bitrix method:
+- Reuse the existing approved read method:
 
 ```text
 crm.stagehistory.list
 ```
 
-- Existing allowed read methods remain unchanged.
 - Never add or call:
 
 ```text
@@ -377,38 +351,36 @@ crm.*.set
 
 - Never use wildcard selects.
 - Do not make live Bitrix calls.
-- Do not expose or commit webhook URLs, credentials, `.env`, DuckDB files, raw private rows, Parquet/CSV exports with real data, logs, caches, `node_modules`, `frontend/dist`, browser artifacts, or temporary tooling.
 - Do not modify `.ai/task.md` during implementation.
 - Do not use `git add .`.
-- Preserve transaction safety and the previous active dataset on handled refresh failure.
+- Do not expose or commit secrets, real `.env`, DuckDB files, real Parquet/CSV data, raw private rows, logs, caches, `node_modules`, `frontend/dist`, browser artifacts, or temporary tooling.
+- Keep history loading bounded to explicit deal IDs.
+- Preserve previous active data on every handled failure.
 - Docker startup must continue to start services only.
 
 ## Acceptance Criteria
 
-1. `CLOSEDATE` is preserved only as planned close information and is never used as factual close time.
-2. Current open deals always have `actual_closed_at = null`.
-3. Current won/lost deals resolve factual close from the latest exact current final-stage history record.
-4. `movedTime` is used only as the documented fallback for a current final stage.
-5. Missing both history and `movedTime` for a closed deal fails refresh safely.
-6. `crm.stagehistory.list` uses read-only allowlisted, batched, paginated requests with approved fields.
-7. No per-deal N+1 history loading is introduced.
-8. Planned and factual timestamps are represented separately in domain/storage.
-9. Existing DuckDB files migrate additively and remain openable.
-10. Raw stage history is auditable and contains only approved columns.
-11. Failed refresh does not replace or corrupt the previous active dataset.
-12. Deals `closed_date` and `cycle_days` use factual close time.
-13. Contacts, ABC, KEV, RFM, revenue series, cycle reports, date filters, and currency-rate selection use factual close time.
-14. Planned close date has no effect on close analytics.
-15. The January/February/June regression displays and calculates through June.
-16. Reopened/reclosed deals use the latest exact closure.
-17. Existing public API shape remains practical and frontend behavior remains compatible.
-18. Full backend suite passes.
-19. Frontend build passes.
-20. Both Compose configurations pass.
-21. Documentation is current and `.ai/report.md` is accurate.
-22. No live Bitrix calls, writes, secrets, databases, or generated private data are committed.
-23. Docker startup still does not refresh automatically.
-24. Manual post-deployment refresh is documented.
+1. Explicit reconciliation uses the existing batched read-only stage-history boundary for affected closed deals.
+2. No history N+1 request pattern is introduced.
+3. Newly inserted won/lost deals cannot remain with `actual_closed_at = NULL` after successful reconciliation.
+4. Existing confirmed won/lost deals missing factual close are repaired before successful activation.
+5. Open deals always keep `actual_closed_at = NULL`.
+6. Exact current category/stage/semantic history wins and latest exact reclose is selected.
+7. `movedTime` is the only fallback.
+8. `CLOSEDATE` is stored only as `planned_close_at` and never used factually.
+9. Reconciled deals preserve `planned_close_at`, `actual_closed_at`, and `kev_held`.
+10. Deprecated physical `closed_at` remains unused and is not populated from planned data.
+11. Approved raw history is stored transactionally and idempotently.
+12. Failed resolution/history loading causes no partial deal, history, link, normalized, or activation changes.
+13. Previous active dataset remains active after handled reconciliation failure.
+14. The January/February/June explicit reconciliation regression displays and calculates through June.
+15. Existing normal refresh and all factual-close analytics remain correct.
+16. Full backend suite passes.
+17. Frontend build passes.
+18. Both Compose configurations pass.
+19. Documentation and `.ai/report.md` are accurate.
+20. No live Bitrix calls, writes, wildcard selects, secrets, databases, or generated private data are committed.
+21. Docker startup remains unchanged.
 
 ## Checks
 
@@ -419,14 +391,14 @@ git log --oneline -8
 git status --short
 ```
 
-Focused backend tests while implementing:
+Focused backend tests:
 
 ```bash
 cd backend
-python -m pytest tests/test_bitrix_client.py tests/test_bitrix_ingestion.py tests/test_storage.py tests/test_analytics.py tests/test_api_local.py
+python -m pytest tests/test_bitrix_client.py tests/test_bitrix_ingestion.py tests/test_contact_deal_diagnostics.py tests/test_analytics.py tests/test_api_bitrix.py tests/test_api_local.py
 ```
 
-Use the actual existing test filenames if they differ; record them exactly.
+Use actual existing test filenames and record the exact command.
 
 Complete backend suite:
 
@@ -455,7 +427,7 @@ docker compose config
 docker compose -f docker-compose.prod.yml config
 ```
 
-Local operator flow must use synthetic data and disable live Bitrix:
+Local operator flow must use synthetic or fully mocked data with live Bitrix disabled:
 
 ```bash
 BITRIX_WEBHOOK_URL="" docker compose up --build -d
@@ -463,7 +435,7 @@ curl -f http://localhost:8000/health
 curl -f http://localhost:5173/
 ```
 
-Exercise synthetic/local endpoints only. Do not click or call `Обновить из Bitrix` with live credentials.
+Do not call the live reconciliation or refresh endpoints with real credentials.
 
 After verification:
 
@@ -471,16 +443,11 @@ After verification:
 docker compose down -v
 ```
 
-Safety search:
+Safety and diff review:
 
 ```bash
 rg "crm\.[A-Za-z0-9_.]*(add|update|delete|set)" backend/app backend/tests frontend/src docs
 rg 'select[^\n]*\*' backend/app backend/tests
-```
-
-Diff validation:
-
-```bash
 git diff --check -- ':!AGENTS.md' ':!.ai/task.md' ':!WORKFLOW.md'
 git status --short --branch
 git diff --name-only --cached
@@ -490,27 +457,28 @@ git diff --name-only --cached
 
 Before commit:
 
-- factual close resolver tests pass for planned-vs-actual, open-after-close, reclose, mismatched stage/category, S/F semantics, movedTime fallback, missing fallback, and timezone cases;
-- batch and pagination tests prove no N+1 history loading;
-- existing-file migration test passes;
-- previous-active-dataset preservation test passes;
-- all close-dependent analytics are audited and covered;
-- the complete backend suite passes;
+- explicit reconciliation January/February/June regression passes;
+- new and existing closed-deal factual resolution tests pass;
+- open-after-close, reclose, exact match, `movedTime` fallback, and missing fallback tests pass;
+- batching proves no N+1 history requests;
+- planned date, factual date, KEV, and approved raw history persistence are verified;
+- failed reconciliation preserves raw, normalized, and active dataset state;
+- idempotency test passes;
+- complete backend suite passes;
 - Python compileall passes;
 - frontend build passes;
-- both Compose configs pass;
-- synthetic operator flow passes without any live Bitrix call;
-- `.ai/report.md` contains exact current-task commands and outcomes only;
-- documentation clearly separates planned and factual close dates;
+- both Compose configurations pass;
+- synthetic/mocked operator flow passes without live Bitrix access;
+- `.ai/report.md` contains exact current correction results only;
 - only task-related files and `.ai/report.md` are staged;
-- no `.env`, secrets, databases, snapshots with real data, CSV, logs, caches, `node_modules`, `frontend/dist`, browser artifacts, temporary tooling, or `ui-kits/` changes are staged;
+- no `.env`, secrets, databases, real snapshots, CSV, raw private data, logs, caches, `node_modules`, `frontend/dist`, browser artifacts, temporary tooling, or `ui-kits/` changes are staged;
 - no Bitrix write method or wildcard select is added;
 - Docker startup behavior remains unchanged.
 
-Set `.ai/report.md` status to `done` only after every acceptance criterion and check passes.
+Set `.ai/report.md` status to `done` only after every acceptance criterion and hard gate passes.
 
 Commit message:
 
 ```text
-codex: TASK-2026-07-20-06 Use actual deal close timestamps
+codex: TASK-2026-07-20-06 Fix reconciliation factual close timestamps
 ```
