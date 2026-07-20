@@ -390,8 +390,12 @@ and completeness flags. It never requests `*` or `fm`.
 separate mutating operator helper for explicit-ID reconciliation. It uses the
 same bounded read-only Bitrix verification, inserts only confirmed missing
 local links for the supplied contact/deal IDs, repairs new or existing confirmed
-closed deals through one bounded `crm.stagehistory.list` load, and stores the
-full approved deal fields and approved history transactionally. Exact current
+closed deals through one bounded `crm.stagehistory.list` load for every
+confirmed current closed ID, even when local `actual_closed_at` is non-null.
+This detects reopen/reclose into the same stage. Reconciliation resolves first,
+then compares name, amount, currency, creation/planned/factual timestamps,
+stage, category, status and KEV, selectively upserting only changed rows while
+storing approved history transactionally. Exact current
 category/stage/semantic history wins; `movedTime` is the sole fallback. A closed
 deal without either source returns an error without partial writes or active
 dataset replacement. It then reruns normalization and records a local dataset

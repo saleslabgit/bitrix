@@ -77,8 +77,11 @@ explicit reconciliation helper can be invoked by an operator/developer for a
 supplied contact ID and supplied deal IDs only. It verifies Bitrix
 `crm.deal.contact.items.get` relation data for those deal IDs, inserts only
 confirmed missing local links and the full approved deal row when needed. For
-affected closed deals it uses the same exact stage-history/`movedTime` factual
-close resolver as manual refresh and stores approved history idempotently. Deal,
+every confirmed current closed deal it uses the same exact
+stage-history/`movedTime` factual-close resolver as manual refresh, even when a
+local factual date already exists. This detects same-stage reclose. The fully
+resolved remote snapshot is compared across every approved deal field before a
+selective upsert, and approved history is stored idempotently. Deal,
 history, link, normalization, status, and activation changes share one
 transaction; a handled failure preserves the previous active dataset. This path is not part of
 Docker startup, normal page load, broad scheduled sync, or the regular manual

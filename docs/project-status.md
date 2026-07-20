@@ -128,6 +128,11 @@ as manual refresh. It cannot activate an affected current closed deal without
 exact final-stage history or `movedTime`, and deal/history/link writes roll back
 together on handled failure.
 
+Every confirmed current closed reconciliation deal now participates in the
+bounded history load even with an existing factual timestamp. Same-stage
+reclose is detected, and the complete approved resolved deal snapshot is
+compared before selective upsert.
+
 Deal close analytics now use the actual transition into the current final stage.
 `CLOSEDATE` is preserved as planned data only; exact stage history wins and
 `movedTime` is the sole fallback. A manual `Обновить из Bitrix` is required once

@@ -4,16 +4,15 @@
 
 ## Кратко
 
-Исправлен explicit contact-deal reconciliation: новые и существующие
-подтвержденные закрытые сделки теперь проходят тот же factual-close resolver,
-что normal manual refresh. History загружается одним bounded вызовом для набора
-deal IDs до локальных writes; exact current final-stage history имеет приоритет,
-`movedTime` остается единственным fallback.
+Explicit reconciliation теперь загружает final-stage history для каждого
+confirmed current won/lost deal до решения о локальном upsert, включая сделки с
+уже заполненным `actual_closed_at`. Поэтому reopen/reclose в ту же стадию
+обновляет stale factual timestamp.
 
-Reconciliation transactionally upsert-ит полный approved deal state, approved
-raw history и links, затем выполняет normalization, status и activation. Любая
-handled ошибка разрешения или локальной транзакции не оставляет partial rows и
-не заменяет предыдущий active dataset.
+После factual resolution полный remote `DealSnapshot` сравнивается с локальным
+по всем approved полям. Upsert выполняется только для отсутствующей или реально
+измененной строки; approved history по bounded IDs сохраняется транзакционно
+даже для неизменной сделки.
 
 ## Измененные файлы
 
@@ -27,56 +26,54 @@ handled ошибка разрешения или локальной транза
 
 ## Запущенные проверки
 
-- Final focused reconciliation:
-  `python -m pytest tests/test_contact_deal_diagnostics.py -q` — `12 passed`.
-- Required focused backend set в одноразовом container — `112 passed`.
+- Focused reconciliation:
+  `python -m pytest tests/test_contact_deal_diagnostics.py -q` — `15 passed`.
 - Final full backend suite: `python -m pytest -q` —
-  `157 passed in 144.03s` (включает финальный rollback test).
+  `160 passed in 167.99s`.
 - `python3 -m compileall backend/app backend/tests` — passed.
 - `cd frontend && npm run build` — passed; осталось существующее Vite warning
   о chunk больше 500 kB.
 - `docker compose config --quiet` — passed.
 - `docker compose -f docker-compose.prod.yml config --quiet` — passed.
-- Operator flow с временным `/tmp/task06-compose.override.yml`,
-  `APP_AUTH_ENABLED=false`, `BITRIX_WEBHOOK_URL=""`: backend `/health` и
-  frontend вернули HTTP 200; synthetic `POST /api/sync/run` завершился success
-  и сообщил `No Bitrix calls were made`; `down -v` — passed.
+- Synthetic operator flow через `/tmp/task06-compose.override.yml` с
+  `APP_AUTH_ENABLED=false` и `BITRIX_WEBHOOK_URL=""`: `/health` и frontend —
+  HTTP 200; `POST /api/sync/run` — success с `No Bitrix calls were made`;
+  `docker compose ... down -v` — passed.
 - Safety search CRM writes нашел только intentional negative test
   `crm.deal.update`; wildcard selects не найдены.
 - `git diff --check -- ':!AGENTS.md' ':!.ai/task.md' ':!WORKFLOW.md'` — passed.
 
 ## Факты
 
-- Reconciliation переиспользует `transform_deals`,
-  `transform_deal_stage_history` и `apply_actual_close_times`.
-- Для нескольких affected closed deals выполняется один вызов
-  `list_deal_stage_history`; per-deal history N+1 отсутствует.
-- New/changed/missing-factual deal rows сохраняют `closed_at=NULL`,
-  `planned_close_at`, factual `actual_closed_at`, `kev_held` и остальные
-  approved поля.
-- Approved seven-column history сохраняется idempotent upsert-ом только для
-  bounded affected IDs; unrelated history не удаляется.
-- Existing valid unchanged closed rows не переписываются. Existing closed rows
-  с `actual_closed_at=NULL` ремонтируются; current open rows очищают factual
-  timestamp.
-- January/February/June test проверяет raw/normalized даты, KEV, history, Deals
-  API close date и cycle through June. Reclose, fallback, batching и повторный
-  reconciliation также покрыты.
-- Forced normalization failure доказал rollback deal/history/link writes и
-  сохранение предыдущего active run.
+- Один bounded `list_deal_stage_history()` получает все confirmed current
+  closed IDs; N+1 отсутствует.
+- `apply_actual_close_times()` применяется ко всем confirmed transformed deals:
+  closed получают latest exact/fallback, open получают `NULL`.
+- Existing-local reclose test сохраняет unchanged stage/category/status/planned
+  date/KEV, но обновляет factual close May -> June; Deals API и cycle используют
+  June.
+- Local state загружается как typed `DealSnapshot`: name, Decimal amount,
+  currency, UTC creation/planned/factual timestamps, stage, category, status и
+  KEV сравниваются детерминированно.
+- Отдельный test доказывает update при изменении только name, amount, currency и
+  creation time. Unchanged closed test доказывает history fetch и пустой deal
+  upsert.
+- Deprecated physical `closed_at` остается `NULL` и не участвует в сравнении.
+- Existing fallback, missing factual, open, batching, idempotency и forced
+  rollback tests сохранены и проходят.
 - Live Bitrix calls не выполнялись; Docker startup не изменялся.
 
 ## Предположения
 
-- Использованы предположения из `.ai/task.md`; новых нет.
+- Новых предположений сверх `.ai/task.md` нет.
 
 ## Неизвестное
 
-- Live tenant history completeness и permission для `crm.stagehistory.list`
-  остаются намеренно непроверенными.
+- Live tenant history completeness и webhook permission намеренно не
+  проверялись.
 
 ## Риски или следующий шаг
 
-- В live окружении отсутствие и exact history, и `movedTime` у подтвержденной
-  закрытой сделки вернет safe reconciliation error и сохранит active dataset;
-  это следует проверить только отдельным разрешенным operator действием.
+- Live operator reconciliation остается отдельным явно разрешаемым действием.
+  При отсутствии exact history и `movedTime` safe failure сохраняет предыдущий
+  active dataset.

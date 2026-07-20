@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from decimal import Decimal
 
 import duckdb
 
@@ -293,18 +294,9 @@ def reconcile_explicit_contact_deals(
             _load_stages(connection),
         )
     }
-    local_deal_state = _raw_deal_state(connection, candidate_ids)
-    deal_ids_to_write = tuple(
-        deal_id
-        for deal_id in candidate_ids
-        if deal_id not in raw_deal_ids
-        or _deal_requires_reconciliation(
-            transformed_by_id[deal_id], local_deal_state.get(deal_id)
-        )
-    )
     closed_ids_to_resolve = tuple(
         deal_id
-        for deal_id in deal_ids_to_write
+        for deal_id in candidate_ids
         if transformed_by_id[deal_id].status_group in {"won", "lost"}
     )
     history: list[DealStageHistorySnapshot] = []
@@ -318,14 +310,20 @@ def reconcile_explicit_contact_deals(
             closed_id_set = set(closed_ids_to_resolve)
             history = [row for row in history if row.deal_id in closed_id_set]
         resolved_deals = apply_actual_close_times(
-            [transformed_by_id[deal_id] for deal_id in deal_ids_to_write],
-            [facts.deal_rows_by_id[deal_id] for deal_id in deal_ids_to_write],
+            [transformed_by_id[deal_id] for deal_id in candidate_ids],
+            [facts.deal_rows_by_id[deal_id] for deal_id in candidate_ids],
             history,
         )
     except (ValueError, BitrixClientError) as exc:
         resolution_error = exc
+    local_deal_state = _raw_deal_state(connection, candidate_ids)
+    deals_to_write = [
+        deal
+        for deal in resolved_deals
+        if _deal_requires_reconciliation(deal, local_deal_state.get(deal.deal_id))
+    ]
     deal_rows_to_insert = tuple(
-        deal_id for deal_id in deal_ids_to_write if deal_id not in raw_deal_ids
+        deal.deal_id for deal in deals_to_write if deal.deal_id not in raw_deal_ids
     )
     link_rows_to_insert = tuple(
         deal_id
@@ -369,7 +367,7 @@ def reconcile_explicit_contact_deals(
     else:
         connection.execute("BEGIN TRANSACTION")
         try:
-            _upsert_raw_deals(connection, resolved_deals)
+            _upsert_raw_deals(connection, deals_to_write)
             _upsert_raw_stage_history(connection, history)
             _insert_raw_links(
                 connection,
@@ -660,43 +658,48 @@ def _raw_deal_ids(
 def _raw_deal_state(
     connection: duckdb.DuckDBPyConnection,
     deal_ids: tuple[int, ...],
-) -> dict[int, tuple[datetime | None, datetime | None, str, int | None, str, bool]]:
+) -> dict[int, DealSnapshot]:
     if not deal_ids:
         return {}
     placeholders = ", ".join("?" for _ in deal_ids)
     rows = connection.execute(
         f"""
-        SELECT deal_id, actual_closed_at, planned_close_at, stage_id,
+        SELECT deal_id, deal_name, amount_original, currency_original,
+               created_at, planned_close_at, actual_closed_at, stage_id,
                category_id, status_group, kev_held
         FROM raw_deals WHERE deal_id IN ({placeholders})
         """,
         list(deal_ids),
     ).fetchall()
-    return {row[0]: (row[1], row[2], row[3], row[4], row[5], row[6]) for row in rows}
+    return {
+        row[0]: DealSnapshot(
+            deal_id=row[0],
+            deal_name=row[1],
+            amount_original=Decimal(row[2]),
+            currency_original=row[3],
+            created_at=_as_utc(row[4]),
+            planned_close_at=_as_utc(row[5]) if row[5] is not None else None,
+            actual_closed_at=_as_utc(row[6]) if row[6] is not None else None,
+            stage_id=row[7],
+            category_id=row[8],
+            status_group=row[9],
+            kev_held=row[10],
+        )
+        for row in rows
+    }
 
 
 def _deal_requires_reconciliation(
     deal: DealSnapshot,
-    local_state: tuple[datetime | None, datetime | None, str, int | None, str, bool] | None,
+    local_state: DealSnapshot | None,
 ) -> bool:
-    if local_state is None:
-        return True
-    actual, planned, stage_id, category_id, status_group, kev_held = local_state
-    return (
-        (deal.status_group in {"won", "lost"} and actual is None)
-        or (deal.status_group == "open" and actual is not None)
-        or _naive_utc(deal.planned_close_at) != planned
-        or deal.stage_id != stage_id
-        or deal.category_id != category_id
-        or deal.status_group != status_group
-        or deal.kev_held != kev_held
-    )
+    return local_state is None or deal != local_state
 
 
-def _naive_utc(value: datetime | None) -> datetime | None:
-    if value is None:
-        return None
-    return value.astimezone(timezone.utc).replace(tzinfo=None)
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def _linked_contact_ids_by_deal_id(

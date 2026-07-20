@@ -118,9 +118,11 @@ won/lost deals (`entityTypeId=2`, bounded batches, pagination). Фактичес
 Отсутствие и history, и `movedTime` безопасно отменяет refresh.
 
 Explicit contact-deal reconciliation follows the same factual-close contract.
-For affected confirmed closed deals it loads `crm.stagehistory.list` once for
-the bounded ID set, resolves before writes, and transactionally upserts the full
-approved deal state plus seven-column raw history. A current closed deal cannot
+For every confirmed current closed deal it loads `crm.stagehistory.list` once
+for the bounded ID set, including rows with an existing factual timestamp. This
+detects reopen/reclose into the same final stage. After factual resolution it
+compares the complete approved remote deal state and upserts only changed rows,
+while transactionally storing seven-column raw history. A current closed deal cannot
 activate without exact history or `movedTime`; failures preserve the previous
 active dataset.
 

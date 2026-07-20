@@ -175,7 +175,7 @@ def test_reconciliation_stores_planned_and_actual_close_history_and_kev_idempote
     assert first.inserted_raw_deal_ids == (8,)
     assert first.methods_used[-1] == "crm.stagehistory.list"
     assert second.status.state == "success"
-    assert client.history_calls == ((8,),)
+    assert client.history_calls == ((8,), (8,))
     assert raw == (None, datetime(2025, 2, 1), datetime(2025, 6, 1), True)
     assert normalized == (datetime(2025, 6, 1),)
     assert history == [(799, 8, "WON", "S"), (800, 8, "WON", "S")]
@@ -213,6 +213,87 @@ def test_reconciliation_loads_history_once_for_multiple_closed_deals() -> None:
     assert result.status.state == "success"
     assert result.inserted_raw_deal_ids == (8, 9)
     assert client.history_calls == ((8, 9),)
+
+
+def test_reconciliation_existing_reclose_updates_stale_may_close_to_june() -> None:
+    client = FactualReconciliationClient(existing_state=True)
+    with duckdb.connect(database=":memory:") as connection:
+        _load_designer_mismatch_dataset(connection)
+        connection.execute(
+            "UPDATE raw_deals SET actual_closed_at = TIMESTAMP '2025-05-01' WHERE deal_id = 5"
+        )
+        normalize_local_data(connection)
+
+        result = reconcile_explicit_contact_deals(
+            connection, client=client, contact_id=661, deal_ids=(5,)
+        )
+        raw_actual = connection.execute(
+            "SELECT actual_closed_at FROM raw_deals WHERE deal_id = 5"
+        ).fetchone()[0]
+        api_row = list_deal_analytics(connection, deal_id=5).items[0]
+
+    assert result.status.state == "success"
+    assert client.history_calls == ((5,),)
+    assert raw_actual == datetime(2025, 6, 1)
+    assert api_row.closed_date.isoformat() == "2025-06-01"
+    assert api_row.cycle_days == 147
+
+
+def test_reconciliation_compares_and_updates_complete_approved_deal_state() -> None:
+    client = FactualReconciliationClient(
+        existing_state=True,
+        deal_name="Changed Deal",
+        amount="250.50",
+        currency="EUR",
+        created_time="2025-01-02T00:00:00+00:00",
+    )
+    with duckdb.connect(database=":memory:") as connection:
+        _load_designer_mismatch_dataset(connection)
+
+        result = reconcile_explicit_contact_deals(
+            connection, client=client, contact_id=661, deal_ids=(5,)
+        )
+        raw = connection.execute(
+            """
+            SELECT deal_name, amount_original, currency_original, created_at
+            FROM raw_deals WHERE deal_id = 5
+            """
+        ).fetchone()
+        normalized = connection.execute(
+            """
+            SELECT deal_name, amount_original, currency_original, created_at
+            FROM normalized_deals WHERE deal_id = 5
+            """
+        ).fetchone()
+
+    expected = ("Changed Deal", Decimal("250.50"), "EUR", datetime(2025, 1, 2))
+    assert result.status.state == "success"
+    assert raw == expected
+    assert normalized == expected
+
+
+def test_reconciliation_unchanged_closed_deal_fetches_history_without_deal_upsert(
+    monkeypatch,
+) -> None:
+    client = ExplicitDealVerificationClient()
+    upserted: list[tuple[int, ...]] = []
+    original = diagnostics_module._upsert_raw_deals
+
+    def capture_upserts(connection, deals) -> None:
+        upserted.append(tuple(deal.deal_id for deal in deals))
+        original(connection, deals)
+
+    monkeypatch.setattr(diagnostics_module, "_upsert_raw_deals", capture_upserts)
+    with duckdb.connect(database=":memory:") as connection:
+        _load_designer_mismatch_dataset(connection)
+
+        result = reconcile_explicit_contact_deals(
+            connection, client=client, contact_id=661, deal_ids=(1,)
+        )
+
+    assert result.status.state == "success"
+    assert client.history_calls == ((1,),)
+    assert upserted == [()]
 
 
 def test_reconciliation_open_deal_clears_factual_close_without_using_old_history() -> None:
@@ -405,7 +486,10 @@ def _load_designer_mismatch_dataset(connection: duckdb.DuckDBPyConnection) -> No
         ],
     )
     connection.execute(
-        "UPDATE raw_deals SET planned_close_at = closed_at, actual_closed_at = closed_at"
+        """
+        UPDATE raw_deals
+        SET planned_close_at = closed_at, actual_closed_at = closed_at, closed_at = NULL
+        """
     )
     connection.executemany(
         """
@@ -449,6 +533,7 @@ class ExplicitDealVerificationClient:
     def __init__(self) -> None:
         self.listed_deal_ids: tuple[tuple[int, ...], ...] = ()
         self.linked_deal_ids: tuple[int, ...] = ()
+        self.history_calls: tuple[tuple[int, ...], ...] = ()
 
     def list_deals_by_ids(self, deal_ids: tuple[int, ...]) -> list[dict[str, object]]:
         self.listed_deal_ids = (*self.listed_deal_ids, tuple(deal_ids))
@@ -463,6 +548,21 @@ class ExplicitDealVerificationClient:
             {"DEAL_ID": str(deal_id), "CONTACT_ID": "661", "IS_PRIMARY": "N"},
         ]
 
+    def list_deal_stage_history(self, deal_ids: tuple[int, ...]) -> list[dict[str, object]]:
+        self.history_calls = (*self.history_calls, tuple(deal_ids))
+        return [
+            {
+                "ID": str(deal_id * 100),
+                "TYPE_ID": "3",
+                "OWNER_ID": str(deal_id),
+                "CREATED_TIME": f"2025-01-{deal_id:02d}T00:00:00+00:00",
+                "CATEGORY_ID": "0",
+                "STAGE_ID": "WON",
+                "STAGE_SEMANTIC_ID": "S",
+            }
+            for deal_id in deal_ids
+        ]
+
 
 class FactualReconciliationClient(ExplicitDealVerificationClient):
     def __init__(
@@ -471,12 +571,22 @@ class FactualReconciliationClient(ExplicitDealVerificationClient):
         history_rows: list[dict[str, object]] | None = None,
         moved_time: str | None = "2025-07-01T00:00:00+00:00",
         status: str = "won",
+        existing_state: bool = False,
+        deal_name: str | None = None,
+        amount: str = "100.00",
+        currency: str = "USD",
+        created_time: str | None = None,
     ) -> None:
         super().__init__()
         self.history_calls: tuple[tuple[int, ...], ...] = ()
         self.history_rows = history_rows
         self.moved_time = moved_time
         self.status = status
+        self.existing_state = existing_state
+        self.deal_name = deal_name
+        self.amount = amount
+        self.currency = currency
+        self.created_time = created_time
 
     def list_deals_by_ids(self, deal_ids: tuple[int, ...]) -> list[dict[str, object]]:
         self.listed_deal_ids = (*self.listed_deal_ids, tuple(deal_ids))
@@ -517,17 +627,27 @@ class FactualReconciliationClient(ExplicitDealVerificationClient):
 
     def _row(self, deal_id: int) -> dict[str, object]:
         stage_id = "OPEN" if self.status == "open" else "WON"
+        created_time = self.created_time or (
+            f"2025-01-{deal_id:02d}T00:00:00+00:00"
+            if self.existing_state
+            else "2025-01-01T00:00:00+00:00"
+        )
+        planned_time = (
+            f"2025-01-{deal_id:02d}T00:00:00+00:00"
+            if self.existing_state
+            else "2025-02-01T00:00:00+00:00"
+        )
         row = {
             "ID": str(deal_id),
-            "TITLE": f"Deal {deal_id}",
-            "OPPORTUNITY": "100.00",
-            "CURRENCY_ID": "USD",
-            "DATE_CREATE": "2025-01-01T00:00:00+00:00",
-            "CLOSEDATE": "2025-02-01T00:00:00+00:00",
+            "TITLE": self.deal_name or f"Deal {deal_id}",
+            "OPPORTUNITY": self.amount,
+            "CURRENCY_ID": self.currency,
+            "DATE_CREATE": created_time,
+            "CLOSEDATE": planned_time,
             "STAGE_ID": stage_id,
             "CATEGORY_ID": "0",
             "CONTACT_ID": "661",
-            "UF_CRM_1716895716": "Y",
+            "UF_CRM_1716895716": "N" if self.existing_state else "Y",
         }
         if self.moved_time is not None:
             row["MOVED_TIME"] = self.moved_time
