@@ -14,6 +14,8 @@ EXPECTED_COLUMNS = {
         "currency_original",
         "created_at",
         "closed_at",
+        "planned_close_at",
+        "actual_closed_at",
         "stage_id",
         "category_id",
         "status_group",
@@ -25,6 +27,9 @@ EXPECTED_COLUMNS = {
         "is_primary",
         "sort_order",
         "role_id",
+    ),
+    "raw_deal_stage_history": (
+        "history_id", "deal_id", "type_id", "created_at", "category_id", "stage_id", "stage_semantic_id"
     ),
     "raw_stages": ("stage_id", "category_id", "status_group"),
     "contact_type_rules": (
@@ -56,6 +61,8 @@ EXPECTED_COLUMNS = {
         "currency_original",
         "created_at",
         "closed_at",
+        "planned_close_at",
+        "actual_closed_at",
         "stage_id",
         "category_id",
         "status_group",
@@ -214,6 +221,10 @@ def test_schema_migrates_previous_file_without_losing_deal_rows(tmp_path) -> Non
                 if row[1] == "kev_held"
             )
             assert kev_column[3] is True
+            values = connection.execute(
+                f"SELECT planned_close_at, actual_closed_at FROM {table_name}"
+            ).fetchone()
+            assert values == (None, None)
 
 
 def test_configured_duckdb_file_storage_persists_across_connections(tmp_path) -> None:

@@ -99,7 +99,9 @@ def normalize_local_data(connection: duckdb.DuckDBPyConnection) -> None:
                 deal.amount_original,
                 deal.currency_original,
                 deal.created_at,
-                deal.closed_at,
+                None,
+                deal.planned_close_at,
+                deal.actual_closed_at,
                 deal.stage_id,
                 deal.category_id,
                 status_group,
@@ -121,6 +123,8 @@ def normalize_local_data(connection: duckdb.DuckDBPyConnection) -> None:
                 currency_original,
                 created_at,
                 closed_at,
+                planned_close_at,
+                actual_closed_at,
                 stage_id,
                 category_id,
                 status_group,
@@ -130,7 +134,7 @@ def normalize_local_data(connection: duckdb.DuckDBPyConnection) -> None:
                 region_normalized,
                 kev_held
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             normalized_deal_rows,
         )
@@ -177,6 +181,8 @@ def _load_deals(connection: duckdb.DuckDBPyConnection) -> list[DealSnapshot]:
             currency_original,
             created_at,
             closed_at,
+            planned_close_at,
+            actual_closed_at,
             stage_id,
             category_id,
             status_group
@@ -192,11 +198,12 @@ def _load_deals(connection: duckdb.DuckDBPyConnection) -> list[DealSnapshot]:
             amount_original=Decimal(row[2]),
             currency_original=row[3],
             created_at=_as_utc(row[4]),
-            closed_at=_as_utc(row[5]) if row[5] is not None else None,
-            stage_id=row[6],
-            category_id=row[7],
-            status_group=row[8],
-            kev_held=row[9],
+            planned_close_at=_as_utc(row[6]) if row[6] is not None else None,
+            actual_closed_at=_as_utc(row[7]) if row[7] is not None else None,
+            stage_id=row[8],
+            category_id=row[9],
+            status_group=row[10],
+            kev_held=row[11],
         )
         for row in rows
     ]

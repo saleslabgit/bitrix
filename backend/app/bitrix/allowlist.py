@@ -14,6 +14,7 @@ DEAL_SELECT = (
     "CURRENCY_ID",
     "DATE_CREATE",
     "CLOSEDATE",
+    "MOVED_TIME",
     "STAGE_ID",
     "CATEGORY_ID",
     "CONTACT_ID",
@@ -28,6 +29,7 @@ DEAL_ITEM_FIELD_CANDIDATES = {
     "currency": ("currencyId", "currency_id", "CURRENCY_ID"),
     "created_time": ("createdTime", "created_at", "DATE_CREATE"),
     "closed_time": ("closedTime", "closedate", "closed_at", "CLOSEDATE"),
+    "moved_time": ("movedTime", "moved_time", "MOVED_TIME"),
     "stage": ("stageId", "stage_id", "STAGE_ID"),
     "category": ("categoryId", "category_id", "CATEGORY_ID"),
     "primary_contact": ("contactId", "contact_id", "CONTACT_ID"),
@@ -46,6 +48,16 @@ LINK_ALLOWED_FIELDS = (
     "IS_PRIMARY",
     "SORT",
     "ROLE_ID",
+)
+
+STAGE_HISTORY_SELECT = (
+    "ID",
+    "TYPE_ID",
+    "OWNER_ID",
+    "CREATED_TIME",
+    "CATEGORY_ID",
+    "STAGE_ID",
+    "STAGE_SEMANTIC_ID",
 )
 
 STAGE_ALLOWED_FIELDS = (

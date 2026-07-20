@@ -292,8 +292,8 @@ def _deal_date_range(connection: duckdb.DuckDBPyConnection) -> DateRange:
         SELECT
             MIN(created_at),
             MAX(created_at),
-            MIN(closed_at),
-            MAX(closed_at)
+            MIN(actual_closed_at),
+            MAX(actual_closed_at)
         FROM raw_deals
         """
     ).fetchone()

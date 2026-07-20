@@ -267,8 +267,8 @@ def _raw_deal_rate_period(
     row = connection.execute(
         """
         SELECT
-            MIN(CAST(COALESCE(closed_at, created_at) AS DATE)),
-            MAX(CAST(COALESCE(closed_at, created_at) AS DATE))
+            MIN(CAST(CASE WHEN status_group IN ('won', 'lost') THEN actual_closed_at ELSE created_at END AS DATE)),
+            MAX(CAST(CASE WHEN status_group IN ('won', 'lost') THEN actual_closed_at ELSE created_at END AS DATE))
         FROM raw_deals
         """
     ).fetchone()

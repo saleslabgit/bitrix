@@ -12,7 +12,8 @@ RAW_SNAPSHOT_COLUMNS = {
         "amount_original",
         "currency_original",
         "created_at",
-        "closed_at",
+        "planned_close_at",
+        "actual_closed_at",
         "stage_id",
         "category_id",
         "status_group",
@@ -27,6 +28,9 @@ RAW_SNAPSHOT_COLUMNS = {
     ),
     "raw_stages": ("stage_id", "category_id", "status_group"),
     "raw_deal_categories": ("category_id", "category_name", "sort_order"),
+    "raw_deal_stage_history": (
+        "history_id", "deal_id", "type_id", "created_at", "category_id", "stage_id", "stage_semantic_id"
+    ),
 }
 
 

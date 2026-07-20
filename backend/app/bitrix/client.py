@@ -12,6 +12,7 @@ from app.bitrix.allowlist import (
     build_contact_select,
     build_deal_item_select,
     build_deal_select,
+    STAGE_HISTORY_SELECT,
 )
 
 
@@ -28,6 +29,7 @@ READ_ONLY_METHODS = frozenset(
         "crm.deal.contact.items.get",
         "crm.status.list",
         "crm.category.list",
+        "crm.stagehistory.list",
     }
 )
 
@@ -207,6 +209,31 @@ class BitrixClient:
                 },
             )
         )
+
+    def list_deal_stage_history(
+        self,
+        deal_ids: Iterable[int],
+        *,
+        batch_size: int = 50,
+    ) -> list[dict[str, Any]]:
+        ids = sorted({int(deal_id) for deal_id in deal_ids})
+        if batch_size < 1 or batch_size > 50:
+            raise BitrixConfigurationError("Bitrix stage-history batch size must be between 1 and 50.")
+        rows: list[dict[str, Any]] = []
+        for offset in range(0, len(ids), batch_size):
+            batch = ids[offset : offset + batch_size]
+            rows.extend(
+                self._list_method(
+                    "crm.stagehistory.list",
+                    {
+                        "entityTypeId": 2,
+                        "filter": {"@OWNER_ID": batch, "TYPE_ID": 3},
+                        "select": list(STAGE_HISTORY_SELECT),
+                        "order": {"ID": "ASC"},
+                    },
+                )
+            )
+        return rows
 
     def _list_method(
         self,

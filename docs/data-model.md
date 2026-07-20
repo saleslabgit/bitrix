@@ -33,7 +33,16 @@ Real Bitrix ingestion stores only the allowed deal columns:
 - `OPPORTUNITY` -> `amount_original`;
 - `CURRENCY_ID` -> `currency_original`;
 - `DATE_CREATE` -> `created_at`;
-- `CLOSEDATE` -> `closed_at`;
+- `CLOSEDATE` -> `planned_close_at` (planned/editable only);
+- latest exact current final-stage history `CREATED_TIME` -> `actual_closed_at`;
+
+`raw_deal_stage_history` stores only `history_id`, `deal_id`, `type_id`,
+`created_at`, `category_id`, `stage_id`, and `stage_semantic_id`. Closed deals
+match exact current category/stage and `S`/`F`; a later matching re-close wins
+with history ID as tie-breaker. `movedTime` is the only fallback. Open deals and
+pre-refresh legacy databases have null factual close timestamps. Deprecated
+physical `closed_at` columns are retained only for additive compatibility and
+are never read by analytics.
 - `STAGE_ID` -> `stage_id`;
 - `CATEGORY_ID` -> `category_id`;
 - `UF_CRM_1716895716` -> universal CRM key `ufCrm_1716895716` -> `kev_held`.
@@ -125,7 +134,7 @@ amount_usd = amount_original * source_rate_byn / usd_rate_byn
 ```
 
 The selected rate is the latest local rate for the deal currency on or before
-the target date. Closed deals use `closed_at`; open deals use `created_at`. If a
+the target date. Closed deals use `actual_closed_at`; open deals use `created_at`. If a
 deal date is after the last loaded NBRB date, reports use the latest loaded rate
 on or before that deal date.
 
@@ -289,7 +298,7 @@ The Deals endpoint also supports exact `kev_held=true|false` filtering and never
 returns the raw Bitrix checkbox value.
 
 `GET /api/reports/kev-conversion/analytics` reads only local
-`normalized_deals`. It includes rows with `closed_at IS NOT NULL` and
+`normalized_deals`. It includes rows with `actual_closed_at IS NOT NULL` and
 `status_group IN ('won', 'lost')`; open deals never participate. Each KEV group
 returns closed, won, and lost counts plus `won / (won + lost) * 100`, rounded to
 one decimal place. A zero denominator returns `null`. The difference is
@@ -312,7 +321,7 @@ local analytics data rather than silently estimated.
 
 `GET /api/reports/abc/analytics` calculates classic customer ABC on demand from
 local normalized data. ABC uses only won deals, local USD revenue, and
-`normalized_deals.closed_at` for period filtering. Rows are grouped by
+`normalized_deals.actual_closed_at` for period filtering. Rows are grouped by
 `analytical_contact_id`; deals without an analytical contact are not shown as
 fake customers. Classification sorts positive-revenue customers by revenue
 descending and then `contact_id` ascending. Segment assignment uses cumulative

@@ -13,7 +13,11 @@ Implemented screen:
 - Deals table state is persisted in browser local storage under `bitrix-sales.deals.v1`; reset clears only Deals table state.
 - Deals exposes the normalized `КЭВ` status as `Был` / `Не был` and supports an exact KEV filter.
 - `ABC` report table with exact customer ID, customer search, type, `Было` ABC segment, migration priority, changed-only filter, applied `Было` period, optional applied `Стало` period, pagination, loading, error, empty, reset, Bitrix contact-card links, and sortable local USD revenue/share columns.
-- The ABC table uses `/api/reports/abc/analytics`. `Было` ABC is calculated from won-only USD revenue by local `closed_at` dates. When both `Стало` dates are applied, target revenue/segment, transition, and priority columns are shown in the same table; customers with revenue in either period are included so lost and reappeared customers remain visible. Transition direction is always `ABC было -> ABC стало`.
+- The ABC table uses `/api/reports/abc/analytics`. `Было` ABC is calculated from won-only USD revenue by factual local close timestamps. When both `Стало` dates are applied, target revenue/segment, transition, and priority columns are shown in the same table; customers with revenue in either period are included so lost and reappeared customers remain visible. Transition direction is always `ABC было -> ABC стало`.
+
+`Дата закрытия`, close filters and cycle values use the factual transition into
+the current final stage. The planned Bitrix `CLOSEDATE` is not displayed. Missing
+factual dates/cycles render as `—`.
 - Contacts, Deals, and ABC filters open in a right-side drawer from the compact workspace action row. Closing the drawer does not reset report state; reset clears only the active report state.
 - In the ABC drawer, `Только изменившие ABC` is disabled until `Стало` is applied and is not sent for single-period ABC requests.
 - ABC table state is persisted separately under `bitrix-sales.abc.v1`; reset clears only ABC table state.

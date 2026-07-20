@@ -149,3 +149,9 @@ files, webhook URLs, passwords, or session secrets.
 
 After updating the deployment, an operator must manually run `Обновить из
 Bitrix` to populate the local funnel directory and category-aware stages.
+# Factual deal close timestamps
+
+After deploying the factual-close schema, run `Обновить из Bitrix` once
+manually. This populates stage history and `actual_closed_at`; until then legacy
+planned dates are deliberately not used and close analytics can be unavailable.
+Docker startup continues to start services only and never calls Bitrix.

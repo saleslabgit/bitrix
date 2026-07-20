@@ -634,13 +634,13 @@ def get_kev_conversion_report(
     category_id: int | None = None,
 ) -> KevConversionReport:
     initialize_schema(connection)
-    filters = ["status_group IN ('won', 'lost')", "closed_at IS NOT NULL"]
+    filters = ["status_group IN ('won', 'lost')", "actual_closed_at IS NOT NULL"]
     parameters: list[object] = []
     if date_from is not None:
-        filters.append("CAST(closed_at AS DATE) >= ?")
+        filters.append("CAST(actual_closed_at AS DATE) >= ?")
         parameters.append(date_from)
     if date_to is not None:
-        filters.append("CAST(closed_at AS DATE) <= ?")
+        filters.append("CAST(actual_closed_at AS DATE) <= ?")
         parameters.append(date_to)
     if contact_type is not None:
         filters.append("contact_type_normalized = ?")
@@ -1169,7 +1169,7 @@ def _load_deal_facts(
             amount_original,
             currency_original,
             created_at,
-            closed_at,
+            actual_closed_at,
             status_group,
             analytical_contact_id,
             analytical_contact_name,

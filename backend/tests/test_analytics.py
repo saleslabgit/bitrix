@@ -945,6 +945,7 @@ def _load_abc_boundary_dataset(connection: duckdb.DuckDBPyConnection) -> None:
             ),
         ],
     )
+    connection.execute("UPDATE normalized_deals SET actual_closed_at = closed_at")
 
 
 def _load_abc_analytics_dataset(connection: duckdb.DuckDBPyConnection) -> None:
@@ -1103,6 +1104,9 @@ def _load_abc_analytics_dataset(connection: duckdb.DuckDBPyConnection) -> None:
     )
 
 
+    connection.execute("UPDATE normalized_deals SET actual_closed_at = closed_at")
+
+
 def _load_abc_growth_dataset(connection: duckdb.DuckDBPyConnection) -> None:
     initialize_schema(connection)
     connection.executemany(
@@ -1214,6 +1218,9 @@ def _load_abc_growth_dataset(connection: duckdb.DuckDBPyConnection) -> None:
     )
 
 
+    connection.execute("UPDATE normalized_deals SET actual_closed_at = closed_at")
+
+
 def _load_equal_revenue_dataset(connection: duckdb.DuckDBPyConnection) -> None:
     initialize_schema(connection)
     connection.executemany(
@@ -1295,6 +1302,9 @@ def _load_equal_revenue_dataset(connection: duckdb.DuckDBPyConnection) -> None:
     )
 
 
+    connection.execute("UPDATE normalized_deals SET actual_closed_at = closed_at")
+
+
 def _load_usd_deal_without_rates_dataset(connection: duckdb.DuckDBPyConnection) -> None:
     initialize_schema(connection)
     connection.execute(
@@ -1347,6 +1357,9 @@ def _load_usd_deal_without_rates_dataset(connection: duckdb.DuckDBPyConnection) 
             datetime(2025, 1, 2, tzinfo=timezone.utc),
         ],
     )
+
+
+    connection.execute("UPDATE normalized_deals SET actual_closed_at = closed_at")
 
 
 def _load_creation_date_filter_dataset(connection: duckdb.DuckDBPyConnection) -> None:
@@ -1425,3 +1438,4 @@ def _load_creation_date_filter_dataset(connection: duckdb.DuckDBPyConnection) ->
             ),
         ],
     )
+    connection.execute("UPDATE normalized_deals SET actual_closed_at = closed_at")

@@ -2,7 +2,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, AwareDatetime, BaseModel, ConfigDict, Field
 
 
 StatusGroup = Literal["won", "open", "lost"]
@@ -24,11 +24,30 @@ class DealSnapshot(DomainModel):
     amount_original: Decimal
     currency_original: str = Field(min_length=1)
     created_at: AwareDatetime
-    closed_at: AwareDatetime | None = None
+    planned_close_at: AwareDatetime | None = None
+    actual_closed_at: AwareDatetime | None = Field(
+        default=None,
+        validation_alias=AliasChoices("actual_closed_at", "closed_at"),
+    )
     stage_id: str = Field(min_length=1)
     category_id: int | None = None
     status_group: StatusGroup
     kev_held: bool = False
+
+    @property
+    def closed_at(self) -> AwareDatetime | None:
+        """Deprecated domain compatibility alias; always factual."""
+        return self.actual_closed_at
+
+
+class DealStageHistorySnapshot(DomainModel):
+    history_id: int = Field(gt=0)
+    deal_id: int = Field(gt=0)
+    type_id: int
+    created_at: AwareDatetime
+    category_id: int = Field(ge=0)
+    stage_id: str = Field(min_length=1)
+    stage_semantic_id: Literal["S", "F", "P"]
 
 
 class DealContactLink(DomainModel):

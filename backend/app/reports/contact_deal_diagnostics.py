@@ -653,7 +653,7 @@ def _insert_raw_deals(
             amount_original,
             currency_original,
             created_at,
-            closed_at,
+            actual_closed_at,
             stage_id,
             category_id,
             status_group

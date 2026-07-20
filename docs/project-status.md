@@ -123,6 +123,11 @@ Frontend reporting milestone for the Bitrix sales analytics MVP: local analytics
 
 ## Next Likely Steps
 
+Deal close analytics now use the actual transition into the current final stage.
+`CLOSEDATE` is preserved as planned data only; exact stage history wins and
+`movedTime` is the sole fallback. A manual `Обновить из Bitrix` is required once
+after deployment to populate factual timestamps; Docker startup remains passive.
+
 Deploy manually on the FASTVPS server when the final domain and panel settings are known. After deployment, manually run `Обновить из Bitrix` to populate KEV values in the local dataset.
 
 The same manual refresh populates funnel names and category-aware stage semantics;

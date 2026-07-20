@@ -12,6 +12,8 @@ from app.bitrix.transform import (
     transform_deal_categories,
     transform_deal_contact_links_from_deals,
     transform_deals,
+    transform_deal_stage_history,
+    apply_actual_close_times,
     transform_stages,
 )
 from app.pipeline.normalization import normalize_local_data
@@ -54,6 +56,11 @@ def run_bitrix_manual_ingestion(
         )
         deal_rows = client.list_deal_items()
         deals = transform_deals(deal_rows, stages)
+        closed_deal_ids = [deal.deal_id for deal in deals if deal.status_group in {"won", "lost"}]
+        history = transform_deal_stage_history(
+            client.list_deal_stage_history(closed_deal_ids)
+        )
+        deals = apply_actual_close_times(deals, deal_rows, history)
         links = transform_deal_contact_links_from_deals(deal_rows)
         connection.execute("BEGIN TRANSACTION")
         load_bitrix_raw_data(
@@ -63,6 +70,7 @@ def run_bitrix_manual_ingestion(
             links=links,
             stages=stages,
             categories=categories,
+            history=history,
         )
         if finalize_local_data is None:
             normalize_local_data(connection)

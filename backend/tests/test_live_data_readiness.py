@@ -158,6 +158,7 @@ def test_currency_rate_loader_uses_mocked_nbrb_dynamics() -> None:
                 ),
             ],
         )
+        connection.execute("UPDATE raw_deals SET actual_closed_at = created_at")
 
         result = load_currency_rates_for_raw_deals(
             connection,
@@ -235,6 +236,7 @@ def test_currency_rate_loader_raises_safe_error_when_raw_deals_have_no_rate_rows
                 None,
             ),
         )
+        connection.execute("UPDATE raw_deals SET actual_closed_at = created_at")
 
         with pytest.raises(ValueError, match="No currency rate rows were loaded"):
             load_currency_rates_for_raw_deals(

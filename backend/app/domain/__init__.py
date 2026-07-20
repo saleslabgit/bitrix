@@ -14,6 +14,7 @@ from app.domain.models import (
     DealCategorySnapshot,
     DealContactLink,
     DealSnapshot,
+    DealStageHistorySnapshot,
     StageSnapshot,
 )
 
@@ -24,6 +25,7 @@ __all__ = [
     "DealCategorySnapshot",
     "DealContactLink",
     "DealSnapshot",
+    "DealStageHistorySnapshot",
     "MISSING_CONTACT_TYPE_RULE_RAW_VALUE",
     "ResolvedContactType",
     "StageSnapshot",

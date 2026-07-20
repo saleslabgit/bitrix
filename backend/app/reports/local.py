@@ -84,8 +84,8 @@ def get_filter_metadata(connection: duckdb.DuckDBPyConnection) -> FilterMetadata
         SELECT
             MIN(created_at),
             MAX(created_at),
-            MIN(closed_at),
-            MAX(closed_at)
+            MIN(actual_closed_at),
+            MAX(actual_closed_at)
         FROM normalized_deals
         """
     ).fetchone()

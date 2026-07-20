@@ -250,8 +250,8 @@ def test_filter_metadata_ignores_null_distinct_values_from_older_local_schema() 
     assert filters_response.statuses == ("won",)
     assert filters_response.min_created_at is not None
     assert filters_response.max_created_at is not None
-    assert filters_response.min_closed_at is not None
-    assert filters_response.max_closed_at is not None
+    assert filters_response.min_closed_at is None
+    assert filters_response.max_closed_at is None
 
 
 def test_dataset_status_reports_active_and_latest_without_sensitive_paths() -> None:
@@ -275,7 +275,7 @@ def test_dataset_profile_reports_only_safe_aggregate_data() -> None:
 
     assert profile.active_dataset is not None
     assert profile.active_dataset.dataset_kind == "local_synthetic"
-    assert profile.snapshot_count == 5
+    assert profile.snapshot_count == 6
     assert all(table.exists for table in profile.expected_tables)
     assert profile.contact_type_raw_counts
     assert profile.contact_type_rules.raw_values_without_active_rule == (
@@ -460,7 +460,7 @@ def test_contact_won_revenue_series_aggregates_won_deals_by_close_date() -> None
     get_connection().execute(
         """
         UPDATE normalized_deals
-        SET closed_at = TIMESTAMP '2023-02-10 00:00:00'
+        SET actual_closed_at = TIMESTAMP '2023-02-10 00:00:00'
         WHERE deal_id = 2
         """
     )
@@ -627,3 +627,4 @@ def _load_api_deal_without_rates_dataset(*, currency: str) -> None:
         """,
         [currency],
     )
+    connection.execute("UPDATE normalized_deals SET actual_closed_at = closed_at")

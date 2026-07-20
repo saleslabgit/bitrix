@@ -24,6 +24,7 @@ def test_discovery_reports_configured_contact_type_field_present() -> None:
                 "CURRENCY_ID": {},
                 "DATE_CREATE": {},
                 "CLOSEDATE": {},
+                "MOVED_TIME": {},
                 "STAGE_ID": {},
                 "CATEGORY_ID": {},
                 "CONTACT_ID": {},

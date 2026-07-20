@@ -7,6 +7,7 @@ EXPECTED_TABLES = (
     "raw_deal_contact_links",
     "raw_stages",
     "raw_deal_categories",
+    "raw_deal_stage_history",
     "contact_type_rules",
     "currency_rates",
     "normalized_contacts",
@@ -49,10 +50,25 @@ def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
             currency_original VARCHAR NOT NULL,
             created_at TIMESTAMP NOT NULL,
             closed_at TIMESTAMP,
+            planned_close_at TIMESTAMP,
+            actual_closed_at TIMESTAMP,
             stage_id VARCHAR NOT NULL,
             category_id INTEGER,
             status_group VARCHAR NOT NULL CHECK (status_group IN ('won', 'open', 'lost')),
             kev_held BOOLEAN NOT NULL DEFAULT false
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS raw_deal_stage_history (
+            history_id BIGINT PRIMARY KEY,
+            deal_id BIGINT NOT NULL,
+            type_id INTEGER NOT NULL,
+            created_at TIMESTAMP NOT NULL,
+            category_id INTEGER NOT NULL,
+            stage_id VARCHAR NOT NULL,
+            stage_semantic_id VARCHAR NOT NULL CHECK (stage_semantic_id IN ('S', 'F', 'P'))
         )
         """
     )
@@ -121,6 +137,8 @@ def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
             currency_original VARCHAR NOT NULL,
             created_at TIMESTAMP NOT NULL,
             closed_at TIMESTAMP,
+            planned_close_at TIMESTAMP,
+            actual_closed_at TIMESTAMP,
             stage_id VARCHAR NOT NULL,
             category_id INTEGER,
             status_group VARCHAR NOT NULL CHECK (status_group IN ('won', 'open', 'lost')),
@@ -181,6 +199,7 @@ def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
         """
     )
     _migrate_kev_columns(connection)
+    _migrate_close_columns(connection)
 
 
 def _migrate_kev_columns(connection: duckdb.DuckDBPyConnection) -> None:
@@ -200,3 +219,16 @@ def _migrate_kev_columns(connection: duckdb.DuckDBPyConnection) -> None:
         connection.execute(
             f"ALTER TABLE {table_name} ALTER COLUMN kev_held SET NOT NULL"
         )
+
+
+def _migrate_close_columns(connection: duckdb.DuckDBPyConnection) -> None:
+    """Add semantic close columns without promoting ambiguous legacy values."""
+    for table_name in ("raw_deals", "normalized_deals"):
+        columns = {
+            row[1] for row in connection.execute(f"PRAGMA table_info('{table_name}')").fetchall()
+        }
+        for column_name in ("planned_close_at", "actual_closed_at"):
+            if column_name not in columns:
+                connection.execute(
+                    f"ALTER TABLE {table_name} ADD COLUMN {column_name} TIMESTAMP"
+                )

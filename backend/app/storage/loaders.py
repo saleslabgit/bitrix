@@ -1,6 +1,6 @@
 import duckdb
 
-from app.domain import ContactSnapshot, DealCategorySnapshot, DealContactLink, DealSnapshot, StageSnapshot
+from app.domain import ContactSnapshot, DealCategorySnapshot, DealContactLink, DealSnapshot, DealStageHistorySnapshot, StageSnapshot
 from app.pipeline.synthetic_dataset import SyntheticDataset
 
 
@@ -10,6 +10,7 @@ RAW_TABLES = (
     "raw_contacts",
     "raw_stages",
     "raw_deal_categories",
+    "raw_deal_stage_history",
     "contact_type_rules",
     "currency_rates",
 )
@@ -20,6 +21,7 @@ BITRIX_RAW_TABLES = (
     "raw_contacts",
     "raw_stages",
     "raw_deal_categories",
+    "raw_deal_stage_history",
 )
 
 
@@ -59,12 +61,14 @@ def load_synthetic_dataset(
             currency_original,
             created_at,
             closed_at,
+            planned_close_at,
+            actual_closed_at,
             stage_id,
             category_id,
             status_group,
             kev_held
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             (
@@ -73,7 +77,9 @@ def load_synthetic_dataset(
                 deal.amount_original,
                 deal.currency_original,
                 deal.created_at,
-                deal.closed_at,
+                None,
+                deal.planned_close_at,
+                deal.actual_closed_at,
                 deal.stage_id,
                 deal.category_id,
                 deal.status_group,
@@ -185,6 +191,7 @@ def load_bitrix_raw_data(
     links: list[DealContactLink],
     stages: list[StageSnapshot],
     categories: list[DealCategorySnapshot] | tuple[()] = (),
+    history: list[DealStageHistorySnapshot] | tuple[()] = (),
 ) -> None:
     for table_name in BITRIX_RAW_TABLES:
         connection.execute(f"DELETE FROM {table_name}")
@@ -212,6 +219,18 @@ def load_bitrix_raw_data(
     _executemany_if_rows(
         connection,
         """
+        INSERT INTO raw_deal_stage_history (
+            history_id, deal_id, type_id, created_at, category_id, stage_id, stage_semantic_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (row.history_id, row.deal_id, row.type_id, row.created_at, row.category_id, row.stage_id, row.stage_semantic_id)
+            for row in history
+        ],
+    )
+    _executemany_if_rows(
+        connection,
+        """
         INSERT INTO raw_deals (
             deal_id,
             deal_name,
@@ -219,12 +238,14 @@ def load_bitrix_raw_data(
             currency_original,
             created_at,
             closed_at,
+            planned_close_at,
+            actual_closed_at,
             stage_id,
             category_id,
             status_group,
             kev_held
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             (
@@ -233,7 +254,9 @@ def load_bitrix_raw_data(
                 deal.amount_original,
                 deal.currency_original,
                 deal.created_at,
-                deal.closed_at,
+                None,
+                deal.planned_close_at,
+                deal.actual_closed_at,
                 deal.stage_id,
                 deal.category_id,
                 deal.status_group,

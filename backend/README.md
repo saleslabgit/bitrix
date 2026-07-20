@@ -108,7 +108,14 @@ only `kev_held`; universal CRM exposes this deal field as
 `ufCrm_1716895716`, and blank/missing means false. Schema initialization
 additively migrates existing raw/normalized deal tables. The KEV conversion
 endpoint counts only closed won/lost deals and filters periods inclusively by
-`closed_at`.
+`actual_closed_at`. Bitrix `CLOSEDATE` хранится отдельно как
+`planned_close_at` и не участвует в аналитике закрытия.
+
+Manual Bitrix refresh загружает `crm.stagehistory.list` только для текущих
+won/lost deals (`entityTypeId=2`, bounded batches, pagination). Фактическая дата
+выбирается по последнему точному совпадению deal/category/stage и семантики
+`S`/`F`; `movedTime` — единственный fallback. Для open deals дата всегда `NULL`.
+Отсутствие и history, и `movedTime` безопасно отменяет refresh.
 
 Manual Bitrix endpoints after starting the backend:
 

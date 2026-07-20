@@ -19,7 +19,7 @@ def test_dataset_profile_reports_safe_aggregate_counts(tmp_path) -> None:
     assert profile.active_dataset is not None
     assert profile.active_dataset.dataset_kind == "local_synthetic"
     assert profile.latest_run is not None
-    assert profile.snapshot_count == 5
+    assert profile.snapshot_count == 6
     assert all(table.exists for table in profile.expected_tables)
 
     raw_type_counts = counts_by_label(profile.contact_type_raw_counts)

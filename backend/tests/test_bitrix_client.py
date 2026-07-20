@@ -5,9 +5,11 @@ from app.bitrix.allowlist import (
     build_contact_select,
     build_deal_item_select,
     build_deal_select,
+    STAGE_HISTORY_SELECT,
 )
-from app.bitrix.transform import parse_kev_held, transform_deals
+from app.bitrix.transform import parse_kev_held, resolve_actual_closed_at, transform_deal_stage_history, transform_deals
 from app.domain import StageSnapshot
+from datetime import datetime, timezone
 from app.bitrix.client import BitrixApiError, BitrixClient, BitrixConfigurationError
 
 
@@ -305,6 +307,42 @@ def test_client_rejects_write_methods() -> None:
 
     with pytest.raises(BitrixConfigurationError):
         client._call_full("crm.deal.update", {"id": 1})
+
+
+def test_stage_history_is_batched_paginated_and_nested_items_are_supported() -> None:
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def transport(method: str, params: dict[str, object]) -> dict[str, object]:
+        calls.append((method, params))
+        owner = params["filter"]["@OWNER_ID"][0]
+        if params["start"] == 0:
+            return {"result": {"items": [{"ID": str(owner)}]}, "next": 1}
+        return {"result": {"items": [{"ID": f"{owner}0"}]}}
+
+    client = BitrixClient("https://example.invalid/rest/1/token/", transport=transport)
+    rows = client.list_deal_stage_history([3, 2, 1], batch_size=1)
+
+    assert len(rows) == 6
+    assert len(calls) == 6
+    assert all(method == "crm.stagehistory.list" for method, _ in calls)
+    assert calls[0][1]["entityTypeId"] == 2
+    assert calls[0][1]["filter"] == {"@OWNER_ID": [1], "TYPE_ID": 3}
+    assert calls[0][1]["select"] == list(STAGE_HISTORY_SELECT)
+
+
+def test_factual_close_resolver_uses_latest_exact_history_and_open_is_null() -> None:
+    rows = transform_deal_stage_history([
+        {"ID": "10", "TYPE_ID": "3", "OWNER_ID": "7", "CREATED_TIME": "2025-06-01T12:00:00+03:00", "CATEGORY_ID": "2", "STAGE_ID": "WON", "STAGE_SEMANTIC_ID": "S"},
+        {"ID": "11", "TYPE_ID": "3", "OWNER_ID": "7", "CREATED_TIME": "2025-06-01T09:00:00Z", "CATEGORY_ID": "2", "STAGE_ID": "WON", "STAGE_SEMANTIC_ID": "S"},
+        {"ID": "12", "TYPE_ID": "3", "OWNER_ID": "7", "CREATED_TIME": "2025-07-01T00:00:00Z", "CATEGORY_ID": "3", "STAGE_ID": "WON", "STAGE_SEMANTIC_ID": "S"},
+    ])
+    fallback = datetime(2025, 8, 1, tzinfo=timezone.utc)
+
+    assert resolve_actual_closed_at(deal_id=7, category_id=2, stage_id="WON", status_group="won", moved_time=fallback, history_rows=rows) == datetime(2025, 6, 1, 9, tzinfo=timezone.utc)
+    assert resolve_actual_closed_at(deal_id=7, category_id=2, stage_id="OPEN", status_group="open", moved_time=fallback, history_rows=rows) is None
+    assert resolve_actual_closed_at(deal_id=8, category_id=2, stage_id="LOST", status_group="lost", moved_time=fallback, history_rows=rows) == fallback
+    with pytest.raises(ValueError, match="Factual close timestamp"):
+        resolve_actual_closed_at(deal_id=8, category_id=2, stage_id="LOST", status_group="lost", moved_time=None, history_rows=rows)
 
 
 def test_client_errors_do_not_expose_webhook_secret() -> None:

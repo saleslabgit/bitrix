@@ -121,6 +121,20 @@ def test_full_manual_refresh_empty_currency_rows_returns_safe_error_status() -> 
 
 
 class RefreshBitrixClient:
+    def list_deal_stage_history(self, deal_ids: list[int]) -> list[dict[str, object]]:
+        return [
+            {
+                "ID": "500",
+                "TYPE_ID": "3",
+                "OWNER_ID": str(deal_id),
+                "CREATED_TIME": "2025-01-02T10:00:00+00:00",
+                "CATEGORY_ID": "0",
+                "STAGE_ID": "WON",
+                "STAGE_SEMANTIC_ID": "S",
+            }
+            for deal_id in deal_ids
+        ]
+
     def list_deal_categories(self) -> list[dict[str, object]]:
         return [{"ID": "0", "NAME": "Sales", "SORT": "10"}]
 
@@ -155,6 +169,7 @@ class RefreshBitrixClient:
                 "currencyId": "USD",
                 "createdTime": "2025-01-01T10:00:00+00:00",
                 "closedTime": "2025-01-02T10:00:00+00:00",
+                "movedTime": "2025-01-02T10:00:00+00:00",
                 "stageId": "WON",
                 "categoryId": "0",
                 "contactId": "10",
@@ -170,6 +185,11 @@ class UnsupportedCurrencyBitrixClient(RefreshBitrixClient):
 
 
 class NoCommonRateRowsBitrixClient(RefreshBitrixClient):
+    def list_deal_stage_history(self, deal_ids: list[int]) -> list[dict[str, object]]:
+        rows = super().list_deal_stage_history(deal_ids)
+        rows[0]["CREATED_TIME"] = "2025-01-01T10:00:00+00:00"
+        return rows
+
     def list_deal_items(self) -> list[dict[str, object]]:
         rows = super().list_deal_items()
         rows[0]["currencyId"] = "EUR"

@@ -10,6 +10,21 @@ from app.storage.status import get_active_dataset_run, get_dataset_storage_statu
 
 
 class FakeBitrixClient:
+    def list_deal_stage_history(self, deal_ids: list[int]) -> list[dict[str, object]]:
+        assert deal_ids
+        return [
+            {
+                "ID": "501",
+                "TYPE_ID": "3",
+                "OWNER_ID": str(deal_id),
+                "CREATED_TIME": "2025-06-05T10:00:00+00:00",
+                "CATEGORY_ID": "0",
+                "STAGE_ID": "WON",
+                "STAGE_SEMANTIC_ID": "S",
+            }
+            for deal_id in deal_ids
+        ]
+
     def list_deal_categories(self) -> list[dict[str, object]]:
         return [{"ID": "0", "NAME": "Sales", "SORT": "10"}]
 
@@ -59,6 +74,7 @@ class FakeBitrixClient:
                 "currencyId": "USD",
                 "createdTime": "2025-01-01T10:00:00+00:00",
                 "closedTime": "2025-01-05T10:00:00+00:00",
+                "movedTime": "2025-06-05T10:00:00+00:00",
                 "stageId": "WON",
                 "categoryId": "0",
                 "contactId": "10",
@@ -110,6 +126,7 @@ class DesignerSecondaryItemBitrixClient(FakeBitrixClient):
                 "currencyId": "USD",
                 "createdTime": "2025-01-01T10:00:00+00:00",
                 "closedTime": "2025-01-02T10:00:00+00:00",
+                "movedTime": "2025-06-05T10:00:00+00:00",
                 "stageId": "WON",
                 "categoryId": "0",
                 "contactId": "900",
@@ -156,7 +173,7 @@ def test_manual_bitrix_ingestion_loads_allowed_raw_data_and_normalizes(tmp_path)
         ).fetchall()
         raw_deals = connection.execute(
             """
-            SELECT deal_id, deal_name, status_group, kev_held
+            SELECT deal_id, deal_name, status_group, kev_held, planned_close_at, actual_closed_at
             FROM raw_deals
             ORDER BY deal_id
             """
@@ -188,10 +205,11 @@ def test_manual_bitrix_ingestion_loads_allowed_raw_data_and_normalizes(tmp_path)
         (10, "Ada Lovelace", "partner"),
         (20, "Grace Hopper", "client"),
     ]
-    assert raw_deals == [
-        (100, "Won deal", "won", True),
-        (200, "Open deal", "open", False),
-    ]
+    assert raw_deals[0][:4] == (100, "Won deal", "won", True)
+    assert raw_deals[0][4] == datetime(2025, 1, 5, 10)
+    assert raw_deals[0][5] == datetime(2025, 6, 5, 10)
+    assert raw_deals[1][:4] == (200, "Open deal", "open", False)
+    assert raw_deals[1][5] is None
     assert raw_links == [
         (100, 10, True, None, None),
         (100, 20, False, None, None),

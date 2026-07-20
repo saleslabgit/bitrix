@@ -216,7 +216,7 @@ backend rows, secrets, or raw data.
 
 Clicking a contact name opens a local modal chart backed by
 `GET /api/reports/contacts/{contact_id}/won-revenue-series`. The endpoint
-returns only aggregated won USD revenue by `normalized_deals.closed_at` date for
+returns only aggregated won USD revenue by `normalized_deals.actual_closed_at` date for
 the selected analytical contact, plus total revenue and won deal count. It
 accepts inclusive `date_from` / `date_to` closed-date filters and returns `404`
 when the contact is absent from local normalized data. Until the Contacts UI has
@@ -247,7 +247,7 @@ clearing dropdowns or surfacing a transient empty snapshot as an error.
 The ABC screen uses `/api/reports/abc/analytics` for local customer ABC
 analysis. `date_from` / `date_to` are the source/base period shown as `Было`;
 `compare_date_from` / `compare_date_to` are the target/result period shown as
-`Стало`. ABC uses won USD revenue by local `closed_at` dates. When both
+`Стало`. ABC uses won USD revenue by local `actual_closed_at` dates. When both
 `Стало` dates are applied, the endpoint includes customers with won revenue in
 either period, so transitions such as `A -> Нет продаж` and `Нет продаж -> A`
 remain visible. Transition direction is always `ABC было -> ABC стало`.

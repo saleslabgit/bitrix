@@ -5,7 +5,7 @@ from decimal import Decimal, InvalidOperation
 import re
 from typing import Any
 
-from app.domain import ContactSnapshot, DealCategorySnapshot, DealContactLink, DealSnapshot, StageSnapshot
+from app.domain import ContactSnapshot, DealCategorySnapshot, DealContactLink, DealSnapshot, DealStageHistorySnapshot, StageSnapshot
 
 
 def transform_contacts(
@@ -49,7 +49,8 @@ def transform_deals(
                 amount_original=_decimal(_first(row, "OPPORTUNITY", "opportunity")),
                 currency_original=_required_str(row, "CURRENCY_ID", "currencyId"),
                 created_at=_required_datetime(row, "DATE_CREATE", "createdTime"),
-                closed_at=_optional_datetime(_first(row, "CLOSEDATE", "closedTime", "closedate")),
+                planned_close_at=_optional_datetime(_first(row, "CLOSEDATE", "closedTime", "closedate")),
+                actual_closed_at=None,
                 stage_id=stage_id,
                 category_id=category_id,
                 status_group=status_by_key[(stage_id, category_id)],
@@ -65,6 +66,76 @@ def transform_deals(
             )
         )
     return deals
+
+
+def transform_deal_stage_history(rows: list[dict[str, Any]]) -> list[DealStageHistorySnapshot]:
+    history: list[DealStageHistorySnapshot] = []
+    for row in rows:
+        semantic = _required_str(row, "STAGE_SEMANTIC_ID", "stageSemanticId").upper()
+        if semantic not in {"S", "F", "P"}:
+            raise ValueError("Bitrix stage-history semantic is invalid.")
+        history.append(
+            DealStageHistorySnapshot(
+                history_id=_required_int(row, "ID", "id"),
+                deal_id=_required_int(row, "OWNER_ID", "ownerId"),
+                type_id=_required_int(row, "TYPE_ID", "typeId"),
+                created_at=_required_datetime(row, "CREATED_TIME", "createdTime"),
+                category_id=_required_int(row, "CATEGORY_ID", "categoryId"),
+                stage_id=_required_str(row, "STAGE_ID", "stageId"),
+                stage_semantic_id=semantic,
+            )
+        )
+    return history
+
+
+def resolve_actual_closed_at(
+    *,
+    deal_id: int,
+    category_id: int,
+    stage_id: str,
+    status_group: str,
+    moved_time: datetime | None,
+    history_rows: list[DealStageHistorySnapshot],
+) -> datetime | None:
+    if status_group == "open":
+        return None
+    expected_semantic = "S" if status_group == "won" else "F"
+    matches = [
+        row for row in history_rows
+        if row.deal_id == deal_id
+        and row.type_id == 3
+        and row.category_id == category_id
+        and row.stage_id == stage_id
+        and row.stage_semantic_id == expected_semantic
+    ]
+    if matches:
+        return max(matches, key=lambda row: (row.created_at, row.history_id)).created_at
+    if moved_time is not None:
+        return moved_time
+    raise ValueError("Factual close timestamp is unavailable for a closed Bitrix deal.")
+
+
+def apply_actual_close_times(
+    deals: list[DealSnapshot],
+    deal_rows: list[dict[str, Any]],
+    history_rows: list[DealStageHistorySnapshot],
+) -> list[DealSnapshot]:
+    source_by_id = {_required_int(row, "ID", "id"): row for row in deal_rows}
+    resolved: list[DealSnapshot] = []
+    for deal in deals:
+        moved_time = _optional_datetime(_first(source_by_id[deal.deal_id], "MOVED_TIME", "movedTime", "moved_time"))
+        actual = resolve_actual_closed_at(
+            deal_id=deal.deal_id,
+            category_id=deal.category_id if deal.category_id is not None else 0,
+            stage_id=deal.stage_id,
+            status_group=deal.status_group,
+            moved_time=moved_time,
+            history_rows=history_rows,
+        )
+        if actual is not None and actual < deal.created_at:
+            raise ValueError("Factual close timestamp precedes deal creation.")
+        resolved.append(deal.model_copy(update={"actual_closed_at": actual}))
+    return resolved
 
 
 def transform_deal_contact_links(
