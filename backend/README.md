@@ -168,3 +168,7 @@ The password and session secret must come from local environment or deployment
 secrets only. The backend validates credentials with constant-time comparison,
 sets an HttpOnly SameSite=Lax signed session cookie, and clears it on logout.
 Set `APP_AUTH_COOKIE_SECURE=true` for HTTPS deployments.
+
+Deal funnels are loaded only by explicit manual refresh through read-only
+`crm.category.list`. Stages are resolved by exact `(stage_id, category_id)`;
+report endpoints query local data only.

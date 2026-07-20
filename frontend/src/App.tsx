@@ -203,6 +203,7 @@ export function App() {
     from: abcFilters.dateFrom,
     to: abcFilters.dateTo
   });
+  const [abcDealCreatedDrafts, setAbcDealCreatedDrafts] = useState({ from: abcFilters.dealCreatedFrom, to: abcFilters.dealCreatedTo });
   const [abcCompareDateDrafts, setAbcCompareDateDrafts] = useState({
     from: abcFilters.compareDateFrom,
     to: abcFilters.compareDateTo
@@ -211,6 +212,7 @@ export function App() {
     from: kevFilters.dateFrom,
     to: kevFilters.dateTo
   });
+  const [kevDealCreatedDrafts, setKevDealCreatedDrafts] = useState({ from: kevFilters.dealCreatedFrom, to: kevFilters.dealCreatedTo });
   const [lastFilterMetadata, setLastFilterMetadata] = useState<FilterMetadata | null>(() =>
     loadStoredFilterMetadata()
   );
@@ -251,6 +253,10 @@ export function App() {
     Boolean(abcFilters.dateFrom) &&
     Boolean(abcFilters.dateTo) &&
     abcFilters.dateFrom > abcFilters.dateTo;
+  const isAbcDealCreatedRangeInvalid = Boolean(abcFilters.dealCreatedFrom) && Boolean(abcFilters.dealCreatedTo) && abcFilters.dealCreatedFrom > abcFilters.dealCreatedTo;
+  const areAbcDealCreatedDraftsComplete = isEmptyOrCompleteIsoDate(abcDealCreatedDrafts.from) && isEmptyOrCompleteIsoDate(abcDealCreatedDrafts.to);
+  const areAbcDealCreatedDraftsInvalid = Boolean(abcDealCreatedDrafts.from) && Boolean(abcDealCreatedDrafts.to) && abcDealCreatedDrafts.from > abcDealCreatedDrafts.to;
+  const areAbcDealCreatedDraftsChanged = abcDealCreatedDrafts.from !== abcFilters.dealCreatedFrom || abcDealCreatedDrafts.to !== abcFilters.dealCreatedTo;
   const areAbcDateDraftsInvalid =
     Boolean(abcDateDrafts.from) &&
     Boolean(abcDateDrafts.to) &&
@@ -283,6 +289,10 @@ export function App() {
     Boolean(kevFilters.dateFrom) &&
     Boolean(kevFilters.dateTo) &&
     kevFilters.dateFrom > kevFilters.dateTo;
+  const isKevDealCreatedRangeInvalid = Boolean(kevFilters.dealCreatedFrom) && Boolean(kevFilters.dealCreatedTo) && kevFilters.dealCreatedFrom > kevFilters.dealCreatedTo;
+  const areKevDealCreatedDraftsComplete = isEmptyOrCompleteIsoDate(kevDealCreatedDrafts.from) && isEmptyOrCompleteIsoDate(kevDealCreatedDrafts.to);
+  const areKevDealCreatedDraftsInvalid = Boolean(kevDealCreatedDrafts.from) && Boolean(kevDealCreatedDrafts.to) && kevDealCreatedDrafts.from > kevDealCreatedDrafts.to;
+  const areKevDealCreatedDraftsChanged = kevDealCreatedDrafts.from !== kevFilters.dealCreatedFrom || kevDealCreatedDrafts.to !== kevFilters.dealCreatedTo;
   const areKevDateDraftsInvalid =
     Boolean(kevDateDrafts.from) &&
     Boolean(kevDateDrafts.to) &&
@@ -404,6 +414,7 @@ export function App() {
       activeReport === "abc" &&
       isDatasetReady &&
       !isAbcDateRangeInvalid &&
+      !isAbcDealCreatedRangeInvalid &&
       !isAbcCompareIncomplete &&
       !isAbcCompareRangeInvalid
   });
@@ -411,7 +422,7 @@ export function App() {
   const kevQuery = useQuery({
     queryKey: ["kev-conversion", kevFilters],
     queryFn: () => fetchKevConversion(kevFilters),
-    enabled: canUseApi && activeReport === "kev" && isDatasetReady && !isKevDateRangeInvalid
+    enabled: canUseApi && activeReport === "kev" && isDatasetReady && !isKevDateRangeInvalid && !isKevDealCreatedRangeInvalid
   });
 
   const revenueSeriesQuery = useQuery({
@@ -589,6 +600,7 @@ export function App() {
         filters.status,
         filters.dealCreatedFrom,
         filters.dealCreatedTo
+        ,filters.categoryId
       ].filter(Boolean).length,
     [filters]
   );
@@ -602,6 +614,7 @@ export function App() {
         dealFilters.kevHeld,
         dealFilters.dealCreatedFrom,
         dealFilters.dealCreatedTo
+        ,dealFilters.categoryId
       ].filter(Boolean).length,
     [dealFilters]
   );
@@ -618,11 +631,12 @@ export function App() {
         abcFilters.dateTo,
         abcFilters.compareDateFrom,
         abcFilters.compareDateTo
+        ,abcFilters.categoryId, abcFilters.dealCreatedFrom, abcFilters.dealCreatedTo
       ].filter(Boolean).length,
     [abcFilters, isAbcCompareEnabled]
   );
   const selectedKevFilterCount = useMemo(
-    () => [kevFilters.dateFrom, kevFilters.dateTo, kevFilters.contactType].filter(Boolean).length,
+    () => [kevFilters.dateFrom, kevFilters.dateTo, kevFilters.contactType, kevFilters.categoryId, kevFilters.dealCreatedFrom, kevFilters.dealCreatedTo].filter(Boolean).length,
     [kevFilters]
   );
   const activeSelectedFilterCount =
@@ -686,6 +700,7 @@ export function App() {
     setAbcContactIdDraft("");
     setAbcDateDrafts({ from: "", to: "" });
     setAbcCompareDateDrafts({ from: "", to: "" });
+    setAbcDealCreatedDrafts({ from: "", to: "" });
     window.localStorage.removeItem(ABC_STORAGE_KEY);
     setAbcFilters(initialAbcFilters);
     void queryClient.invalidateQueries({ queryKey: ["abc"] });
@@ -693,6 +708,7 @@ export function App() {
 
   function resetKevFilters() {
     setKevDateDrafts({ from: "", to: "" });
+    setKevDealCreatedDrafts({ from: "", to: "" });
     window.localStorage.removeItem(KEV_STORAGE_KEY);
     setKevFilters(initialKevFilters);
     void queryClient.invalidateQueries({ queryKey: ["kev-conversion"] });
@@ -851,6 +867,15 @@ export function App() {
     }));
   }
 
+  function updateAbcDealCreatedDraft(name: "from" | "to", value: string) {
+    setAbcDealCreatedDrafts((current) => ({ ...current, [name]: value }));
+  }
+
+  function applyAbcDealCreatedDrafts() {
+    if (!areAbcDealCreatedDraftsComplete || areAbcDealCreatedDraftsInvalid) return;
+    setAbcFilters((current) => ({ ...current, dealCreatedFrom: abcDealCreatedDrafts.from, dealCreatedTo: abcDealCreatedDrafts.to, offset: 0 }));
+  }
+
   function updateAbcCompareDateDraft(name: "from" | "to", value: string) {
     setAbcCompareDateDrafts((current) => ({
       ...current,
@@ -887,6 +912,15 @@ export function App() {
       dateFrom: kevDateDrafts.from,
       dateTo: kevDateDrafts.to
     }));
+  }
+
+  function updateKevDealCreatedDraft(name: "from" | "to", value: string) {
+    setKevDealCreatedDrafts((current) => ({ ...current, [name]: value }));
+  }
+
+  function applyKevDealCreatedDrafts() {
+    if (!areKevDealCreatedDraftsComplete || areKevDealCreatedDraftsInvalid) return;
+    setKevFilters((current) => ({ ...current, dealCreatedFrom: kevDealCreatedDrafts.from, dealCreatedTo: kevDealCreatedDrafts.to }));
   }
 
   function changePage(direction: "previous" | "next") {
@@ -1467,8 +1501,9 @@ export function App() {
                     options={MIGRATION_PRIORITIES}
                   />
                   <CategorySelectField value={abcFilters.categoryId} onChange={(value) => updateAbcFilter("categoryId", value)} categories={filterMetadata?.categories ?? []} disabled={!filterMetadata} />
-                  <label className="field"><span>Сделка создана с</span><input className="date-input" type="date" value={abcFilters.dealCreatedFrom} min={dateOnly(filterMetadata?.min_created_at)} max={dateOnly(filterMetadata?.max_created_at)} onChange={(event) => updateAbcFilter("dealCreatedFrom", event.target.value)} /></label>
-                  <label className="field"><span>Сделка создана по</span><input className="date-input" type="date" value={abcFilters.dealCreatedTo} min={dateOnly(filterMetadata?.min_created_at)} max={dateOnly(filterMetadata?.max_created_at)} onChange={(event) => updateAbcFilter("dealCreatedTo", event.target.value)} /></label>
+                  <label className="field"><span>Сделка создана с</span><input className="date-input" type="date" value={abcDealCreatedDrafts.from} min={dateOnly(filterMetadata?.min_created_at)} max={dateOnly(filterMetadata?.max_created_at)} onChange={(event) => updateAbcDealCreatedDraft("from", event.target.value)} /></label>
+                  <label className="field"><span>Сделка создана по</span><input className="date-input" type="date" value={abcDealCreatedDrafts.to} min={dateOnly(filterMetadata?.min_created_at)} max={dateOnly(filterMetadata?.max_created_at)} onChange={(event) => updateAbcDealCreatedDraft("to", event.target.value)} /></label>
+                  <button className="button button-secondary" type="button" disabled={!areAbcDealCreatedDraftsChanged || !areAbcDealCreatedDraftsComplete || areAbcDealCreatedDraftsInvalid} onClick={applyAbcDealCreatedDrafts}>Применить даты создания</button>
 
                   <label className="field checkbox-field">
                     <span>Изменения</span>
@@ -1568,8 +1603,9 @@ export function App() {
                     disabled={!filterMetadata}
                   />
                   <CategorySelectField value={kevFilters.categoryId} onChange={(value) => updateKevFilter("categoryId", value)} categories={filterMetadata?.categories ?? []} disabled={!filterMetadata} />
-                  <label className="field"><span>Сделка создана с</span><input className="date-input" type="date" value={kevFilters.dealCreatedFrom} min={dateOnly(filterMetadata?.min_created_at)} max={dateOnly(filterMetadata?.max_created_at)} onChange={(event) => updateKevFilter("dealCreatedFrom", event.target.value)} /></label>
-                  <label className="field"><span>Сделка создана по</span><input className="date-input" type="date" value={kevFilters.dealCreatedTo} min={dateOnly(filterMetadata?.min_created_at)} max={dateOnly(filterMetadata?.max_created_at)} onChange={(event) => updateKevFilter("dealCreatedTo", event.target.value)} /></label>
+                  <label className="field"><span>Сделка создана с</span><input className="date-input" type="date" value={kevDealCreatedDrafts.from} min={dateOnly(filterMetadata?.min_created_at)} max={dateOnly(filterMetadata?.max_created_at)} onChange={(event) => updateKevDealCreatedDraft("from", event.target.value)} /></label>
+                  <label className="field"><span>Сделка создана по</span><input className="date-input" type="date" value={kevDealCreatedDrafts.to} min={dateOnly(filterMetadata?.min_created_at)} max={dateOnly(filterMetadata?.max_created_at)} onChange={(event) => updateKevDealCreatedDraft("to", event.target.value)} /></label>
+                  <button className="button button-secondary" type="button" disabled={!areKevDealCreatedDraftsChanged || !areKevDealCreatedDraftsComplete || areKevDealCreatedDraftsInvalid} onClick={applyKevDealCreatedDrafts}>Применить даты создания</button>
                   <label className="field">
                     <span>Закрыта с</span>
                     <input
@@ -3154,14 +3190,24 @@ function loadStoredFilterMetadata(): FilterMetadata | null {
       min_created_at: nullableStringValue(parsed.min_created_at),
       max_created_at: nullableStringValue(parsed.max_created_at),
       min_closed_at: nullableStringValue(parsed.min_closed_at),
-      max_closed_at: nullableStringValue(parsed.max_closed_at)
-      ,categories: Array.isArray(parsed.categories)
-        ? parsed.categories.filter((item): item is { category_id: number; category_name: string } => Boolean(item) && typeof (item as { category_id?: unknown }).category_id === "number" && typeof (item as { category_name?: unknown }).category_name === "string")
-        : []
+      max_closed_at: nullableStringValue(parsed.max_closed_at),
+      categories: validCategoryOptions(parsed.categories)
     };
   } catch {
     return null;
   }
+}
+
+function validCategoryOptions(value: unknown): { category_id: number; category_name: string }[] {
+  if (!Array.isArray(value)) return [];
+  const categories = value.map((item) => {
+    if (!item || typeof item !== "object") return null;
+    const category = item as { category_id?: unknown; category_name?: unknown };
+    if (!Number.isInteger(category.category_id) || (category.category_id as number) < 0 || typeof category.category_name !== "string") return null;
+    const category_name = category.category_name.trim();
+    return category_name ? { category_id: category.category_id as number, category_name } : null;
+  });
+  return categories.every(Boolean) ? categories as { category_id: number; category_name: string }[] : [];
 }
 
 function storeFilters(filters: ContactFilters) {

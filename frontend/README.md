@@ -111,3 +111,6 @@ typography, spacing, and effects tokens. The Contacts, Deals, and ABC screens mi
 provided SaaS web-app direction: light surface, left navigation, blue primary
 states, Manrope typography, 8px controls, subtle borders, and compact data-table
 density.
+
+Funnel filters use local numeric IDs. ABC and KEV creation-date filters are
+drafted and explicitly applied, independently from close-date filters.

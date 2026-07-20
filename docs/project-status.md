@@ -124,3 +124,6 @@ Frontend reporting milestone for the Bitrix sales analytics MVP: local analytics
 ## Next Likely Steps
 
 Deploy manually on the FASTVPS server when the final domain and panel settings are known. After deployment, manually run `Обновить из Bitrix` to populate KEV values in the local dataset.
+
+The same manual refresh populates funnel names and category-aware stage semantics;
+Docker startup does not call Bitrix.

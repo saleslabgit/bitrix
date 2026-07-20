@@ -4,39 +4,37 @@
 
 ## Кратко
 
-Завершена и проверена funnel-aware аналитика: тестовые Bitrix-клиенты
-поддерживают категории и category-aware стадии, таблица Deals приведена к
-контрактному порядку, Contacts сортирует средний чек и цикл, а переход в Deals
-сохраняет воронку и даты создания.
+Исправлены review-блокеры funnel analytics: реальные backend sort allowlists
+включают средний чек и цикл, ABC/КЭВ используют draft/apply даты создания,
+filter badges считают новые фильтры, а cached funnel metadata валидируется
+строго и безопасно.
 
 ## Измененные файлы
 
-- backend/app/main.py
-- backend/app/storage/loaders.py
-- backend/tests/test_api_bitrix.py
-- backend/tests/test_bitrix_ingestion.py
-- backend/tests/test_api_local.py
-- backend/tests/test_dataset_profile.py
+- backend/app/reports/analytics.py
 - frontend/src/App.tsx
-- frontend/src/api.ts
+- SPEC.md
+- backend/README.md
+- frontend/README.md
+- docs/development.md
+- docs/deployment.md
+- docs/project-status.md
 - .ai/report.md
 
 ## Запущенные проверки
 
-- Полный backend suite в Python 3.12 Docker environment: `144 passed`.
+- Full backend suite в Python 3.12 Docker container: `144 passed in 121.79s`.
 - `cd frontend && npm run build`: passed.
 - `docker compose config`: passed.
 - `docker compose -f docker-compose.prod.yml config`: passed.
-- Safety search не добавил Bitrix write methods. Live Bitrix calls не выполнялись.
+- `curl -fsS http://127.0.0.1:8000/health`: passed.
+- Frontend operator curl на `127.0.0.1:5173` не выполнен: frontend service не
+  был запущен в текущем runtime. Это не меняет успешный build.
 
 ## Факты
 
-- Snapshot allowlist теперь содержит пять безопасных raw snapshots, включая
-  `raw_deal_categories`; профиль и тесты это учитывают.
-- Средний чек и цикл сортируются через API и отображаются в Contacts.
-- Deals показывает funnel, cycle и неагрегируемый row-level average check как `—`.
-
-## Риски или следующий шаг
-
-После deployment оператор должен вручную выполнить `Обновить из Bitrix`, чтобы
-заполнить локальный справочник воронок и category-aware stages.
+- Live Bitrix calls не выполнялись; Bitrix write methods и wildcard selects не
+  добавлялись.
+- Docker startup не менялся и не запускает refresh автоматически.
+- После deployment оператор вручную запускает `Обновить из Bitrix` для
+  справочника воронок и category-aware stages.

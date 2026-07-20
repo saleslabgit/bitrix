@@ -469,3 +469,6 @@ If Docker commands print a WSL integration error, enable Docker Desktop integrat
 - No persisted analytics tables, authentication, scheduler, or production frontend deployment is implemented.
 - Frontend is intentionally limited to the Contacts report screen.
 - Docker Compose runs backend and the Vite frontend dev server for local testing.
+
+After a deployment that includes funnel support, use `Обновить из Bitrix` once.
+Docker startup itself never refreshes Bitrix data.

@@ -146,3 +146,6 @@ docker compose -f docker-compose.prod.yml up --build -d
 
 Do not commit `data/`, DuckDB files, Parquet snapshots, CSV exports, real `.env`
 files, webhook URLs, passwords, or session secrets.
+
+After updating the deployment, an operator must manually run `Обновить из
+Bitrix` to populate the local funnel directory and category-aware stages.
