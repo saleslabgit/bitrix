@@ -43,6 +43,7 @@ import {
   type AbcFilters,
   type AbcSort,
   type ContactAnalytics,
+  type ContactAnalyticsPage,
   type ContactFilters,
   type ContactSort,
   type ContactWonRevenueSeries,
@@ -121,6 +122,7 @@ const initialFilters: ContactFilters = {
   status: "",
   dealCreatedFrom: "",
   dealCreatedTo: "",
+  categoryId: "",
   sort: "contact_id",
   order: "asc",
   limit: PAGE_SIZE,
@@ -136,6 +138,7 @@ const initialDealFilters: DealFilters = {
   kevHeld: "",
   dealCreatedFrom: "",
   dealCreatedTo: "",
+  categoryId: "",
   sort: "deal_id",
   order: "asc",
   limit: PAGE_SIZE,
@@ -146,6 +149,7 @@ const initialKevFilters: KevFilters = {
   dateFrom: "",
   dateTo: "",
   contactType: ""
+  ,dealCreatedFrom: "", dealCreatedTo: "", categoryId: ""
 };
 
 const initialAbcFilters: AbcFilters = {
@@ -159,6 +163,9 @@ const initialAbcFilters: AbcFilters = {
   dateTo: "",
   compareDateFrom: "",
   compareDateTo: "",
+  dealCreatedFrom: "",
+  dealCreatedTo: "",
+  categoryId: "",
   sort: "base_revenue_usd",
   order: "desc",
   limit: PAGE_SIZE,
@@ -1134,6 +1141,7 @@ export function App() {
           ) : activeReport === "contacts" ? (
             <ContactsTable
               contacts={contactsQuery.data?.items ?? []}
+              page={contactsQuery.data}
               sort={filters.sort}
               order={filters.order}
               onSort={updateSort}
@@ -1142,14 +1150,13 @@ export function App() {
             />
           ) : activeReport === "deals" ? (
             <>
-              {dealsQuery.data && <DealTotalsBar page={dealsQuery.data} />}
               <DealsTable
                 deals={dealsQuery.data?.items ?? []}
+                page={dealsQuery.data}
                 sort={dealFilters.sort}
                 order={dealFilters.order}
                 onSort={updateDealSort}
               />
-              {dealsQuery.data && <DealTotalsBar page={dealsQuery.data} />}
             </>
           ) : activeReport === "abc" ? (
             <>
@@ -1273,6 +1280,7 @@ export function App() {
                     options={filterMetadata?.statuses ?? []}
                     disabled={!filterMetadata}
                   />
+                  <CategorySelectField value={filters.categoryId} onChange={(value) => updateFilter("categoryId", value)} categories={filterMetadata?.categories ?? []} disabled={!filterMetadata} />
 
                   <label className="field">
                     <span>Создана с</span>
@@ -1355,6 +1363,7 @@ export function App() {
                     value={dealFilters.kevHeld}
                     onChange={(value) => updateDealFilter("kevHeld", value)}
                   />
+                  <CategorySelectField value={dealFilters.categoryId} onChange={(value) => updateDealFilter("categoryId", value)} categories={filterMetadata?.categories ?? []} disabled={!filterMetadata} />
                   <SelectField
                     label="Тип"
                     value={dealFilters.contactType}
@@ -1452,6 +1461,9 @@ export function App() {
                     onChange={(value) => updateAbcFilter("migrationPriority", value)}
                     options={MIGRATION_PRIORITIES}
                   />
+                  <CategorySelectField value={abcFilters.categoryId} onChange={(value) => updateAbcFilter("categoryId", value)} categories={filterMetadata?.categories ?? []} disabled={!filterMetadata} />
+                  <label className="field"><span>Сделка создана с</span><input className="date-input" type="date" value={abcFilters.dealCreatedFrom} min={dateOnly(filterMetadata?.min_created_at)} max={dateOnly(filterMetadata?.max_created_at)} onChange={(event) => updateAbcFilter("dealCreatedFrom", event.target.value)} /></label>
+                  <label className="field"><span>Сделка создана по</span><input className="date-input" type="date" value={abcFilters.dealCreatedTo} min={dateOnly(filterMetadata?.min_created_at)} max={dateOnly(filterMetadata?.max_created_at)} onChange={(event) => updateAbcFilter("dealCreatedTo", event.target.value)} /></label>
 
                   <label className="field checkbox-field">
                     <span>Изменения</span>
@@ -1550,6 +1562,9 @@ export function App() {
                     options={filterMetadata?.contact_types ?? []}
                     disabled={!filterMetadata}
                   />
+                  <CategorySelectField value={kevFilters.categoryId} onChange={(value) => updateKevFilter("categoryId", value)} categories={filterMetadata?.categories ?? []} disabled={!filterMetadata} />
+                  <label className="field"><span>Сделка создана с</span><input className="date-input" type="date" value={kevFilters.dealCreatedFrom} min={dateOnly(filterMetadata?.min_created_at)} max={dateOnly(filterMetadata?.max_created_at)} onChange={(event) => updateKevFilter("dealCreatedFrom", event.target.value)} /></label>
+                  <label className="field"><span>Сделка создана по</span><input className="date-input" type="date" value={kevFilters.dealCreatedTo} min={dateOnly(filterMetadata?.min_created_at)} max={dateOnly(filterMetadata?.max_created_at)} onChange={(event) => updateKevFilter("dealCreatedTo", event.target.value)} /></label>
                   <label className="field">
                     <span>Закрыта с</span>
                     <input
@@ -1769,6 +1784,10 @@ function SelectField({
   );
 }
 
+function CategorySelectField({ value, onChange, categories, disabled }: { value: string; onChange: (value: string) => void; categories: { category_id: number; category_name: string }[]; disabled?: boolean }) {
+  return <label className="field"><span>Воронка</span><select value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled}><option value="">Все воронки</option>{categories.map((category) => <option key={category.category_id} value={String(category.category_id)}>{category.category_name}</option>)}</select></label>;
+}
+
 function KevSelectField({
   value,
   onChange
@@ -1970,6 +1989,7 @@ type SortField = ContactSort | DealSort | AbcSort;
 
 function ContactsTable({
   contacts,
+  page,
   sort,
   order,
   onSort,
@@ -1977,6 +1997,7 @@ function ContactsTable({
   onOpenRevenueChart
 }: {
   contacts: ContactAnalytics[];
+  page?: ContactAnalyticsPage;
   sort: ContactSort;
   order: "asc" | "desc";
   onSort: (sort: ContactSort) => void;
@@ -2075,6 +2096,7 @@ function ContactsTable({
               onSort={onSort}
               align="right"
             />
+            <th>Средний чек</th><th>Средний цикл, дн.</th>
             <SortableHeader
               label="Дата закрытия"
               field="last_won_date"
@@ -2156,11 +2178,14 @@ function ContactsTable({
               <td className="number-cell money-cell">
                 {formatUsd(contact.estimated_profit_usd)}
               </td>
+              <td className="number-cell money-cell">{contact.average_check_usd ? formatUsd(contact.average_check_usd) : "—"}</td>
+              <td className="number-cell">{contact.average_cycle_days ?? "—"}</td>
               <td>{formatDate(contact.last_won_date)}</td>
               <td>{formatDate(contact.latest_deal_date)}</td>
             </tr>
           ))}
         </tbody>
+        {page && <tfoot><tr><th colSpan={3}>Итого по выборке</th><th>{page.filtered_total_deals_count}</th><th>{page.filtered_won_deals_count}</th><th>{page.filtered_open_deals_count}</th><th>{page.filtered_lost_deals_count}</th><th>{formatUsd(page.filtered_budget_usd)}</th><th>{formatUsd(page.filtered_budget_in_work_usd)}</th><th>{formatUsd(page.filtered_lost_budget_usd)}</th><th>{formatUsd(page.filtered_revenue_usd)}</th><th>{formatUsd(page.filtered_estimated_profit_usd)}</th><th>{page.filtered_average_check_usd ? formatUsd(page.filtered_average_check_usd) : "—"}</th><th>{page.filtered_average_cycle_days ?? "—"}</th><th>—</th><th>—</th></tr></tfoot>}
       </table>
     </div>
   );
@@ -2168,11 +2193,13 @@ function ContactsTable({
 
 function DealsTable({
   deals,
+  page,
   sort,
   order,
   onSort
 }: {
   deals: DealAnalytics[];
+  page?: DealAnalyticsPage;
   sort: DealSort;
   order: "asc" | "desc";
   onSort: (sort: DealSort) => void;
@@ -2198,6 +2225,7 @@ function DealsTable({
               onSort={onSort}
             />
             <th>КЭВ</th>
+            <th>Воронка</th><th>Цикл, дн.</th>
             <SortableHeader
               label="Тип"
               field="contact_type_normalized"
@@ -2252,6 +2280,7 @@ function DealsTable({
                   </a>
                 </div>
               </td>
+              <td>{deal.category_name ?? "—"}</td><td className="number-cell">{deal.cycle_days ?? "—"}</td>
               <td>
                 <div className="contact-cell deal-name-cell">
                   <span>{deal.deal_name}</span>
@@ -2277,6 +2306,7 @@ function DealsTable({
             </tr>
           ))}
         </tbody>
+        {page && <tfoot><tr><th colSpan={3}>Итого по выборке</th><th>—</th><th>—</th><th>{page.filtered_average_cycle_days ?? "—"}</th><th>—</th><th>—</th><th>{formatUsd(page.filtered_budget_usd)}</th><th>{formatUsd(page.filtered_estimated_profit_usd)}</th><th>{page.filtered_average_check_usd ? formatUsd(page.filtered_average_check_usd) : "—"}</th><th>—</th><th>—</th></tr></tfoot>}
       </table>
     </div>
   );
@@ -3005,6 +3035,7 @@ function loadStoredFilters(): ContactFilters {
       status: stringValue(parsed.status),
       dealCreatedFrom: dateValue(parsed.dealCreatedFrom),
       dealCreatedTo: dateValue(parsed.dealCreatedTo),
+      categoryId: stringValue(parsed.categoryId).replace(/\D/g, ""),
       sort: sortValue(parsed.sort),
       order: parsed.order === "desc" ? "desc" : "asc",
       limit: positiveNumberValue(parsed.limit, PAGE_SIZE),
@@ -3033,6 +3064,7 @@ function loadStoredDealFilters(): DealFilters {
         : "",
       dealCreatedFrom: dateValue(parsed.dealCreatedFrom),
       dealCreatedTo: dateValue(parsed.dealCreatedTo),
+      categoryId: stringValue(parsed.categoryId).replace(/\D/g, ""),
       sort: dealSortValue(parsed.sort),
       order: parsed.order === "desc" ? "desc" : "asc",
       limit: positiveNumberValue(parsed.limit, PAGE_SIZE),
@@ -3065,6 +3097,9 @@ function loadStoredAbcFilters(): AbcFilters {
       dateTo: dateValue(parsed.dateTo),
       compareDateFrom: dateValue(parsed.compareDateFrom),
       compareDateTo: dateValue(parsed.compareDateTo),
+      dealCreatedFrom: dateValue(parsed.dealCreatedFrom),
+      dealCreatedTo: dateValue(parsed.dealCreatedTo),
+      categoryId: stringValue(parsed.categoryId).replace(/\D/g, ""),
       sort: abcSortValue(parsed.sort),
       order: parsed.order === "asc" ? "asc" : "desc",
       limit: positiveNumberValue(parsed.limit, PAGE_SIZE),
@@ -3086,6 +3121,9 @@ function loadStoredKevFilters(): KevFilters {
       dateFrom: dateValue(parsed.dateFrom),
       dateTo: dateValue(parsed.dateTo),
       contactType: stringValue(parsed.contactType)
+      ,dealCreatedFrom: dateValue(parsed.dealCreatedFrom),
+      dealCreatedTo: dateValue(parsed.dealCreatedTo),
+      categoryId: stringValue(parsed.categoryId).replace(/\D/g, "")
     };
   } catch {
     return initialKevFilters;
@@ -3107,6 +3145,9 @@ function loadStoredFilterMetadata(): FilterMetadata | null {
       max_created_at: nullableStringValue(parsed.max_created_at),
       min_closed_at: nullableStringValue(parsed.min_closed_at),
       max_closed_at: nullableStringValue(parsed.max_closed_at)
+      ,categories: Array.isArray(parsed.categories)
+        ? parsed.categories.filter((item): item is { category_id: number; category_name: string } => Boolean(item) && typeof (item as { category_id?: unknown }).category_id === "number" && typeof (item as { category_name?: unknown }).category_name === "string")
+        : []
     };
   } catch {
     return null;

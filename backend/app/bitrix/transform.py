@@ -5,7 +5,7 @@ from decimal import Decimal, InvalidOperation
 import re
 from typing import Any
 
-from app.domain import ContactSnapshot, DealContactLink, DealSnapshot, StageSnapshot
+from app.domain import ContactSnapshot, DealCategorySnapshot, DealContactLink, DealSnapshot, StageSnapshot
 
 
 def transform_contacts(
@@ -33,12 +33,15 @@ def transform_deals(
     stages: list[StageSnapshot],
 ) -> list[DealSnapshot]:
     status_by_key = {(stage.stage_id, stage.category_id): stage.status_group for stage in stages}
-    status_by_stage_id = {stage.stage_id: stage.status_group for stage in stages}
     deals: list[DealSnapshot] = []
     for row in rows:
         deal_id = _required_int(row, "ID", "id")
         stage_id = _required_str(row, "STAGE_ID", "stageId")
         category_id = _optional_int(_first(row, "CATEGORY_ID", "categoryId"))
+        if category_id is None:
+            raise ValueError("Bitrix deal category is missing.")
+        if (stage_id, category_id) not in status_by_key:
+            raise ValueError("Bitrix deal stage cannot be resolved for its funnel.")
         deals.append(
             DealSnapshot(
                 deal_id=deal_id,
@@ -49,10 +52,7 @@ def transform_deals(
                 closed_at=_optional_datetime(_first(row, "CLOSEDATE", "closedTime", "closedate")),
                 stage_id=stage_id,
                 category_id=category_id,
-                status_group=status_by_key.get(
-                    (stage_id, category_id),
-                    status_by_stage_id.get(stage_id, "open"),
-                ),
+                status_group=status_by_key[(stage_id, category_id)],
                 kev_held=parse_kev_held(
                     _first(
                         row,
@@ -113,15 +113,19 @@ def transform_deal_contact_links_from_deals(
     return list(links_by_key.values())
 
 
-def transform_stages(rows: list[dict[str, Any]]) -> list[StageSnapshot]:
+def transform_deal_categories(rows: list[dict[str, Any]]) -> list[DealCategorySnapshot]:
+    return [DealCategorySnapshot(category_id=_required_int(row, "ID", "id"), category_name=_required_str(row, "NAME", "name"), sort_order=_optional_int(_first(row, "SORT", "sort"))) for row in rows]
+
+
+def transform_stages(rows: list[dict[str, Any]], *, category_id: int | None = None) -> list[StageSnapshot]:
     stages: list[StageSnapshot] = []
     for row in rows:
         stage_id = _required_str(row, "STATUS_ID", "statusId", "ID", "id")
         stages.append(
             StageSnapshot(
                 stage_id=stage_id,
-                category_id=_optional_int(_first(row, "CATEGORY_ID", "categoryId")),
-                status_group=_status_group(_first(row, "SEMANTICS", "semantics")),
+                category_id=category_id if category_id is not None else _optional_int(_first(row, "CATEGORY_ID", "categoryId")),
+                status_group=_status_group(_first(row, "SEMANTICS", "semantics", "STATUS_SEMANTICS", "statusSemantics", "EXTRA")),
             )
         )
     return stages
@@ -141,10 +145,12 @@ def _contact_name(row: dict[str, Any], contact_id: int) -> str:
 
 
 def _status_group(value: Any) -> str:
+    if isinstance(value, dict):
+        value = _first(value, "SEMANTICS", "semantics")
     normalized = str(value or "").strip().lower()
     if normalized in {"s", "success", "won"}:
         return "won"
-    if normalized in {"f", "failure", "lost"}:
+    if normalized in {"f", "failure", "lost", "apology"}:
         return "lost"
     return "open"
 

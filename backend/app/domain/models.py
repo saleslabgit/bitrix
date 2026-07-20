@@ -45,6 +45,12 @@ class StageSnapshot(DomainModel):
     status_group: StatusGroup
 
 
+class DealCategorySnapshot(DomainModel):
+    category_id: int = Field(ge=0)
+    category_name: str = Field(min_length=1)
+    sort_order: int | None = None
+
+
 class ContactTypeRule(DomainModel):
     raw_value: str = Field(min_length=1)
     normalized_type: str = Field(min_length=1)

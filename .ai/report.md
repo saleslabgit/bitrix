@@ -1,6 +1,22 @@
-# Отчет: TASK-2026-07-20-01
+# Отчет: TASK-2026-07-20-02
 
-Статус: done
+Статус: partial
+
+## Выполнение TASK-2026-07-20-02
+
+Добавлены локальный справочник воронок, read-only `crm.category.list`,
+category-aware загрузка стадий, exact `(stage_id, category_id)` resolution,
+фильтры воронки и даты создания в API/интерфейсе, средний чек/цикл и итоговые
+строки для выборки до пагинации. Новая категория хранится только как ID, имя и
+сортировка; неизвестная категория или стадия прерывает refresh до активации.
+
+Проверки: `frontend npm run build` прошел; `python3 -m compileall -q app`
+прошел. Backend pytest не запущен: системный Python не содержит pytest/Pydantic,
+а существующий Docker image `bitrix-backend` не содержит pytest. Live Bitrix
+вызовы не выполнялись.
+
+Риск: требуется прогнать полный backend suite в dev image с `.[dev]` и
+добавить/обновить mock-boundary tests для категорий до приемки.
 
 ## Кратко
 

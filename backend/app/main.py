@@ -523,6 +523,7 @@ def report_contact_analytics(
     date_to: date | None = None,
     deal_created_from: date | None = None,
     deal_created_to: date | None = None,
+    category_id: Annotated[int | None, Query(ge=0)] = None,
     search: str | None = None,
     contact_type: str | None = None,
     region: str | None = None,
@@ -541,6 +542,7 @@ def report_contact_analytics(
                 date_to=date_to,
                 deal_created_from=deal_created_from,
                 deal_created_to=deal_created_to,
+                category_id=category_id,
                 search=search,
                 contact_type=contact_type,
                 region=region,
@@ -603,6 +605,7 @@ def report_deal_analytics(
     deal_created_from: date | None = None,
     deal_created_to: date | None = None,
     kev_held: bool | None = None,
+    category_id: Annotated[int | None, Query(ge=0)] = None,
     sort: DealAnalyticsSortQuery = "deal_id",
     order: SortOrderQuery = "asc",
 ) -> DealAnalyticsPageResponse:
@@ -621,6 +624,7 @@ def report_deal_analytics(
                 deal_created_from=deal_created_from,
                 deal_created_to=deal_created_to,
                 kev_held=kev_held,
+                category_id=category_id,
                 sort=sort,
                 order=order,
             )
@@ -640,6 +644,9 @@ def report_kev_conversion_analytics(
     date_from: date | None = None,
     date_to: date | None = None,
     contact_type: str | None = None,
+    deal_created_from: date | None = None,
+    deal_created_to: date | None = None,
+    category_id: Annotated[int | None, Query(ge=0)] = None,
 ) -> KevConversionReportResponse:
     with connection_scope() as connection:
         report = get_kev_conversion_report(
@@ -647,6 +654,9 @@ def report_kev_conversion_analytics(
             date_from=date_from,
             date_to=date_to,
             contact_type=contact_type,
+            deal_created_from=deal_created_from,
+            deal_created_to=deal_created_to,
+            category_id=category_id,
         )
     return KevConversionReportResponse.model_validate(report)
 
@@ -668,6 +678,9 @@ def report_abc_analytics(
     date_to: date | None = None,
     compare_date_from: date | None = None,
     compare_date_to: date | None = None,
+    deal_created_from: date | None = None,
+    deal_created_to: date | None = None,
+    category_id: Annotated[int | None, Query(ge=0)] = None,
     sort: AbcAnalyticsSortQuery = "base_revenue_usd",
     order: SortOrderQuery = "desc",
 ) -> AbcAnalyticsPageResponse:
@@ -687,6 +700,9 @@ def report_abc_analytics(
                 date_to=date_to,
                 compare_date_from=compare_date_from,
                 compare_date_to=compare_date_to,
+                deal_created_from=deal_created_from,
+                deal_created_to=deal_created_to,
+                category_id=category_id,
                 sort=sort,
                 order=order,
             )

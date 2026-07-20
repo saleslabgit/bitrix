@@ -27,6 +27,7 @@ READ_ONLY_METHODS = frozenset(
         "crm.deal.list",
         "crm.deal.contact.items.get",
         "crm.status.list",
+        "crm.category.list",
     }
 )
 
@@ -180,12 +181,28 @@ class BitrixClient:
             return _deal_contact_link_items(result["items"])
         raise BitrixUnexpectedResponseError("Bitrix deal-contact links response is invalid.")
 
-    def list_stages(self) -> list[dict[str, Any]]:
+    def list_deal_categories(self) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        start: int | None = 0
+        while start is not None:
+            response = self._call_full(
+                "crm.category.list",
+                {"entityTypeId": 2, "start": start, "limit": self._page_size},
+            )
+            result = response["result"]
+            if not isinstance(result, dict) or not isinstance(result.get("categories"), list):
+                raise BitrixUnexpectedResponseError("Bitrix deal categories response is invalid.")
+            rows.extend(_dict_items(result["categories"], "crm.category.list"))
+            start = _extract_next(response)
+        return rows
+
+    def list_stages(self, *, category_id: int = 0) -> list[dict[str, Any]]:
+        entity_id = BITRIX_STAGE_ENTITY_ID if category_id == 0 else f"{BITRIX_STAGE_ENTITY_ID}_{category_id}"
         return list(
             self._list_method(
                 "crm.status.list",
                 {
-                    "filter": {"ENTITY_ID": BITRIX_STAGE_ENTITY_ID},
+                    "filter": {"ENTITY_ID": entity_id},
                     "order": {"SORT": "ASC"},
                 },
             )

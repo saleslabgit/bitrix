@@ -255,6 +255,12 @@ class FilterMetadataResponse(ApiModel):
     max_created_at: datetime | None
     min_closed_at: datetime | None
     max_closed_at: datetime | None
+    categories: tuple["DealCategoryOptionResponse", ...] = ()
+
+
+class DealCategoryOptionResponse(ApiModel):
+    category_id: int
+    category_name: str
 
 
 class ContactSummaryResponse(ApiModel):
@@ -295,6 +301,8 @@ class ContactAnalyticsResponse(ApiModel):
     last_won_date: date | None
     latest_deal_date: date | None
     has_sales: bool
+    average_check_usd: Decimal | None
+    average_cycle_days: Decimal | None
 
 
 class ContactAnalyticsPageResponse(ApiModel):
@@ -302,6 +310,17 @@ class ContactAnalyticsPageResponse(ApiModel):
     limit: int = Field(gt=0, le=100)
     offset: int = Field(ge=0)
     items: tuple[ContactAnalyticsResponse, ...]
+    filtered_total_deals_count: int
+    filtered_won_deals_count: int
+    filtered_open_deals_count: int
+    filtered_lost_deals_count: int
+    filtered_budget_usd: Decimal
+    filtered_budget_in_work_usd: Decimal
+    filtered_lost_budget_usd: Decimal
+    filtered_revenue_usd: Decimal
+    filtered_estimated_profit_usd: Decimal
+    filtered_average_check_usd: Decimal | None
+    filtered_average_cycle_days: Decimal | None
 
 
 class ContactWonRevenuePointResponse(ApiModel):
@@ -331,6 +350,9 @@ class DealAnalyticsResponse(ApiModel):
     created_date: date
     closed_date: date | None
     kev_held: bool
+    category_id: int
+    category_name: str | None
+    cycle_days: int | None
 
 
 class DealAnalyticsPageResponse(ApiModel):
@@ -340,6 +362,11 @@ class DealAnalyticsPageResponse(ApiModel):
     filtered_budget_usd: Decimal
     filtered_revenue_usd: Decimal
     filtered_estimated_profit_usd: Decimal
+    filtered_won_deals_count: int
+    filtered_open_deals_count: int
+    filtered_lost_deals_count: int
+    filtered_average_check_usd: Decimal | None
+    filtered_average_cycle_days: Decimal | None
     items: tuple[DealAnalyticsResponse, ...]
 
 

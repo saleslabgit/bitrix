@@ -9,6 +9,7 @@ import duckdb
 from app.bitrix.client import BitrixClient, BitrixClientError
 from app.bitrix.transform import (
     transform_contacts,
+    transform_deal_categories,
     transform_deal_contact_links_from_deals,
     transform_deals,
     transform_stages,
@@ -44,8 +45,8 @@ def run_bitrix_manual_ingestion(
     run_id = build_run_id(BITRIX_MANUAL_DATASET_KIND, started_at)
     initialize_schema(connection)
     try:
-        stage_rows = client.list_stages()
-        stages = transform_stages(stage_rows)
+        categories = transform_deal_categories(client.list_deal_categories())
+        stages = [stage for category in categories for stage in transform_stages(client.list_stages(category_id=category.category_id), category_id=category.category_id)]
         contact_rows = client.list_contacts(contact_type_field)
         contacts = transform_contacts(
             contact_rows,
@@ -61,6 +62,7 @@ def run_bitrix_manual_ingestion(
             deals=deals,
             links=links,
             stages=stages,
+            categories=categories,
         )
         if finalize_local_data is None:
             normalize_local_data(connection)

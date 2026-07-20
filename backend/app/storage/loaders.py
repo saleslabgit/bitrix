@@ -1,6 +1,6 @@
 import duckdb
 
-from app.domain import ContactSnapshot, DealContactLink, DealSnapshot, StageSnapshot
+from app.domain import ContactSnapshot, DealCategorySnapshot, DealContactLink, DealSnapshot, StageSnapshot
 from app.pipeline.synthetic_dataset import SyntheticDataset
 
 
@@ -9,6 +9,7 @@ RAW_TABLES = (
     "raw_deals",
     "raw_contacts",
     "raw_stages",
+    "raw_deal_categories",
     "contact_type_rules",
     "currency_rates",
 )
@@ -18,6 +19,7 @@ BITRIX_RAW_TABLES = (
     "raw_deals",
     "raw_contacts",
     "raw_stages",
+    "raw_deal_categories",
 )
 
 
@@ -79,6 +81,13 @@ def load_synthetic_dataset(
             )
             for deal in dataset.deals
         ],
+    )
+    connection.execute(
+        """
+        INSERT INTO raw_deal_categories (category_id, category_name, sort_order)
+        SELECT DISTINCT category_id, CONCAT('Воронка ', category_id), category_id
+        FROM raw_deals WHERE category_id IS NOT NULL
+        """
     )
     _executemany_if_rows(
         connection,
@@ -175,6 +184,7 @@ def load_bitrix_raw_data(
     deals: list[DealSnapshot],
     links: list[DealContactLink],
     stages: list[StageSnapshot],
+    categories: list[DealCategorySnapshot],
 ) -> None:
     for table_name in BITRIX_RAW_TABLES:
         connection.execute(f"DELETE FROM {table_name}")
@@ -193,6 +203,11 @@ def load_bitrix_raw_data(
             (contact.contact_id, contact.contact_name, contact.contact_type_raw)
             for contact in contacts
         ],
+    )
+    _executemany_if_rows(
+        connection,
+        "INSERT INTO raw_deal_categories (category_id, category_name, sort_order) VALUES (?, ?, ?)",
+        [(category.category_id, category.category_name, category.sort_order) for category in categories],
     )
     _executemany_if_rows(
         connection,

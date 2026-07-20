@@ -26,6 +26,7 @@ RAW_SNAPSHOT_COLUMNS = {
         "role_id",
     ),
     "raw_stages": ("stage_id", "category_id", "status_group"),
+    "raw_deal_categories": ("category_id", "category_name", "sort_order"),
 }
 
 

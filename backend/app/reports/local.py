@@ -16,6 +16,13 @@ class FilterMetadata:
     max_created_at: datetime | None
     min_closed_at: datetime | None
     max_closed_at: datetime | None
+    categories: tuple["DealCategoryOption", ...]
+
+
+@dataclass(frozen=True)
+class DealCategoryOption:
+    category_id: int
+    category_name: str
 
 
 @dataclass(frozen=True)
@@ -92,6 +99,7 @@ def get_filter_metadata(connection: duckdb.DuckDBPyConnection) -> FilterMetadata
         max_created_at=period_row[1],
         min_closed_at=period_row[2],
         max_closed_at=period_row[3],
+        categories=tuple(DealCategoryOption(int(row[0]), row[1]) for row in connection.execute("SELECT category_id, category_name FROM raw_deal_categories ORDER BY sort_order NULLS LAST, category_id").fetchall()),
     )
 
 

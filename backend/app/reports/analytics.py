@@ -31,6 +31,8 @@ ContactAnalyticsSortField = Literal[
     "estimated_profit_usd",
     "last_won_date",
     "latest_deal_date",
+    "average_check_usd",
+    "average_cycle_days",
 ]
 DealAnalyticsSortField = Literal[
     "deal_id",
@@ -42,6 +44,8 @@ DealAnalyticsSortField = Literal[
     "estimated_profit_usd",
     "created_date",
     "closed_date",
+    "category_id",
+    "cycle_days",
 ]
 AbcAnalyticsSortField = Literal[
     "contact_id",
@@ -135,6 +139,8 @@ class ContactAnalyticsRow:
     last_won_date: date | None
     latest_deal_date: date | None
     has_sales: bool
+    average_check_usd: Decimal | None
+    average_cycle_days: Decimal | None
 
 
 @dataclass(frozen=True)
@@ -143,6 +149,17 @@ class ContactAnalyticsPage:
     limit: int
     offset: int
     items: tuple[ContactAnalyticsRow, ...]
+    filtered_total_deals_count: int
+    filtered_won_deals_count: int
+    filtered_open_deals_count: int
+    filtered_lost_deals_count: int
+    filtered_budget_usd: Decimal
+    filtered_budget_in_work_usd: Decimal
+    filtered_lost_budget_usd: Decimal
+    filtered_revenue_usd: Decimal
+    filtered_estimated_profit_usd: Decimal
+    filtered_average_check_usd: Decimal | None
+    filtered_average_cycle_days: Decimal | None
 
 
 @dataclass(frozen=True)
@@ -175,6 +192,9 @@ class DealAnalyticsRow:
     created_date: date
     closed_date: date | None
     kev_held: bool
+    category_id: int
+    category_name: str | None
+    cycle_days: int | None
 
 
 @dataclass(frozen=True)
@@ -185,6 +205,11 @@ class DealAnalyticsPage:
     filtered_budget_usd: Decimal
     filtered_revenue_usd: Decimal
     filtered_estimated_profit_usd: Decimal
+    filtered_won_deals_count: int
+    filtered_open_deals_count: int
+    filtered_lost_deals_count: int
+    filtered_average_check_usd: Decimal | None
+    filtered_average_cycle_days: Decimal | None
     items: tuple[DealAnalyticsRow, ...]
 
 
@@ -375,6 +400,8 @@ class _DealFact:
     contact_type_normalized: str
     region_normalized: str
     kev_held: bool
+    category_id: int
+    category_name: str | None
     target_date: date
     rate_date: date
     source_rate_byn: Decimal
@@ -409,6 +436,7 @@ def list_contact_analytics(
     date_to: date | None = None,
     deal_created_from: date | None = None,
     deal_created_to: date | None = None,
+    category_id: int | None = None,
     search: str | None = None,
     contact_type: str | None = None,
     region: str | None = None,
@@ -431,8 +459,9 @@ def list_contact_analytics(
             deal_created_from,
             deal_created_to,
         )
+        and (category_id is None or deal.category_id == category_id)
     ]
-    require_matching_deals = deal_created_from is not None or deal_created_to is not None
+    require_matching_deals = deal_created_from is not None or deal_created_to is not None or category_id is not None
     contacts = _filtered_contacts(
         _load_contacts(connection),
         deals=period_deals,
@@ -452,11 +481,13 @@ def list_contact_analytics(
         sort=sort,
         order=order,
     )
+    filtered_deals = [deal for deal in period_deals if deal.analytical_contact_id in {contact.contact_id for contact in contacts}]
     return ContactAnalyticsPage(
         total=len(rows),
         limit=limit,
         offset=offset,
         items=rows[offset : offset + limit],
+        **_selection_summary(filtered_deals),
     )
 
 
@@ -526,6 +557,7 @@ def list_deal_analytics(
     deal_created_from: date | None = None,
     deal_created_to: date | None = None,
     kev_held: bool | None = None,
+    category_id: int | None = None,
     sort: DealAnalyticsSortField = "deal_id",
     order: SortOrder = "asc",
 ) -> DealAnalyticsPage:
@@ -546,6 +578,7 @@ def list_deal_analytics(
         and (contact_type is None or deal.contact_type_normalized == contact_type)
         and (region is None or deal.region_normalized == region)
         and (kev_held is None or deal.kev_held is kev_held)
+        and (category_id is None or deal.category_id == category_id)
         and (
             client_id is not None
             or normalized_client_search is None
@@ -579,6 +612,11 @@ def list_deal_analytics(
         filtered_estimated_profit_usd=_money(
             sum((row.estimated_profit_usd for row in filtered_rows), Decimal("0"))
         ),
+        filtered_won_deals_count=sum(row.status_group == "won" for row in filtered_rows),
+        filtered_open_deals_count=sum(row.status_group == "open" for row in filtered_rows),
+        filtered_lost_deals_count=sum(row.status_group == "lost" for row in filtered_rows),
+        filtered_average_check_usd=_average_check(deals),
+        filtered_average_cycle_days=_average_cycle(deals),
         items=rows[offset : offset + limit],
     )
 
@@ -589,6 +627,9 @@ def get_kev_conversion_report(
     date_from: date | None = None,
     date_to: date | None = None,
     contact_type: str | None = None,
+    deal_created_from: date | None = None,
+    deal_created_to: date | None = None,
+    category_id: int | None = None,
 ) -> KevConversionReport:
     initialize_schema(connection)
     filters = ["status_group IN ('won', 'lost')", "closed_at IS NOT NULL"]
@@ -602,6 +643,15 @@ def get_kev_conversion_report(
     if contact_type is not None:
         filters.append("contact_type_normalized = ?")
         parameters.append(contact_type)
+    if deal_created_from is not None:
+        filters.append("CAST(created_at AS DATE) >= ?")
+        parameters.append(deal_created_from)
+    if deal_created_to is not None:
+        filters.append("CAST(created_at AS DATE) <= ?")
+        parameters.append(deal_created_to)
+    if category_id is not None:
+        filters.append("category_id = ?")
+        parameters.append(category_id)
 
     rows = connection.execute(
         f"""
@@ -687,6 +737,9 @@ def list_abc_analytics(
     date_to: date | None = None,
     compare_date_from: date | None = None,
     compare_date_to: date | None = None,
+    deal_created_from: date | None = None,
+    deal_created_to: date | None = None,
+    category_id: int | None = None,
     contact_id: int | None = None,
     search: str | None = None,
     contact_type: str | None = None,
@@ -703,7 +756,7 @@ def list_abc_analytics(
 
     target_enabled = compare_date_from is not None or compare_date_to is not None
     contacts = {contact.contact_id: contact for contact in _load_contacts(connection)}
-    deals = _load_deal_facts(connection)
+    deals = tuple(deal for deal in _load_deal_facts(connection) if _date_in_period(deal.created_at.date(), deal_created_from, deal_created_to) and (category_id is None or deal.category_id == category_id))
     base_metrics = _abc_period_metrics(
         deals,
         date_from=date_from,
@@ -1120,8 +1173,12 @@ def _load_deal_facts(
             analytical_contact_name,
             contact_type_normalized,
             region_normalized,
-            kev_held
+            kev_held,
+            normalized_deals.category_id,
+            categories.category_name
         FROM normalized_deals
+        LEFT JOIN raw_deal_categories categories
+          ON categories.category_id = normalized_deals.category_id
         ORDER BY deal_id
         """
     ).fetchall()
@@ -1152,6 +1209,8 @@ def _load_deal_facts(
                 contact_type_normalized=row[9],
                 region_normalized=row[10],
                 kev_held=row[11],
+                category_id=int(row[12]),
+                category_name=row[13],
                 target_date=target_date,
                 rate_date=rate_date,
                 source_rate_byn=source_rate_byn,
@@ -1410,6 +1469,8 @@ def _build_contact_analytics_row(
         last_won_date=won_dates[-1] if won_dates else None,
         latest_deal_date=max(deal_dates) if deal_dates else None,
         has_sales=revenue_usd > 0,
+        average_check_usd=_average_check(contact_deals),
+        average_cycle_days=_average_cycle(contact_deals),
     )
 
 
@@ -1426,7 +1487,47 @@ def _build_deal_analytics_row(deal: _DealFact) -> DealAnalyticsRow:
         created_date=deal.created_at.date(),
         closed_date=deal.closed_at.date() if deal.closed_at else None,
         kev_held=deal.kev_held,
+        category_id=deal.category_id,
+        category_name=deal.category_name,
+        cycle_days=_cycle_days(deal),
     )
+
+
+def _cycle_days(deal: _DealFact) -> int | None:
+    if deal.status_group not in {"won", "lost"} or deal.closed_at is None:
+        return None
+    days = (deal.closed_at.date() - deal.created_at.date()).days
+    return days if days >= 0 else None
+
+
+def _average_cycle(deals: list[_DealFact] | tuple[_DealFact, ...]) -> Decimal | None:
+    values = [days for deal in deals if (days := _cycle_days(deal)) is not None]
+    if not values:
+        return None
+    return (Decimal(sum(values)) / Decimal(len(values))).quantize(PERCENT_QUANT, rounding=ROUND_HALF_UP)
+
+
+def _average_check(deals: list[_DealFact] | tuple[_DealFact, ...]) -> Decimal | None:
+    won = [deal for deal in deals if deal.status_group == "won"]
+    if not won:
+        return None
+    return _money(sum((deal.amount_usd for deal in won), Decimal("0")) / Decimal(len(won)))
+
+
+def _selection_summary(deals: list[_DealFact]) -> dict[str, object]:
+    won = [deal for deal in deals if deal.status_group == "won"]
+    open_deals = [deal for deal in deals if deal.status_group == "open"]
+    lost = [deal for deal in deals if deal.status_group == "lost"]
+    revenue = _money(sum((deal.amount_usd for deal in won), Decimal("0")))
+    return {
+        "filtered_total_deals_count": len(deals), "filtered_won_deals_count": len(won),
+        "filtered_open_deals_count": len(open_deals), "filtered_lost_deals_count": len(lost),
+        "filtered_budget_usd": _money(sum((deal.amount_usd for deal in deals), Decimal("0"))),
+        "filtered_budget_in_work_usd": _money(sum((deal.amount_usd for deal in open_deals), Decimal("0"))),
+        "filtered_lost_budget_usd": _money(sum((deal.amount_usd for deal in lost), Decimal("0"))),
+        "filtered_revenue_usd": revenue, "filtered_estimated_profit_usd": _profit(revenue),
+        "filtered_average_check_usd": _average_check(deals), "filtered_average_cycle_days": _average_cycle(deals),
+    }
 
 
 def _kev_conversion_group(counts: tuple[int, int, int]) -> KevConversionGroup:

@@ -6,6 +6,7 @@ EXPECTED_TABLES = (
     "raw_deals",
     "raw_deal_contact_links",
     "raw_stages",
+    "raw_deal_categories",
     "contact_type_rules",
     "currency_rates",
     "normalized_contacts",
@@ -27,6 +28,15 @@ def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
             contact_id BIGINT PRIMARY KEY,
             contact_name VARCHAR NOT NULL,
             contact_type_raw VARCHAR
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS raw_deal_categories (
+            category_id BIGINT PRIMARY KEY,
+            category_name VARCHAR NOT NULL,
+            sort_order INTEGER
         )
         """
     )

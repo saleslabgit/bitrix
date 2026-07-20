@@ -83,6 +83,16 @@ Current raw storage table: `raw_stages`.
 Real Bitrix ingestion stores only stage ID, category ID, and local `status_group`
 derived from Bitrix stage semantics (`won`, `open`, or `lost`).
 
+### Deal Funnels
+
+`raw_deal_categories` stores the approved local directory: numeric `category_id`,
+Bitrix `category_name`, and optional `sort_order`. Every deal belongs to one
+funnel through `category_id`; UI filters use the numeric ID and show the local
+name. During manual refresh `crm.category.list` is read with `entityTypeId=2`.
+Stages are read separately per category: category `0` uses the technical
+`DEAL_STAGE` entity ID, positive IDs use `DEAL_STAGE_{category_id}`. Status
+resolution is exact on `(stage_id, category_id)` and unknown pairs fail refresh.
+
 ### Currency Rates
 
 Rates are used to normalize all financial analytics to USD. The target source is the official NBRB API. Rate details and fetch timestamps are stored locally.

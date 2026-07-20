@@ -16,6 +16,8 @@ export type ContactAnalytics = {
   last_won_date: string | null;
   latest_deal_date: string | null;
   has_sales: boolean;
+  average_check_usd: string | null;
+  average_cycle_days: string | null;
 };
 
 export type ContactAnalyticsPage = {
@@ -23,6 +25,17 @@ export type ContactAnalyticsPage = {
   limit: number;
   offset: number;
   items: ContactAnalytics[];
+  filtered_total_deals_count: number;
+  filtered_won_deals_count: number;
+  filtered_open_deals_count: number;
+  filtered_lost_deals_count: number;
+  filtered_budget_usd: string;
+  filtered_budget_in_work_usd: string;
+  filtered_lost_budget_usd: string;
+  filtered_revenue_usd: string;
+  filtered_estimated_profit_usd: string;
+  filtered_average_check_usd: string | null;
+  filtered_average_cycle_days: string | null;
 };
 
 export type ContactWonRevenuePoint = {
@@ -52,6 +65,9 @@ export type DealAnalytics = {
   created_date: string;
   closed_date: string | null;
   kev_held: boolean;
+  category_id: number;
+  category_name: string | null;
+  cycle_days: number | null;
 };
 
 export type DealAnalyticsPage = {
@@ -61,6 +77,11 @@ export type DealAnalyticsPage = {
   filtered_budget_usd: string;
   filtered_revenue_usd: string;
   filtered_estimated_profit_usd: string;
+  filtered_won_deals_count: number;
+  filtered_open_deals_count: number;
+  filtered_lost_deals_count: number;
+  filtered_average_check_usd: string | null;
+  filtered_average_cycle_days: string | null;
   items: DealAnalytics[];
 };
 
@@ -144,6 +165,7 @@ export type FilterMetadata = {
   max_created_at: string | null;
   min_closed_at: string | null;
   max_closed_at: string | null;
+  categories: { category_id: number; category_name: string }[];
 };
 
 export type PipelineStatus = {
@@ -195,6 +217,7 @@ export type ContactFilters = {
   status: string;
   dealCreatedFrom: string;
   dealCreatedTo: string;
+  categoryId: string;
   sort: ContactSort;
   order: SortOrder;
   limit: number;
@@ -210,6 +233,7 @@ export type DealFilters = {
   kevHeld: "" | "true" | "false";
   dealCreatedFrom: string;
   dealCreatedTo: string;
+  categoryId: string;
   sort: DealSort;
   order: SortOrder;
   limit: number;
@@ -235,6 +259,9 @@ export type KevFilters = {
   dateFrom: string;
   dateTo: string;
   contactType: string;
+  dealCreatedFrom: string;
+  dealCreatedTo: string;
+  categoryId: string;
 };
 
 export type AbcFilters = {
@@ -248,6 +275,9 @@ export type AbcFilters = {
   dateTo: string;
   compareDateFrom: string;
   compareDateTo: string;
+  dealCreatedFrom: string;
+  dealCreatedTo: string;
+  categoryId: string;
   sort: AbcSort;
   order: SortOrder;
   limit: number;
@@ -313,6 +343,7 @@ export async function fetchContactAnalytics(
   if (filters.dealCreatedTo) {
     params.set("deal_created_to", filters.dealCreatedTo);
   }
+  if (filters.categoryId) params.set("category_id", filters.categoryId);
   params.set("sort", filters.sort);
   params.set("order", filters.order);
 
@@ -371,6 +402,7 @@ export async function fetchDealAnalytics(filters: DealFilters): Promise<DealAnal
   if (filters.dealCreatedTo) {
     params.set("deal_created_to", filters.dealCreatedTo);
   }
+  if (filters.categoryId) params.set("category_id", filters.categoryId);
   params.set("sort", filters.sort);
   params.set("order", filters.order);
 
@@ -388,6 +420,9 @@ export async function fetchKevConversion(filters: KevFilters): Promise<KevConver
   if (filters.contactType) {
     params.set("contact_type", filters.contactType);
   }
+  if (filters.dealCreatedFrom) params.set("deal_created_from", filters.dealCreatedFrom);
+  if (filters.dealCreatedTo) params.set("deal_created_to", filters.dealCreatedTo);
+  if (filters.categoryId) params.set("category_id", filters.categoryId);
   const query = params.toString();
   return request<KevConversionReport>(
     `/api/reports/kev-conversion/analytics${query ? `?${query}` : ""}`
@@ -428,6 +463,9 @@ export async function fetchAbcAnalytics(filters: AbcFilters): Promise<AbcAnalyti
     params.set("compare_date_from", filters.compareDateFrom);
     params.set("compare_date_to", filters.compareDateTo);
   }
+  if (filters.dealCreatedFrom) params.set("deal_created_from", filters.dealCreatedFrom);
+  if (filters.dealCreatedTo) params.set("deal_created_to", filters.dealCreatedTo);
+  if (filters.categoryId) params.set("category_id", filters.categoryId);
   params.set("sort", filters.sort);
   params.set("order", filters.order);
 
