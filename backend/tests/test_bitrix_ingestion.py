@@ -10,7 +10,11 @@ from app.storage.status import get_active_dataset_run, get_dataset_storage_statu
 
 
 class FakeBitrixClient:
-    def list_stages(self) -> list[dict[str, object]]:
+    def list_deal_categories(self) -> list[dict[str, object]]:
+        return [{"ID": "0", "NAME": "Sales", "SORT": "10"}]
+
+    def list_stages(self, *, category_id: int = 0) -> list[dict[str, object]]:
+        assert category_id == 0
         return [
             {
                 "STATUS_ID": "WON",
@@ -338,8 +342,11 @@ def test_failed_manual_bitrix_ingestion_keeps_previous_active_dataset(tmp_path) 
 
 def test_manual_bitrix_ingestion_stores_safe_error_status() -> None:
     class BrokenClient:
-        def list_stages(self) -> list[dict[str, object]]:
-            raise ValueError("Required stage data is missing.")
+            def list_deal_categories(self) -> list[dict[str, object]]:
+                return [{"ID": "0", "NAME": "Sales"}]
+
+            def list_stages(self, *, category_id: int = 0) -> list[dict[str, object]]:
+                raise ValueError("Required stage data is missing.")
 
     with duckdb.connect(database=":memory:") as connection:
         status = run_bitrix_manual_ingestion(

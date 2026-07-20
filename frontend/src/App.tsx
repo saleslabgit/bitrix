@@ -76,6 +76,8 @@ const CONTACT_SORT_FIELDS: ContactSort[] = [
   "lost_budget_usd",
   "revenue_usd",
   "estimated_profit_usd",
+  "average_check_usd",
+  "average_cycle_days",
   "last_won_date",
   "latest_deal_date"
 ];
@@ -752,11 +754,14 @@ export function App() {
       ...initialDealFilters,
       clientId: String(contact.contact_id),
       clientSearch: contact.contact_name,
-      status: status ?? ""
+      status: status ?? "",
+      categoryId: filters.categoryId,
+      dealCreatedFrom: filters.dealCreatedFrom,
+      dealCreatedTo: filters.dealCreatedTo
     };
     setDealIdDraft("");
     setDealClientSearchDraft(contact.contact_name);
-    setDealReportCreatedDrafts({ from: "", to: "" });
+    setDealReportCreatedDrafts({ from: filters.dealCreatedFrom, to: filters.dealCreatedTo });
     setDealFilters(nextFilters);
     setActiveReport("deals");
     void queryClient.invalidateQueries({ queryKey: ["deals"] });
@@ -2096,7 +2101,8 @@ function ContactsTable({
               onSort={onSort}
               align="right"
             />
-            <th>Средний чек</th><th>Средний цикл, дн.</th>
+            <SortableHeader label="Средний чек" field="average_check_usd" sort={sort} order={order} onSort={onSort} />
+            <SortableHeader label="Средний цикл, дн." field="average_cycle_days" sort={sort} order={order} onSort={onSort} />
             <SortableHeader
               label="Дата закрытия"
               field="last_won_date"
@@ -2225,7 +2231,8 @@ function DealsTable({
               onSort={onSort}
             />
             <th>КЭВ</th>
-            <th>Воронка</th><th>Цикл, дн.</th>
+            <th>Воронка</th>
+            <th>Цикл, дн.</th>
             <SortableHeader
               label="Тип"
               field="contact_type_normalized"
@@ -2263,6 +2270,7 @@ function DealsTable({
               order={order}
               onSort={onSort}
             />
+            <th>Средний чек</th>
           </tr>
         </thead>
         <tbody>
@@ -2280,7 +2288,6 @@ function DealsTable({
                   </a>
                 </div>
               </td>
-              <td>{deal.category_name ?? "—"}</td><td className="number-cell">{deal.cycle_days ?? "—"}</td>
               <td>
                 <div className="contact-cell deal-name-cell">
                   <span>{deal.deal_name}</span>
@@ -2291,6 +2298,8 @@ function DealsTable({
                   {formatDealStatus(deal.status_group)}
                 </span>
               </td>
+              <td>{deal.category_name ?? "—"}</td>
+              <td className="number-cell">{deal.cycle_days ?? "—"}</td>
               <td>
                 <span className={`badge ${deal.kev_held ? "badge-success" : "badge-neutral"}`}>
                   {deal.kev_held ? "Был" : "Не был"}
@@ -2303,10 +2312,11 @@ function DealsTable({
               <td className="number-cell money-cell">{formatUsd(deal.estimated_profit_usd)}</td>
               <td>{formatDate(deal.created_date)}</td>
               <td>{formatDate(deal.closed_date)}</td>
+              <td className="number-cell">—</td>
             </tr>
           ))}
         </tbody>
-        {page && <tfoot><tr><th colSpan={3}>Итого по выборке</th><th>—</th><th>—</th><th>{page.filtered_average_cycle_days ?? "—"}</th><th>—</th><th>—</th><th>{formatUsd(page.filtered_budget_usd)}</th><th>{formatUsd(page.filtered_estimated_profit_usd)}</th><th>{page.filtered_average_check_usd ? formatUsd(page.filtered_average_check_usd) : "—"}</th><th>—</th><th>—</th></tr></tfoot>}
+        {page && <tfoot><tr><th colSpan={3}>Итого по выборке</th><th>—</th><th>—</th><th>{page.filtered_average_cycle_days ?? "—"}</th><th>—</th><th>{formatUsd(page.filtered_budget_usd)}</th><th>{formatUsd(page.filtered_estimated_profit_usd)}</th><th>—</th><th>—</th><th>{page.filtered_average_check_usd ? formatUsd(page.filtered_average_check_usd) : "—"}</th></tr></tfoot>}
       </table>
     </div>
   );

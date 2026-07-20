@@ -121,7 +121,11 @@ def test_full_manual_refresh_empty_currency_rows_returns_safe_error_status() -> 
 
 
 class RefreshBitrixClient:
-    def list_stages(self) -> list[dict[str, object]]:
+    def list_deal_categories(self) -> list[dict[str, object]]:
+        return [{"ID": "0", "NAME": "Sales", "SORT": "10"}]
+
+    def list_stages(self, *, category_id: int = 0) -> list[dict[str, object]]:
+        assert category_id == 0
         return [
             {
                 "STATUS_ID": "WON",

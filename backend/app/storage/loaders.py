@@ -184,7 +184,7 @@ def load_bitrix_raw_data(
     deals: list[DealSnapshot],
     links: list[DealContactLink],
     stages: list[StageSnapshot],
-    categories: list[DealCategorySnapshot],
+    categories: list[DealCategorySnapshot] | tuple[()] = (),
 ) -> None:
     for table_name in BITRIX_RAW_TABLES:
         connection.execute(f"DELETE FROM {table_name}")

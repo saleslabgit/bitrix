@@ -275,7 +275,7 @@ def test_dataset_profile_reports_only_safe_aggregate_data() -> None:
 
     assert profile.active_dataset is not None
     assert profile.active_dataset.dataset_kind == "local_synthetic"
-    assert profile.snapshot_count == 4
+    assert profile.snapshot_count == 5
     assert all(table.exists for table in profile.expected_tables)
     assert profile.contact_type_raw_counts
     assert profile.contact_type_rules.raw_values_without_active_rule == (
